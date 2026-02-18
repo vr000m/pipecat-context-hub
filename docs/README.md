@@ -55,6 +55,10 @@ Ingestion:
   DocsCrawler (docs.pipecat.ai)  ──┐
   GitHubRepoIngester (2 repos)   ──┤→ EmbeddingIndexWriter → IndexStore
   TaxonomyBuilder (auto-infer)   ──┘   (sentence-transformers)   (ChromaDB + FTS5)
+    ↑                                         ↑
+    Per-file taxonomy enrichment:             Metadata stored per chunk:
+    foundational_class, capability_tags,      language, execution_mode,
+    key_files, execution_mode                 line_start, line_end
 
 Retrieval:
   MCP Tool Call → HybridRetriever → vector_search + keyword_search
@@ -68,7 +72,9 @@ Retrieval:
 
 - `https://docs.pipecat.ai/` — primary documentation
 - `pipecat-ai/pipecat` — framework repo (including `examples/foundational`)
+  - Supports flat file layout (e.g. `01-say-one-thing.py`) and subdirectory layout
 - `pipecat-ai/pipecat-examples` — project-level examples
+  - Discovered via root-level directory scanning (no `examples/` dir required)
 
 ### Technology
 

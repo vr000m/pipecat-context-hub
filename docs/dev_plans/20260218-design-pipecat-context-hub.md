@@ -61,8 +61,8 @@ The proposed solution is a Pipecat Context Hub with:
 - [x] Implement docs crawler for `docs.pipecat.ai`. *(T1)*
 - [x] Implement GitHub ingest for `pipecat-ai/pipecat` and `pipecat-ai/pipecat-examples`. *(T2)*
 - [x] Build fully automated taxonomy manifests. *(T3)*
-  - [x] `examples/foundational` class -> example -> capability mapping.
-  - [x] `pipecat-examples` capability mapping with no manual curation in v0.
+  - [x] `examples/foundational` class -> example -> capability mapping (supports both subdirectory and flat file layouts).
+  - [x] `pipecat-examples` capability mapping with no manual curation in v0 (root-level dir scanning).
 - [x] Implement vector index + FTS index with `IndexWriter`/`IndexReader`. *(T4)*
 - [ ] Add optional DeepWiki ingestion as a secondary source (explicit URL allowlist). *(T2, stretch — deferred to v1)*
 
@@ -604,9 +604,10 @@ pipecat-context-hub/
 **Execution model:** T0 (serial) → T1–T7 (parallel fan-out in 7 git worktrees) → T8 (serial integration).
 
 #### Test Results
-- **295 tests pass**, 1 skipped (live HTTP crawl)
+- **318 tests pass**, 1 skipped (live HTTP crawl)
 - **mypy strict**: 0 errors across 45 source files
-- **15 integration tests** covering full ingest → embed → index → retrieve pipeline
+- **22 integration tests** covering full ingest → embed → index → retrieve pipeline
+- **Real index**: 735 records (6 docs, 729 code), 98.6% taxonomy metadata coverage
 
 #### Components Delivered
 
@@ -614,18 +615,18 @@ pipecat-context-hub/
 |-------|------|-----------|-------|
 | T0 | Foundation | Shared types (25+ Pydantic models), interfaces, config | 55 |
 | T1 | Docs Crawler | Section-aware HTML→markdown chunking | 31 |
-| T2 | GitHub Ingester | Clone/fetch repos, function/class-aware code chunking | 30 |
-| T3 | Taxonomy Builder | Automated capability inference from dirs/READMEs/code | 55 |
+| T2 | GitHub Ingester | Clone/fetch repos, function/class-aware code chunking | 44 |
+| T3 | Taxonomy Builder | Automated capability inference from dirs/READMEs/code/flat files | 70 |
 | T4 | Index Store | ChromaDB vector + SQLite FTS5 dual-backend | 34 |
 | T5 | Retrieval Service | Hybrid search, RRF reranking, evidence assembly | 43 |
 | T6 | MCP Server | 5 tool handlers, stdio transport, CLI entry point | 32 |
 | T7 | Client Guides | Config templates + setup docs for 4 IDE clients | — |
-| T8 | Integration | Embedding service, CLI wiring, 10 bug fixes, e2e tests | 15 |
+| T8 | Integration | Embedding service, CLI wiring, bug fixes, e2e tests | 22 |
 
 #### Architecture
 ```
 pipecat-context-hub refresh
-  → DocsCrawler + GitHubRepoIngester
+  → DocsCrawler + GitHubRepoIngester + TaxonomyBuilder
     → EmbeddingIndexWriter (auto sentence-transformers)
       → IndexStore (ChromaDB + SQLite FTS5)
 
@@ -635,14 +636,29 @@ pipecat-context-hub serve
 ```
 
 #### T8 Review Fixes Applied
+
+**Code review fixes (T1–T7):**
 - T1: URL dedup at enqueue time
 - T2: git fetch + working tree reset, asyncio.to_thread, path traversal sanitization
 - T3: manual tag source priority corrected
 - T4: ChromaDB n_results clamped, FTS divergence logging
-- T5: max_lines/limit conflation fixed
+- T5: max_lines/limit conflation fixed, non-overlapping line-range guard
 - T6: CLI config double-instantiation fixed
 - T7: Zed config undocumented field removed
 - FTS chunk_id direct lookup added for get_doc/get_example
+
+**Taxonomy and metadata wiring (T8):**
+- TaxonomyBuilder wired into GitHubRepoIngester refresh pipeline
+- Chunk metadata enriched with foundational_class, capability_tags, key_files, line ranges
+- execution_mode inferred from capability tags (cloud services → "cloud", else "local")
+- search_examples filter contract enforced for language, foundational_class, execution_mode
+- get_code_snippet non-overlapping line-range returns empty (not stale data)
+- get_example returns chunk's actual path, not caller-supplied input.path
+
+**Flat file and root-level example support (T8):**
+- TaxonomyBuilder handles flat .py files in examples/foundational/ (not just subdirs)
+- _find_example_dirs falls back to root-level dir scanning for repos without examples/ dir
+- Per-file taxonomy lookup enables flat files to get per-file metadata enrichment
 
 #### Remaining Items
 - [ ] Load/latency benchmarks on retrieval paths (deferred to post-MVP)
