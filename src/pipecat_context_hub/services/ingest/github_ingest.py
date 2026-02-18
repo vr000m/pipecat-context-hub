@@ -199,22 +199,41 @@ def _make_chunk_id(repo: str, path: str, commit_sha: str, chunk_index: int) -> s
 # ---------------------------------------------------------------------------
 
 
+# Root-level directories to skip when scanning repos without an ``examples/`` dir.
+_NON_EXAMPLE_ROOT_DIRS: frozenset[str] = frozenset({
+    *_SKIP_DIRS,
+    "src", "lib", "docs", "doc", "tests", "test", "scripts", "tools",
+    "ci", ".github", ".tox", ".nox", "assets", "static", "bin",
+    "include", "man", "config", "deploy",
+})
+
+
 def _find_example_dirs(repo_root: Path) -> list[Path]:
     """Discover example directories within a cloned repo.
 
-    Looks for an ``examples/`` top-level directory and returns each
-    immediate subdirectory (or sub-subdirectory for pipecat's
-    ``examples/foundational/`` pattern).
+    Handles two repo layouts:
+    - **examples/ dir present** (e.g. ``pipecat-ai/pipecat``): returns each
+      immediate subdirectory of ``examples/`` (or sub-subdirectory for the
+      ``examples/foundational/`` category pattern). When a category dir
+      contains code files directly (flat file layout), it's returned as-is.
+    - **No examples/ dir** (e.g. ``pipecat-ai/pipecat-examples``): falls back
+      to scanning root-level directories that contain code files.
     """
     examples_dir = repo_root / "examples"
-    if not examples_dir.is_dir():
-        return []
+    if examples_dir.is_dir():
+        return _discover_under_examples(examples_dir)
 
+    # Fall back: root-level directories (pipecat-examples pattern).
+    return _discover_root_level_examples(repo_root)
+
+
+def _discover_under_examples(examples_dir: Path) -> list[Path]:
+    """Discover example dirs under an ``examples/`` directory."""
     result: list[Path] = []
     for child in sorted(examples_dir.iterdir()):
         if child.name in _SKIP_DIRS or not child.is_dir():
             continue
-        # Check if this is a category dir (contains further subdirs with code).
+        # Check if this dir directly contains code files.
         sub_has_code = any(
             f.suffix in _CODE_EXTENSIONS for f in child.iterdir() if f.is_file()
         )
@@ -225,6 +244,23 @@ def _find_example_dirs(repo_root: Path) -> list[Path]:
             for grandchild in sorted(child.iterdir()):
                 if grandchild.is_dir() and grandchild.name not in _SKIP_DIRS:
                     result.append(grandchild)
+    return result
+
+
+def _discover_root_level_examples(repo_root: Path) -> list[Path]:
+    """Discover example dirs at the repo root (no ``examples/`` dir)."""
+    result: list[Path] = []
+    for child in sorted(repo_root.iterdir()):
+        if not child.is_dir():
+            continue
+        if child.name.startswith(".") or child.name in _NON_EXAMPLE_ROOT_DIRS:
+            continue
+        # Only include dirs that directly contain code files.
+        has_code = any(
+            f.suffix in _CODE_EXTENSIONS for f in child.iterdir() if f.is_file()
+        )
+        if has_code:
+            result.append(child)
     return result
 
 
@@ -425,9 +461,9 @@ class GitHubRepoIngester:
         chunking = self._config.chunking
 
         for ex_dir in example_dirs:
-            # Look up taxonomy entry for this example directory.
+            # Look up taxonomy entry at the directory level.
             rel_ex_dir = str(ex_dir.relative_to(repo_path))
-            taxonomy_entry = taxonomy_lookup.get(rel_ex_dir)
+            dir_taxonomy_entry = taxonomy_lookup.get(rel_ex_dir)
 
             code_files = _iter_code_files(ex_dir)
             for code_file in code_files:
@@ -438,6 +474,11 @@ class GitHubRepoIngester:
                     continue
 
                 rel_path = str(code_file.relative_to(repo_path))
+                # Try per-file taxonomy lookup first (flat files like
+                # examples/foundational/01-say-one-thing.py), then
+                # fall back to directory-level lookup (subdirectory examples).
+                taxonomy_entry = taxonomy_lookup.get(rel_path) or dir_taxonomy_entry
+
                 source_url = (
                     f"https://github.com/{repo_slug}/blob/{commit_sha}/{rel_path}"
                 )

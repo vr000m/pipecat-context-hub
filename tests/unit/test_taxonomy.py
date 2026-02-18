@@ -382,6 +382,99 @@ class TestTaxonomyBuilderFoundational:
             assert entry.repo == "my/repo"
 
 
+class TestTaxonomyBuilderFlatFoundational:
+    """Tests for flat .py file foundational examples (not subdirectories)."""
+
+    @pytest.fixture
+    def flat_foundational_dir(self, tmp_path: Path) -> Path:
+        """Create a mock foundational dir with flat .py files (no subdirs)."""
+        base = tmp_path / "examples" / "foundational"
+        base.mkdir(parents=True)
+
+        (base / "01-say-one-thing.py").write_text(
+            "from pipecat.services.elevenlabs import ElevenLabsTTSService\n"
+            "from pipecat.pipeline.pipeline import Pipeline\n"
+            "async def main():\n"
+            "    pipeline = Pipeline()\n"
+        )
+        (base / "07-interruptible.py").write_text(
+            "from pipecat.transports.daily import DailyTransport\n"
+            "from pipecat.services.deepgram import DeepgramSTTService\n"
+            "class MyBot:\n"
+            "    pass\n"
+        )
+        (base / "13-whisper.py").write_text(
+            "from pipecat.services.whisper import WhisperSTTService\n"
+            "stt = WhisperSTTService()\n"
+        )
+        return base
+
+    def test_builds_entries_from_flat_files(self, flat_foundational_dir: Path):
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_foundational(flat_foundational_dir)
+        assert len(entries) == 3
+
+    def test_entry_ids(self, flat_foundational_dir: Path):
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_foundational(flat_foundational_dir)
+        ids = {e.example_id for e in entries}
+        assert "foundational-01-say-one-thing" in ids
+        assert "foundational-07-interruptible" in ids
+        assert "foundational-13-whisper" in ids
+
+    def test_foundational_class_set(self, flat_foundational_dir: Path):
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_foundational(flat_foundational_dir)
+        for entry in entries:
+            assert entry.foundational_class is not None
+
+    def test_path_includes_extension(self, flat_foundational_dir: Path):
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_foundational(flat_foundational_dir)
+        for entry in entries:
+            assert entry.path.startswith("examples/foundational/")
+            assert entry.path.endswith(".py")
+
+    def test_capabilities_inferred_from_code(self, flat_foundational_dir: Path):
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_foundational(flat_foundational_dir)
+        entry_map = {e.example_id: e for e in entries}
+
+        e07 = entry_map["foundational-07-interruptible"]
+        tag_names = {t.name for t in e07.capabilities}
+        assert "daily" in tag_names
+        assert "deepgram" in tag_names
+
+        e13 = entry_map["foundational-13-whisper"]
+        tag_names = {t.name for t in e13.capabilities}
+        assert "whisper" in tag_names
+
+    def test_no_readme_for_flat_files(self, flat_foundational_dir: Path):
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_foundational(flat_foundational_dir)
+        for entry in entries:
+            assert entry.readme_content is None
+            assert entry.summary == ""
+
+    def test_key_files_is_filename(self, flat_foundational_dir: Path):
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_foundational(flat_foundational_dir)
+        entry_map = {e.example_id: e for e in entries}
+        assert entry_map["foundational-01-say-one-thing"].key_files == ["01-say-one-thing.py"]
+
+    def test_build_from_directory_auto_detects_flat(self, tmp_path: Path):
+        """build_from_directory handles flat foundational layout."""
+        base = tmp_path / "examples" / "foundational"
+        base.mkdir(parents=True)
+        (base / "01-hello.py").write_text("from pipecat.pipeline import Pipeline\n")
+
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_directory(tmp_path, repo="pipecat-ai/pipecat")
+        assert len(entries) == 1
+        assert entries[0].foundational_class == "01-hello"
+        assert entries[0].path == "examples/foundational/01-hello.py"
+
+
 class TestTaxonomyBuilderExamplesRepo:
     def test_builds_entries(self, examples_repo_dir: Path):
         builder = TaxonomyBuilder()

@@ -254,22 +254,30 @@ class TaxonomyBuilder:
     ) -> list[TaxonomyEntry]:
         """Scan a ``examples/foundational/`` tree and produce entries.
 
+        Handles two layouts:
+        - **Subdirectory-per-example**: ``01-say-one-thing/bot.py``
+        - **Flat file-per-example**: ``01-say-one-thing.py``
+
         Args:
             root: Path to the ``examples/foundational/`` directory.
             repo: GitHub repo slug.
             commit_sha: Optional commit SHA for provenance.
 
         Returns:
-            List of TaxonomyEntry objects, one per subdirectory.
+            List of TaxonomyEntry objects, one per subdirectory or flat file.
         """
         entries: list[TaxonomyEntry] = []
         if not root.is_dir():
             return entries
         for child in sorted(root.iterdir()):
-            if not child.is_dir():
-                continue
-            entry = self._build_entry_for_foundational(child, repo=repo, commit_sha=commit_sha)
-            entries.append(entry)
+            if child.is_dir():
+                entry = self._build_entry_for_foundational(child, repo=repo, commit_sha=commit_sha)
+                entries.append(entry)
+            elif child.is_file() and child.suffix == ".py":
+                entry = self._build_entry_for_foundational_file(
+                    child, repo=repo, commit_sha=commit_sha
+                )
+                entries.append(entry)
         self._entries.extend(entries)
         return entries
 
@@ -395,6 +403,41 @@ class TaxonomyBuilder:
             key_files=_find_key_files(example_dir),
             summary=summary,
             readme_content=readme_content,
+            commit_sha=commit_sha,
+            indexed_at=datetime.now(timezone.utc),
+        )
+
+    def _build_entry_for_foundational_file(
+        self,
+        py_file: Path,
+        *,
+        repo: str,
+        commit_sha: str | None,
+    ) -> TaxonomyEntry:
+        """Build a TaxonomyEntry for a single flat foundational ``.py`` file.
+
+        For repos where foundational examples are flat files rather than
+        subdirectories (e.g. ``examples/foundational/01-say-one-thing.py``).
+        """
+        stem = py_file.stem  # e.g. "01-say-one-thing"
+        example_id = f"foundational-{stem}"
+        foundational_class: str | None = stem if _FOUNDATIONAL_DIR_RE.match(stem) else None
+
+        tags: list[CapabilityTag] = []
+        tags.extend(_infer_tags_from_directory_name(stem))
+
+        code = py_file.read_text(encoding="utf-8", errors="replace")
+        tags.extend(_infer_tags_from_code(code))
+
+        return TaxonomyEntry(
+            example_id=example_id,
+            repo=repo,
+            path=f"examples/foundational/{py_file.name}",
+            foundational_class=foundational_class,
+            capabilities=_dedup_tags(tags),
+            key_files=[py_file.name],
+            summary="",
+            readme_content=None,
             commit_sha=commit_sha,
             indexed_at=datetime.now(timezone.utc),
         )

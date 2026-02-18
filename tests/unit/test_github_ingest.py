@@ -12,6 +12,7 @@ from pipecat_context_hub.services.ingest.github_ingest import (
     _chunk_by_boundaries,
     _chunk_by_lines,
     _chunk_code,
+    _discover_root_level_examples,
     _find_example_dirs,
     _iter_code_files,
     _make_chunk_id,
@@ -594,3 +595,138 @@ class TestGitHubRepoIngester:
 
         records: list[ChunkedRecord] = writer.upsert.call_args[0][0]
         assert records[0].metadata.get("execution_mode") == "local"
+
+    async def test_flat_foundational_files_get_taxonomy(self, tmp_path: Path):
+        """Flat .py files in examples/foundational/ get per-file taxonomy metadata."""
+        repo_dir = _create_fake_repo(
+            tmp_path / "data" / "repos",
+            "test-org_test-repo",
+            {
+                "examples/foundational/01-say-one-thing.py": (
+                    "from pipecat.services.elevenlabs import ElevenLabsTTSService\n"
+                    "from pipecat.pipeline.pipeline import Pipeline\n"
+                    "async def main():\n"
+                    "    pipeline = Pipeline()\n"
+                ),
+                "examples/foundational/07-interruptible.py": (
+                    "from pipecat.transports.daily import DailyTransport\n"
+                    "from pipecat.services.deepgram import DeepgramSTTService\n"
+                    "class MyBot:\n"
+                    "    pass\n"
+                ),
+            },
+        )
+
+        config = self._make_config(tmp_path)
+        writer = _make_mock_writer()
+        ingester = GitHubRepoIngester(config, writer)
+
+        from git import Repo as GitRepo
+
+        commit_sha = GitRepo(str(repo_dir)).head.commit.hexsha
+
+        with patch.object(
+            ingester, "_clone_or_fetch", return_value=(repo_dir, commit_sha)
+        ):
+            result = await ingester.ingest()
+
+        assert result.records_upserted > 0
+        records: list[ChunkedRecord] = writer.upsert.call_args[0][0]
+
+        # Build a lookup by path for verification.
+        by_path: dict[str, ChunkedRecord] = {}
+        for rec in records:
+            by_path[rec.path] = rec
+
+        # Flat file 01-say-one-thing.py should have taxonomy metadata.
+        say = by_path.get("examples/foundational/01-say-one-thing.py")
+        assert say is not None
+        assert say.metadata.get("foundational_class") == "01-say-one-thing"
+        assert isinstance(say.metadata.get("capability_tags"), list)
+        assert "elevenlabs" in say.metadata["capability_tags"]
+
+        # Flat file 07-interruptible.py should have cloud execution_mode.
+        inter = by_path.get("examples/foundational/07-interruptible.py")
+        assert inter is not None
+        assert inter.metadata.get("foundational_class") == "07-interruptible"
+        assert "daily" in inter.metadata.get("capability_tags", [])
+        assert inter.metadata.get("execution_mode") == "cloud"
+
+    async def test_root_level_example_dirs(self, tmp_path: Path):
+        """Repos without examples/ dir discover root-level example dirs."""
+        repo_dir = _create_fake_repo(
+            tmp_path / "data" / "repos",
+            "test-org_test-examples",
+            {
+                "chatbot/main.py": (
+                    "from pipecat.services.openai import OpenAILLMService\n"
+                    "def run(): pass\n"
+                ),
+                "chatbot/README.md": "# Chatbot\n\nA conversational bot.\n",
+                "storytelling/app.py": (
+                    "from pipecat.services.anthropic import AnthropicLLMService\n"
+                    "def run(): pass\n"
+                ),
+            },
+        )
+
+        config = self._make_config(tmp_path, repos=["test-org/test-examples"])
+        writer = _make_mock_writer()
+        ingester = GitHubRepoIngester(config, writer)
+
+        from git import Repo as GitRepo
+
+        commit_sha = GitRepo(str(repo_dir)).head.commit.hexsha
+
+        with patch.object(
+            ingester, "_clone_or_fetch", return_value=(repo_dir, commit_sha)
+        ):
+            result = await ingester.ingest()
+
+        assert result.records_upserted > 0
+        records: list[ChunkedRecord] = writer.upsert.call_args[0][0]
+        paths = {r.path for r in records}
+        assert any("chatbot" in p for p in paths)
+        assert any("storytelling" in p for p in paths)
+
+
+# ---------------------------------------------------------------------------
+# Root-level example discovery tests
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverRootLevelExamples:
+    """Tests for _discover_root_level_examples."""
+
+    def test_finds_code_dirs(self, tmp_path: Path):
+        """Finds root-level dirs that contain code files."""
+        chatbot = tmp_path / "chatbot"
+        chatbot.mkdir()
+        (chatbot / "main.py").write_text("pass")
+
+        result = _discover_root_level_examples(tmp_path)
+        assert len(result) == 1
+        assert result[0].name == "chatbot"
+
+    def test_skips_non_example_dirs(self, tmp_path: Path):
+        """Skips src, docs, tests, hidden dirs."""
+        for name in ["src", "docs", "tests", ".github", "__pycache__"]:
+            d = tmp_path / name
+            d.mkdir()
+            (d / "file.py").write_text("pass")
+
+        result = _discover_root_level_examples(tmp_path)
+        assert result == []
+
+    def test_skips_dirs_without_code(self, tmp_path: Path):
+        """Skips dirs that don't contain code files."""
+        d = tmp_path / "images"
+        d.mkdir()
+        (d / "logo.png").write_bytes(b"\x89PNG")
+
+        result = _discover_root_level_examples(tmp_path)
+        assert result == []
+
+    def test_empty_root(self, tmp_path: Path):
+        result = _discover_root_level_examples(tmp_path)
+        assert result == []
