@@ -23,7 +23,7 @@
 - Optional scheduled auto-refresh and richer local observability.
 
 ## Context
-Pipecat developers need grounded context for coding and ideation based on rapidly changing docs and examples. A static prompt-only approach drifts quickly and does not provide verifiable citations or reproducible outputs.  
+Pipecat developers need grounded context for coding and ideation based on rapidly changing docs and examples. A static prompt-only approach drifts quickly and does not provide verifiable citations or reproducible outputs.
 
 The proposed solution is a Pipecat Context Hub with:
 - MCP server capabilities for tool-based retrieval and planning support.
@@ -48,53 +48,272 @@ The proposed solution is a Pipecat Context Hub with:
 
 ## Implementation Checklist
 
-### Phase 1: Foundations (v0)
-- [ ] Define service boundaries: ingestion, indexing, retrieval, MCP runtime.
-- [ ] Define canonical metadata schema (`source_url`, `repo`, `path`, `commit_sha`, `indexed_at`, `chunk_id`).
-- [ ] Define chunking and embedding policies for docs vs code.
-- [ ] Finalize initial MCP tool contract.
-- [ ] Define composability response schema (interfaces, dependencies, glue points, assumptions).
+### Phase 1: Foundations — T0 (serial)
+- [ ] Project scaffolding: `pyproject.toml`, `src/` layout, dev dependencies. *(T0)*
+- [ ] Define canonical metadata schema as Pydantic models. *(T0)*
+- [ ] Define service interface protocols: `IndexWriter`, `IndexReader`, `Retriever`, `Ingester`. *(T0)*
+- [ ] Define tool I/O models for all v0 MCP tools. *(T0)*
+- [ ] Define evidence reporting models: `Citation`, `EvidenceReport`. *(T0)*
+- [ ] Define chunking and embedding policies for docs vs code. *(T0)*
+- [ ] Select vector backend with benchmark justification. *(T0)*
 
-### Phase 2: Ingestion and Indexing (v0)
-- [ ] Implement docs crawler for `docs.pipecat.ai`.
-- [ ] Implement GitHub ingest for `pipecat-ai/pipecat` and `pipecat-ai/pipecat-examples`.
-- [ ] Implement local refresh workflow (`refresh` command) for rebuilding `latest` index.
-- [ ] Build v0 single-index strategy: `latest`.
-- [ ] Build fully automated taxonomy manifests:
+### Phase 2: Ingestion and Indexing — T1, T2, T3, T4 (parallel)
+- [ ] Implement docs crawler for `docs.pipecat.ai`. *(T1)*
+- [ ] Implement GitHub ingest for `pipecat-ai/pipecat` and `pipecat-ai/pipecat-examples`. *(T2)*
+- [ ] Build fully automated taxonomy manifests. *(T3)*
   - [ ] `examples/foundational` class -> example -> capability mapping.
   - [ ] `pipecat-examples` capability mapping with no manual curation in v0.
-- [ ] Add optional DeepWiki ingestion as a secondary source (explicit URL allowlist).
+- [ ] Implement vector index + FTS index with `IndexWriter`/`IndexReader`. *(T4)*
+- [ ] Add optional DeepWiki ingestion as a secondary source (explicit URL allowlist). *(T2, stretch)*
 
-### Phase 3: Retrieval and Quality (v0)
-- [ ] Implement hybrid retrieval (vector + keyword + metadata filters).
-- [ ] Implement reranking tuned for code intent and architecture intent.
-- [ ] Add mandatory citation payload and confidence metadata.
-- [ ] Add known/unknown evidence reporting in retrieval responses.
-- [ ] Implement heuristic `next_retrieval_queries` generation for unresolved gaps (no server-side LLM required).
-- [ ] Add trace logging for retrieval decisions.
-- [ ] Add capability tags and symbol maps for examples (e.g., `rtvi`, `screen-share`, `wake-word`, `gemini-video`, `tts`).
-- [ ] Add evidence packs that enable Codex to infer execution mode (`one-shot`, `event-triggered`, `long-running monitor`).
+### Phase 3: Retrieval and Quality — T5 (parallel)
+- [ ] Implement hybrid retrieval (vector + keyword + metadata filters). *(T5)*
+- [ ] Implement reranking tuned for code intent and architecture intent. *(T5)*
+- [ ] Add mandatory citation payload and confidence metadata. *(T5)*
+- [ ] Add known/unknown evidence reporting in retrieval responses. *(T5)*
+- [ ] Implement heuristic `next_retrieval_queries` generation. *(T5)*
+- [ ] Add trace logging for retrieval decisions. *(T5)*
+- [ ] Add capability tags and symbol maps for examples. *(T5)*
+- [ ] Add evidence packs that enable Claude/Codex to infer execution mode. *(T5)*
 
-### Phase 4: MCP Server and Client Compatibility (v0)
-- [ ] Implement MCP tools:
+### Phase 4: MCP Server and Client Compatibility — T6, T7 (parallel)
+- [ ] Implement MCP tools: *(T6)*
   - [ ] `search_docs`
   - [ ] `get_doc`
   - [ ] `search_examples`
   - [ ] `get_example`
   - [ ] `get_code_snippet`
-- [ ] Implement local runtime (`stdio`) for hackathons.
-- [ ] Build client setup guides/templates for Claude Code, Cursor, VS Code, and Zed.
+- [ ] Implement `stdio` transport and server entry point. *(T6)*
+- [ ] Implement `refresh` CLI command. *(T6)*
+- [ ] Build client setup guides/templates for Claude Code, Cursor, VS Code, and Zed. *(T7)*
 
-### Phase 5: Validation and Release (v0)
-- [ ] Validate local retrieval-first user journeys for coding and ideation.
-- [ ] Run load and latency tests on top retrieval paths.
-- [ ] Publish local setup + refresh runbook.
-- [ ] Cut v0 local release.
+### Phase 5: Validation and Release — T8 (serial)
+- [ ] Merge all parallel worktrees. *(T8)*
+- [ ] Run end-to-end integration tests. *(T8)*
+- [ ] Validate local retrieval-first user journeys for coding and ideation. *(T8)*
+- [ ] Run load and latency tests on top retrieval paths. *(T8)*
+- [ ] Publish local setup + refresh runbook. *(T8)*
+- [ ] Cut v0 local release. *(T8)*
 
 ### Phase 6: Composition Layer (v1)
 - [ ] Implement `compose_solution` and `propose_architecture`.
 - [ ] Add advanced guardrail inference and verification policies.
 - [ ] Add optional scheduled auto-refresh and expanded observability.
+
+## Task Manifest for Parallel Execution
+
+### Execution Model
+
+1. **Serial: Foundation (T0)** — Orchestrator creates project scaffolding, shared types, service interface protocols, and selects vector backend. All parallel tasks depend on this completing first.
+2. **Parallel: Fan-out (T1–T7)** — Independent agents in isolated git worktrees. Each task codes against shared interfaces from T0 and includes unit tests with mocks/fakes. No task modifies files owned by another task.
+3. **Serial: Integration (T8)** — Orchestrator merges all worktrees, runs end-to-end integration tests, validates acceptance criteria, and cuts v0 release.
+
+### Dependency Graph
+
+```
+T0 (foundation) ─── serial, orchestrator
+ ├── T1 (ingest-docs-crawler)        ─── parallel
+ ├── T2 (ingest-github-repos)        ─── parallel
+ ├── T3 (ingest-taxonomy)            ─── parallel
+ ├── T4 (index-store)                ─── parallel
+ ├── T5 (retrieval-service)          ─── parallel
+ ├── T6 (mcp-tools-and-server)       ─── parallel
+ └── T7 (client-setup-guides)        ─── parallel
+         │
+         ▼
+T8 (integration-and-release) ─── serial, orchestrator
+```
+
+All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
+
+### T0: Foundation (serial, orchestrator)
+
+- **Description:** Create project scaffolding, shared type definitions (Pydantic models), service interface protocols, configuration schema, chunking/embedding policy definitions, and vector backend selection.
+- **Owns:**
+  - `pyproject.toml`
+  - `src/pipecat_context_hub/__init__.py`
+  - `src/pipecat_context_hub/shared/__init__.py`
+  - `src/pipecat_context_hub/shared/types.py`
+  - `src/pipecat_context_hub/shared/interfaces.py`
+  - `src/pipecat_context_hub/shared/config.py`
+  - `tests/__init__.py`
+  - `tests/conftest.py`
+  - `tests/unit/__init__.py`
+  - `tests/unit/test_shared_types.py`
+  - `tests/integration/__init__.py`
+  - `docs/decisions/vector-backend.md`
+- **Depends on:** None
+- **Definition of done:**
+  - `pip install -e ".[dev]"` succeeds.
+  - All shared types importable and serialization round-trips pass: `ChunkedRecord`, `TaxonomyEntry`, `CapabilityTag`, `Citation`, `EvidenceReport`, `KnownItem`, `UnknownItem`.
+  - All tool I/O models importable: `SearchDocsInput`/`SearchDocsOutput`, `GetDocInput`/`GetDocOutput`, `SearchExamplesInput`/`SearchExamplesOutput`, `GetExampleInput`/`GetExampleOutput`, `GetCodeSnippetInput`/`GetCodeSnippetOutput`.
+  - All service interface protocols importable: `IndexWriter`, `IndexReader`, `Retriever`, `Ingester`.
+  - `pytest tests/unit/test_shared_types.py` passes.
+  - Vector backend selected with benchmark notes in `docs/decisions/vector-backend.md`.
+
+### T1: Docs Crawler (parallel)
+
+- **Description:** Implement crawler for `docs.pipecat.ai` that fetches pages, converts HTML to markdown, chunks per docs policy, and produces `ChunkedRecord` objects via `IndexWriter` interface.
+- **Owns:**
+  - `src/pipecat_context_hub/services/__init__.py`
+  - `src/pipecat_context_hub/services/ingest/__init__.py`
+  - `src/pipecat_context_hub/services/ingest/docs_crawler.py`
+  - `tests/unit/test_docs_crawler.py`
+- **Depends on:** T0
+- **Consumes (read-only):** `shared/types.py` (`ChunkedRecord`), `shared/interfaces.py` (`IndexWriter`, `Ingester`)
+- **Definition of done:**
+  - `pytest tests/unit/test_docs_crawler.py` passes.
+  - Crawler fetches at least 1 real page from `docs.pipecat.ai` and produces valid `ChunkedRecord` objects.
+  - Chunks respect docs chunking policy (section-aware splitting, max token limit from config).
+  - All records include `source_url`, `path`, `indexed_at`, `chunk_id`, `content_type="doc"`.
+  - Idempotent: re-crawling the same page produces the same `chunk_id` values.
+  - Implements `Ingester` protocol.
+
+### T2: GitHub Repo Ingester (parallel)
+
+- **Description:** Implement ingester that clones/fetches `pipecat-ai/pipecat` and `pipecat-ai/pipecat-examples`, extracts example directories, chunks code files, and produces `ChunkedRecord` objects via `IndexWriter` interface.
+- **Owns:**
+  - `src/pipecat_context_hub/services/ingest/github_ingest.py`
+  - `tests/unit/test_github_ingest.py`
+- **Depends on:** T0
+- **Consumes (read-only):** `shared/types.py` (`ChunkedRecord`), `shared/interfaces.py` (`IndexWriter`, `Ingester`)
+- **Definition of done:**
+  - `pytest tests/unit/test_github_ingest.py` passes.
+  - Ingester processes at least one example directory from each repo.
+  - Records include `repo`, `path`, `commit_sha`, `indexed_at`, `chunk_id`, `content_type="code"`.
+  - Code chunking respects code policy (function/class-aware when feasible, fallback to line-based).
+  - Idempotent at commit level: same commit SHA produces same records.
+  - Implements `Ingester` protocol.
+
+### T3: Taxonomy Builder (parallel)
+
+- **Description:** Scan `pipecat/examples/foundational` and `pipecat-examples` to automatically build taxonomy manifests mapping class to example to capabilities. Fully automated, no manual curation.
+- **Owns:**
+  - `src/pipecat_context_hub/services/ingest/taxonomy.py`
+  - `tests/unit/test_taxonomy.py`
+- **Depends on:** T0
+- **Consumes (read-only):** `shared/types.py` (`TaxonomyEntry`, `CapabilityTag`)
+- **Definition of done:**
+  - `pytest tests/unit/test_taxonomy.py` passes.
+  - Produces `TaxonomyEntry` for each example in `examples/foundational` with inferred `foundational_class`.
+  - Produces `TaxonomyEntry` for each example in `pipecat-examples` with capability tags.
+  - Taxonomy is queryable by `foundational_class`, capability tag, or `example_id`.
+  - Extraction is fully automated from directory structure, READMEs, and file content heuristics.
+  - No manual curation file required.
+
+### T4: Index Store (parallel)
+
+- **Description:** Implement vector index and SQLite FTS5 keyword index with `IndexWriter` and `IndexReader` protocol implementations. Single `latest` namespace. Uses vector backend selected in T0.
+- **Owns:**
+  - `src/pipecat_context_hub/services/index/__init__.py`
+  - `src/pipecat_context_hub/services/index/vector.py`
+  - `src/pipecat_context_hub/services/index/fts.py`
+  - `src/pipecat_context_hub/services/index/store.py`
+  - `tests/unit/test_index_store.py`
+- **Depends on:** T0
+- **Consumes (read-only):** `shared/types.py` (`ChunkedRecord`, `IndexQuery`, `IndexResult`), `shared/interfaces.py` (`IndexWriter`, `IndexReader`), `docs/decisions/vector-backend.md`
+- **Definition of done:**
+  - `pytest tests/unit/test_index_store.py` passes.
+  - `IndexWriter.upsert()` stores records and makes them searchable via both vector and keyword paths.
+  - `IndexWriter.delete_by_source()` removes records by source URL.
+  - `IndexReader.vector_search()` returns results ranked by embedding similarity.
+  - `IndexReader.keyword_search()` returns results ranked by FTS5 relevance.
+  - Metadata filters work: `repo`, `content_type`, `path` prefix, `capability_tags`.
+  - Upsert is idempotent: re-indexing same `chunk_id` updates, does not duplicate.
+  - Index persists to local disk (survives process restart).
+  - Implements `IndexWriter` and `IndexReader` protocols.
+
+### T5: Retrieval Service (parallel)
+
+- **Description:** Implement hybrid retrieval combining vector and keyword search, lightweight reranking (reciprocal rank fusion + code-intent heuristics), citation assembly, and evidence reporting with known/unknown/confidence/next_queries.
+- **Owns:**
+  - `src/pipecat_context_hub/services/retrieval/__init__.py`
+  - `src/pipecat_context_hub/services/retrieval/hybrid.py`
+  - `src/pipecat_context_hub/services/retrieval/rerank.py`
+  - `src/pipecat_context_hub/services/retrieval/evidence.py`
+  - `tests/unit/test_retrieval.py`
+- **Depends on:** T0
+- **Consumes (read-only):** `shared/interfaces.py` (`IndexReader`, `Retriever`), `shared/types.py` (`Citation`, `EvidenceReport`, `KnownItem`, `UnknownItem`, `RetrievalResult`)
+- **Definition of done:**
+  - `pytest tests/unit/test_retrieval.py` passes.
+  - Hybrid search merges vector and keyword results with configurable weights.
+  - Reranking applies reciprocal rank fusion + code-intent heuristics (boost exact symbol matches, penalize stale content).
+  - Every result includes `Citation` with `source_url`, `repo`, `path`, `commit_sha`.
+  - Every response includes `EvidenceReport` with populated `known`, `unknown`, `confidence`, `confidence_rationale`, and `next_retrieval_queries`.
+  - `next_retrieval_queries` produced via deterministic heuristics (e.g., broaden failed filters, suggest related terms, widen repo scope).
+  - Trace logging for retrieval decisions is emitted at DEBUG level.
+  - Unit tests use mock `IndexReader` — no real index required.
+  - Implements `Retriever` protocol.
+
+### T6: MCP Tools and Server (parallel)
+
+- **Description:** Implement all 5 v0 MCP tool handlers, `stdio` transport adapter, server entry point, and `refresh` CLI command.
+- **Owns:**
+  - `src/pipecat_context_hub/server/__init__.py`
+  - `src/pipecat_context_hub/server/main.py`
+  - `src/pipecat_context_hub/server/transport.py`
+  - `src/pipecat_context_hub/server/tools/__init__.py`
+  - `src/pipecat_context_hub/server/tools/search_docs.py`
+  - `src/pipecat_context_hub/server/tools/get_doc.py`
+  - `src/pipecat_context_hub/server/tools/search_examples.py`
+  - `src/pipecat_context_hub/server/tools/get_example.py`
+  - `src/pipecat_context_hub/server/tools/get_code_snippet.py`
+  - `src/pipecat_context_hub/cli.py`
+  - `tests/unit/test_mcp_tools.py`
+  - `tests/unit/test_server.py`
+- **Depends on:** T0
+- **Consumes (read-only):** `shared/interfaces.py` (`Retriever`, `Ingester`), `shared/types.py` (all tool I/O models, `EvidenceReport`)
+- **Definition of done:**
+  - `pytest tests/unit/test_mcp_tools.py` passes.
+  - `pytest tests/unit/test_server.py` passes.
+  - Each tool validates input against its contract schema and returns output matching its contract schema including `EvidenceReport`.
+  - `stdio` transport sends and receives valid MCP JSON-RPC messages.
+  - Server registers all 5 tools and responds correctly to `tools/list`.
+  - `refresh` CLI command calls `Ingester` interface to trigger a full index rebuild.
+  - `python -m pipecat_context_hub` starts the server (or equivalent entry point).
+  - Unit tests use mock `Retriever` and mock `Ingester` — no real retrieval or ingestion required.
+
+### T7: Client Setup Guides (parallel)
+
+- **Description:** Create client configuration templates and setup instructions for Claude Code, Cursor, VS Code, and Zed.
+- **Owns:**
+  - `config/clients/claude-code.json`
+  - `config/clients/cursor.json`
+  - `config/clients/vscode.json`
+  - `config/clients/zed.json`
+  - `docs/setup/README.md`
+  - `docs/setup/claude-code.md`
+  - `docs/setup/cursor.md`
+  - `docs/setup/vscode.md`
+  - `docs/setup/zed.md`
+- **Depends on:** T0 (needs entry point path and config schema)
+- **Consumes (read-only):** `shared/config.py` (server config schema), `cli.py` (entry point)
+- **Definition of done:**
+  - Each config template is valid JSON and references the correct server entry point.
+  - Each setup guide includes: prerequisites, install steps, config file placement, verification command.
+  - Claude Code guide tested: config produces a working `stdio` connection to the server (may use mock server in isolation).
+  - At least one other client guide verified for config correctness.
+
+### T8: Integration and Release (serial, orchestrator)
+
+- **Description:** Merge all parallel worktree branches, run end-to-end integration tests, validate all acceptance criteria, and cut v0 release.
+- **Owns:**
+  - `tests/integration/test_end_to_end.py`
+  - `tests/integration/conftest.py`
+  - Release artifacts (tag, changelog)
+- **Depends on:** T1, T2, T3, T4, T5, T6, T7
+- **Definition of done:**
+  - All parallel task branches merge cleanly into working branch.
+  - `pytest tests/` passes (all unit + integration).
+  - Full pipeline works end-to-end: `refresh` → ingest → index → query → cited results.
+  - `search_docs` returns relevant results for "how to create a Pipecat bot" with citations.
+  - `search_examples` returns relevant examples for "wake word detection" with capability tags and foundational class metadata.
+  - `get_example` returns full example content with file listing and commit citation.
+  - `get_code_snippet` returns targeted code spans with dependency notes.
+  - Evidence reports include meaningful `known`/`unknown` items and `next_retrieval_queries`.
+  - Server starts via `stdio` and responds to MCP tool calls from a real client.
+  - At least two client configs validated (Claude Code + one other).
+  - All plan-level acceptance criteria met (see Acceptance Criteria section).
 
 ## Technical Specifications
 
@@ -265,14 +484,84 @@ This section is illustrative. The same composition and gap-handling pattern appl
   - cited source mapping
   - explicit list of synthesized (non-example) components.
 
-### Initial Files and Modules (proposed)
-- `/server/mcp/` for MCP tool handlers and transport adapters.
-- `/services/ingest/` for docs/repo ingestion jobs.
-- `/services/retrieval/` for ranking and citation logic.
-- `/services/index/` for indexing pipelines and snapshot management.
-- `/config/clients/` for client setup templates.
-- `/ops/` for local refresh scripts and diagnostics (scheduler/webhook support in v1).
-- `/pyproject.toml` and `/src/pipecat_context_hub/` for Python package/project layout.
+### Project File Layout
+
+```
+pipecat-context-hub/
+├── pyproject.toml                                    # T0
+├── src/
+│   └── pipecat_context_hub/
+│       ├── __init__.py                               # T0
+│       ├── cli.py                                    # T6
+│       ├── shared/
+│       │   ├── __init__.py                           # T0
+│       │   ├── types.py                              # T0
+│       │   ├── interfaces.py                         # T0
+│       │   └── config.py                             # T0
+│       ├── services/
+│       │   ├── __init__.py                           # T1 (first to create)
+│       │   ├── ingest/
+│       │   │   ├── __init__.py                       # T1 (first to create)
+│       │   │   ├── docs_crawler.py                   # T1
+│       │   │   ├── github_ingest.py                  # T2
+│       │   │   └── taxonomy.py                       # T3
+│       │   ├── index/
+│       │   │   ├── __init__.py                       # T4
+│       │   │   ├── vector.py                         # T4
+│       │   │   ├── fts.py                            # T4
+│       │   │   └── store.py                          # T4
+│       │   └── retrieval/
+│       │       ├── __init__.py                       # T5
+│       │       ├── hybrid.py                         # T5
+│       │       ├── rerank.py                         # T5
+│       │       └── evidence.py                       # T5
+│       └── server/
+│           ├── __init__.py                           # T6
+│           ├── main.py                               # T6
+│           ├── transport.py                          # T6
+│           └── tools/
+│               ├── __init__.py                       # T6
+│               ├── search_docs.py                    # T6
+│               ├── get_doc.py                        # T6
+│               ├── search_examples.py                # T6
+│               ├── get_example.py                    # T6
+│               └── get_code_snippet.py               # T6
+├── config/
+│   └── clients/
+│       ├── claude-code.json                          # T7
+│       ├── cursor.json                               # T7
+│       ├── vscode.json                               # T7
+│       └── zed.json                                  # T7
+├── docs/
+│   ├── decisions/
+│   │   └── vector-backend.md                         # T0
+│   └── setup/
+│       ├── README.md                                 # T7
+│       ├── claude-code.md                            # T7
+│       ├── cursor.md                                 # T7
+│       ├── vscode.md                                 # T7
+│       └── zed.md                                    # T7
+├── ops/                                              # v1
+└── tests/
+    ├── __init__.py                                   # T0
+    ├── conftest.py                                   # T0
+    ├── unit/
+    │   ├── __init__.py                               # T0
+    │   ├── test_shared_types.py                      # T0
+    │   ├── test_docs_crawler.py                      # T1
+    │   ├── test_github_ingest.py                     # T2
+    │   ├── test_taxonomy.py                          # T3
+    │   ├── test_index_store.py                       # T4
+    │   ├── test_retrieval.py                         # T5
+    │   ├── test_mcp_tools.py                         # T6
+    │   └── test_server.py                            # T6
+    └── integration/
+        ├── __init__.py                               # T0
+        ├── conftest.py                               # T8
+        └── test_end_to_end.py                        # T8
+```
+
+**Note on shared `__init__.py` files:** When multiple parallel tasks create files under the same parent directory (e.g., `services/ingest/`), the first task to create the directory also creates its `__init__.py`. During T8 merge, the orchestrator resolves any conflicts on these trivial files.
 
 ## Testing Notes
 - Contract tests for MCP tools (input/output and error behavior).
@@ -293,6 +582,8 @@ This section is illustrative. The same composition and gap-handling pattern appl
   - **Solution:** Return commit-level citations and pinned source metadata from `latest` for replayability.
 - **Issue:** Over-generation can reduce trust in context-curation workflows.
   - **Solution:** Use retrieval-first responses and allow synthesis only for explicit, labeled gaps.
+- **Issue:** Parallel agents creating files under shared parent directories.
+  - **Solution:** T0 creates all shared `__init__.py` stubs. Each parallel task only creates files it owns. T8 resolves trivial merge conflicts.
 
 ## Acceptance Criteria
 - [ ] Architecture document finalized with service boundaries and data contracts.
