@@ -159,7 +159,7 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 
 ### T1: Docs Crawler (parallel)
 
-- **Description:** Implement crawler for `docs.pipecat.ai` that fetches pages, converts HTML to markdown, chunks per docs policy, and produces `ChunkedRecord` objects via `IndexWriter` interface.
+- **Description:** Implement docs ingester that fetches `docs.pipecat.ai/llms-full.txt` (pre-rendered markdown with all 200+ pages), splits into per-page sections, cleans Mintlify XML-like tags, chunks per docs policy, and produces `ChunkedRecord` objects via `IndexWriter` interface.
 - **Owns:**
   - `src/pipecat_context_hub/services/ingest/docs_crawler.py`
   - `tests/unit/test_docs_crawler.py`
@@ -167,7 +167,7 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 - **Consumes (read-only):** `shared/types.py` (`ChunkedRecord`), `shared/interfaces.py` (`IndexWriter`, `Ingester`)
 - **Definition of done:**
   - `pytest tests/unit/test_docs_crawler.py` passes.
-  - Crawler fetches at least 1 real page from `docs.pipecat.ai` and produces valid `ChunkedRecord` objects.
+  - Ingester fetches `llms-full.txt` and produces valid `ChunkedRecord` objects for all pages.
   - Chunks respect docs chunking policy (section-aware splitting, max token limit from config).
   - All records include `source_url`, `path`, `indexed_at`, `chunk_id`, `content_type="doc"`.
   - Idempotent: re-crawling the same page produces the same `chunk_id` values.

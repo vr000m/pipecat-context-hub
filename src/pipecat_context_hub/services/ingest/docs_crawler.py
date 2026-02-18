@@ -1,8 +1,9 @@
-"""Docs crawler for docs.pipecat.ai.
+"""Docs ingester for docs.pipecat.ai via llms-full.txt.
 
-Fetches pages from the Pipecat documentation site, converts HTML to markdown,
-chunks into sections respecting token limits, and writes ChunkedRecord objects
-via an IndexWriter.
+Fetches the pre-rendered llms-full.txt file (all documentation pages as
+concatenated markdown), splits into per-page sections, cleans Mintlify
+XML-like tags, chunks respecting token limits, and writes ChunkedRecord
+objects via an IndexWriter.
 """
 
 from __future__ import annotations
@@ -12,12 +13,9 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import Sequence
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import httpx
-from bs4 import BeautifulSoup, Tag
-from markdownify import markdownify as md  # type: ignore[import-untyped]
 
 from pipecat_context_hub.shared.config import ChunkingConfig, SourceConfig
 from pipecat_context_hub.shared.interfaces import IndexWriter
@@ -27,6 +25,38 @@ logger = logging.getLogger(__name__)
 
 # Rough approximation: 1 token ≈ 4 characters for English text.
 _CHARS_PER_TOKEN = 4
+
+# ---------------------------------------------------------------------------
+# Mintlify tag handling
+# ---------------------------------------------------------------------------
+
+_ADMONITION_TAGS: frozenset[str] = frozenset({"Note", "Warning", "Tip", "Info"})
+
+_STRIP_TAGS: frozenset[str] = frozenset({
+    "ParamField", "Card", "CardGroup", "Steps", "Step", "Tabs", "Tab",
+    "Accordion", "AccordionGroup", "CodeGroup", "Frame", "Expandable",
+    "ResponseField", "Icon",
+})
+
+# Pre-compiled patterns for tag cleaning
+# Admonition opening tags may have attributes: <Note type="warning">
+_ADMONITION_RE: dict[str, re.Pattern[str]] = {
+    tag: re.compile(rf"<{tag}(?:\s[^>]*)?>(.+?)</{tag}>", re.DOTALL)
+    for tag in _ADMONITION_TAGS
+}
+
+_STRIP_TAG_ALT = "|".join(_STRIP_TAGS)
+_ALL_TAG_NAMES = "|".join(_STRIP_TAGS | _ADMONITION_TAGS)
+_OPEN_TAG_RE = re.compile(
+    rf"<(?:{_STRIP_TAG_ALT})(?:\s[^>]*)?\s*/?>",
+)
+_CLOSE_TAG_RE = re.compile(rf"</(?:{_ALL_TAG_NAMES})>")
+_COLLAPSE_BLANKS_RE = re.compile(r"\n{3,}")
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
 
 
 def _estimate_tokens(text: str) -> int:
@@ -40,39 +70,95 @@ def _make_chunk_id(source_url: str, section_path: str, chunk_index: int) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def _extract_links(soup: BeautifulSoup, base_url: str) -> list[str]:
-    """Extract internal links from the page for crawling."""
-    links: list[str] = []
-    parsed_base = urlparse(base_url)
-    for a_tag in soup.find_all("a", href=True):
-        href = str(a_tag["href"])
-        full_url = urljoin(base_url, href)
-        parsed = urlparse(full_url)
-        # Only follow links on the same host, skip anchors-only and non-http
-        if parsed.hostname == parsed_base.hostname and parsed.scheme in ("http", "https"):
-            # Strip fragment
-            clean = parsed._replace(fragment="").geturl()
-            links.append(clean)
-    return links
+def _split_into_pages(full_text: str) -> list[tuple[str, str, str]]:
+    """Split llms-full.txt into ``(title, source_url, body)`` tuples.
+
+    Page boundaries are identified by a line starting with ``# ``
+    immediately followed by a line starting with ``Source: ``.
+    """
+    lines = full_text.split("\n")
+    boundary_indices: list[int] = []
+
+    for i in range(len(lines) - 1):
+        if lines[i].startswith("# ") and lines[i + 1].startswith("Source: "):
+            boundary_indices.append(i)
+
+    pages: list[tuple[str, str, str]] = []
+    for idx, start in enumerate(boundary_indices):
+        title = lines[start][2:].strip()
+        source_url = lines[start + 1][len("Source: "):].strip()
+        body_start = start + 2
+        body_end = (
+            boundary_indices[idx + 1]
+            if idx + 1 < len(boundary_indices)
+            else len(lines)
+        )
+        body = "\n".join(lines[body_start:body_end]).strip()
+        pages.append((title, source_url, body))
+
+    return pages
 
 
-def _html_to_markdown(html: str) -> str:
-    """Convert HTML to markdown, stripping nav/header/footer chrome."""
-    soup = BeautifulSoup(html, "html.parser")
-    # Remove navigation, header, footer, script, style
-    for tag_name in ("nav", "header", "footer", "script", "style", "noscript"):
-        for tag in soup.find_all(tag_name):
-            tag.decompose()
-    # Try to find main content area
-    main = soup.find("main") or soup.find("article")
-    if isinstance(main, Tag):
-        target = main
-    else:
-        target = soup
-    result: str = md(str(target), heading_style="ATX", strip=["img"])
-    # Normalize whitespace: collapse multiple blank lines into two
-    result = re.sub(r"\n{3,}", "\n\n", result)
-    return result.strip()
+def _make_admonition(match: re.Match[str], tag_name: str) -> str:
+    """Convert an admonition tag match to a blockquote."""
+    inner = match.group(1).strip()
+    bq_lines = [
+        f"> {line}" if line.strip() else ">" for line in inner.split("\n")
+    ]
+    # Replace the first line prefix with the bold label
+    if bq_lines:
+        bq_lines[0] = f"> **{tag_name}:** {bq_lines[0][2:]}"
+    return "\n".join(bq_lines)
+
+
+def _clean_mintlify_tags(text: str) -> str:
+    """Convert Mintlify XML-like tags to clean markdown.
+
+    - Admonition tags (Note, Warning, Tip, Info) become blockquotes.
+    - Structural/UI tags are stripped, preserving inner content.
+    """
+    for tag_name, pattern in _ADMONITION_RE.items():
+        text = pattern.sub(
+            lambda m, t=tag_name: _make_admonition(m, t),  # type: ignore[misc]
+            text,
+        )
+
+    # Strip remaining structural tags but keep inner content
+    text = _OPEN_TAG_RE.sub("", text)
+    text = _CLOSE_TAG_RE.sub("", text)
+
+    # Collapse resulting blank lines
+    text = _COLLAPSE_BLANKS_RE.sub("\n\n", text)
+    return text.strip()
+
+
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
+
+
+def _fenced_ranges(markdown: str) -> list[tuple[int, int]]:
+    """Return (start, end) byte ranges of fenced code blocks."""
+    ranges: list[tuple[int, int]] = []
+    it = _FENCE_RE.finditer(markdown)
+    for open_match in it:
+        fence_char = open_match.group(1)[0]
+        fence_len = len(open_match.group(1))
+        # Find the matching closing fence
+        for close_match in it:
+            if (
+                close_match.group(1)[0] == fence_char
+                and len(close_match.group(1)) >= fence_len
+            ):
+                ranges.append((open_match.start(), close_match.end()))
+                break
+    return ranges
+
+
+def _inside_fence(pos: int, ranges: list[tuple[int, int]]) -> bool:
+    """Check if a position falls inside any fenced code block."""
+    for start, end in ranges:
+        if start <= pos < end:
+            return True
+    return False
 
 
 def _split_into_sections(markdown: str) -> list[tuple[str, str]]:
@@ -80,14 +166,17 @@ def _split_into_sections(markdown: str) -> list[tuple[str, str]]:
 
     Returns a list of (section_heading, section_content) tuples.
     The first entry may have heading="" if there's content before any heading.
+    Headings inside fenced code blocks are ignored.
     """
-    # Split on markdown headings (## or ###, etc.)
     heading_pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
+    fences = _fenced_ranges(markdown)
     parts: list[tuple[str, str]] = []
     last_end = 0
     last_heading = ""
 
     for match in heading_pattern.finditer(markdown):
+        if _inside_fence(match.start(), fences):
+            continue
         # Content before this heading belongs to the previous section
         content_before = markdown[last_end : match.start()].strip()
         if content_before or last_heading:
@@ -172,6 +261,8 @@ def chunk_markdown(
     records: list[ChunkedRecord] = []
     now = datetime.now(timezone.utc)
     url_path = urlparse(source_url).path
+    # Global counter ensures unique IDs even when section headings repeat
+    global_chunk_idx = 0
 
     for section_heading, section_body in sections:
         # Build full section text: include heading in content for context
@@ -183,11 +274,11 @@ def chunk_markdown(
         if not full_text.strip():
             continue
 
-        section_path = section_heading or "intro"
         chunks = _chunk_section(full_text, max_tokens, overlap_tokens)
 
-        for idx, chunk_text in enumerate(chunks):
-            chunk_id = _make_chunk_id(source_url, section_path, idx)
+        for chunk_text in chunks:
+            chunk_id = _make_chunk_id(source_url, "chunk", global_chunk_idx)
+            global_chunk_idx += 1
             record = ChunkedRecord(
                 chunk_id=chunk_id,
                 content=chunk_text,
@@ -202,10 +293,16 @@ def chunk_markdown(
     return records
 
 
-class DocsCrawler:
-    """Crawler for docs.pipecat.ai that implements the Ingester protocol.
+# ---------------------------------------------------------------------------
+# DocsCrawler class
+# ---------------------------------------------------------------------------
 
-    Fetches pages, converts HTML to markdown, chunks per policy, and writes
+
+class DocsCrawler:
+    """Docs ingester that fetches llms-full.txt from docs.pipecat.ai.
+
+    Downloads the pre-rendered documentation file, splits into per-page
+    sections, cleans Mintlify tags, chunks per policy, and writes
     ChunkedRecord objects via an IndexWriter.
     """
 
@@ -214,96 +311,59 @@ class DocsCrawler:
         index_writer: IndexWriter,
         source_config: SourceConfig | None = None,
         chunking_config: ChunkingConfig | None = None,
-        *,
-        max_pages: int = 200,
     ) -> None:
         self._writer = index_writer
         self._source = source_config or SourceConfig()
         self._chunking = chunking_config or ChunkingConfig()
-        self._max_pages = max_pages
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
-                timeout=30.0,
+                timeout=60.0,
                 follow_redirects=True,
                 headers={"User-Agent": "PipecatContextHub/0.1"},
             )
         return self._client
 
-    async def _fetch_page(self, url: str) -> str | None:
-        """Fetch a single page, returning HTML or None on error."""
+    async def _fetch_llms_txt(self) -> str:
+        """Fetch the llms-full.txt file from docs.pipecat.ai."""
         client = await self._get_client()
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.text
-        except httpx.HTTPError as e:
-            logger.warning("Failed to fetch %s: %s", url, e)
-            return None
-
-    async def _crawl_site(self) -> list[tuple[str, str]]:
-        """Crawl the docs site, returning (url, html) pairs."""
-        base_url = self._source.docs_url
-        visited: set[str] = set()
-        to_visit: list[str] = [base_url]
-        results: list[tuple[str, str]] = []
-
-        while to_visit and len(visited) < self._max_pages:
-            url = to_visit.pop(0)
-            if url in visited:
-                continue
-            visited.add(url)
-
-            html = await self._fetch_page(url)
-            if html is None:
-                continue
-
-            results.append((url, html))
-
-            # Extract links for further crawling
-            soup = BeautifulSoup(html, "html.parser")
-            for link in _extract_links(soup, url):
-                if link not in visited:
-                    visited.add(link)
-                    to_visit.append(link)
-
-        return results
-
-    def _process_page(self, url: str, html: str) -> list[ChunkedRecord]:
-        """Convert a single page's HTML into chunked records."""
-        markdown = _html_to_markdown(html)
-        if not markdown.strip():
-            return []
-        return chunk_markdown(
-            markdown,
-            source_url=url,
-            max_tokens=self._chunking.doc_max_tokens,
-            overlap_tokens=self._chunking.doc_overlap_tokens,
-        )
+        response = await client.get(self._source.docs_llms_txt_url)
+        response.raise_for_status()
+        return response.text
 
     async def ingest(self) -> IngestResult:
-        """Run a full ingestion pass over the docs site."""
+        """Fetch llms-full.txt and ingest all documentation pages."""
         start = time.monotonic()
         errors: list[str] = []
         all_records: list[ChunkedRecord] = []
 
         try:
-            pages = await self._crawl_site()
+            raw_text = await self._fetch_llms_txt()
         except Exception as e:
             return IngestResult(
                 source=self._source.docs_url,
-                errors=[f"Crawl failed: {e}"],
+                errors=[f"Failed to fetch llms-full.txt: {e}"],
                 duration_seconds=time.monotonic() - start,
             )
 
-        for url, html in pages:
+        pages = _split_into_pages(raw_text)
+        logger.info("Parsed %d pages from llms-full.txt", len(pages))
+
+        for title, source_url, body in pages:
             try:
-                records = self._process_page(url, html)
+                cleaned = _clean_mintlify_tags(body)
+                full_content = f"# {title}\n\n{cleaned}" if cleaned else f"# {title}"
+                records = chunk_markdown(
+                    full_content,
+                    source_url=source_url,
+                    max_tokens=self._chunking.doc_max_tokens,
+                    overlap_tokens=self._chunking.doc_overlap_tokens,
+                )
                 all_records.extend(records)
             except Exception as e:
-                errors.append(f"Processing {url}: {e}")
+                errors.append(f"Processing page '{title}': {e}")
 
         upserted = 0
         if all_records:
@@ -313,6 +373,12 @@ class DocsCrawler:
                 errors.append(f"Upsert failed: {e}")
 
         duration = time.monotonic() - start
+        logger.info(
+            "Docs ingest complete: %d pages, %d chunks, %.1fs",
+            len(pages),
+            upserted,
+            duration,
+        )
         return IngestResult(
             source=self._source.docs_url,
             records_upserted=upserted,
@@ -323,41 +389,6 @@ class DocsCrawler:
     async def refresh(self) -> IngestResult:
         """Incremental refresh (identical to ingest in v0)."""
         return await self.ingest()
-
-    async def ingest_urls(self, urls: Sequence[str]) -> IngestResult:
-        """Ingest specific URLs without crawling for links.
-
-        Useful for targeted re-indexing or testing.
-        """
-        start = time.monotonic()
-        errors: list[str] = []
-        all_records: list[ChunkedRecord] = []
-
-        for url in urls:
-            html = await self._fetch_page(url)
-            if html is None:
-                errors.append(f"Failed to fetch {url}")
-                continue
-            try:
-                records = self._process_page(url, html)
-                all_records.extend(records)
-            except Exception as e:
-                errors.append(f"Processing {url}: {e}")
-
-        upserted = 0
-        if all_records:
-            try:
-                upserted = await self._writer.upsert(all_records)
-            except Exception as e:
-                errors.append(f"Upsert failed: {e}")
-
-        duration = time.monotonic() - start
-        return IngestResult(
-            source=self._source.docs_url,
-            records_upserted=upserted,
-            errors=errors,
-            duration_seconds=duration,
-        )
 
     async def close(self) -> None:
         """Close the HTTP client."""

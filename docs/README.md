@@ -52,7 +52,7 @@ See [docs/setup/README.md](setup/README.md) for the full setup overview.
 
 ```
 Ingestion:
-  DocsCrawler (docs.pipecat.ai)  ──┐
+  DocsCrawler (llms-full.txt)    ──┐
   GitHubRepoIngester (2 repos)   ──┤→ EmbeddingIndexWriter → IndexStore
   TaxonomyBuilder (auto-infer)   ──┘   (sentence-transformers)   (ChromaDB + FTS5)
     ↑                                         ↑
@@ -70,7 +70,7 @@ Retrieval:
 
 ### Data Sources (v0)
 
-- `https://docs.pipecat.ai/` — primary documentation
+- `https://docs.pipecat.ai/llms-full.txt` — primary documentation (pre-rendered markdown, 200+ pages)
 - `pipecat-ai/pipecat` — framework repo (including `examples/foundational`)
   - Supports flat file layout (e.g. `01-say-one-thing.py`) and subdirectory layout
 - `pipecat-ai/pipecat-examples` — project-level examples
@@ -112,7 +112,7 @@ src/pipecat_context_hub/
 ├── services/
 │   ├── embedding.py                # EmbeddingService + EmbeddingIndexWriter
 │   ├── ingest/
-│   │   ├── docs_crawler.py         # HTML→markdown chunking crawler
+│   │   ├── docs_crawler.py         # llms-full.txt ingester + markdown chunker
 │   │   ├── github_ingest.py        # Git clone/fetch + code chunking
 │   │   └── taxonomy.py             # Automated capability inference
 │   ├── index/

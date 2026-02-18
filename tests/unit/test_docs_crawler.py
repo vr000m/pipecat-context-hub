@@ -1,4 +1,4 @@
-"""Tests for the docs crawler service."""
+"""Tests for the docs crawler service (llms-full.txt ingester)."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import pytest
 
 from pipecat_context_hub.services.ingest.docs_crawler import (
     DocsCrawler,
-    _extract_links,
-    _html_to_markdown,
+    _clean_mintlify_tags,
     _make_chunk_id,
+    _split_into_pages,
     _split_into_sections,
     chunk_markdown,
 )
@@ -24,37 +24,57 @@ from pipecat_context_hub.shared.types import ChunkedRecord, IngestResult
 # Fixtures
 # ---------------------------------------------------------------------------
 
-SAMPLE_HTML = """
-<!DOCTYPE html>
-<html>
-<head><title>Test Page</title></head>
-<body>
-<nav><a href="/nav-link">Nav</a></nav>
-<header><h1>Site Header</h1></header>
-<main>
-  <h1>Getting Started</h1>
-  <p>Welcome to Pipecat. Install with pip:</p>
-  <pre><code>pip install pipecat-ai</code></pre>
+SAMPLE_LLMS_TXT = """\
+# Getting Started
+Source: https://docs.pipecat.ai/guides/getting-started
 
-  <h2>Configuration</h2>
-  <p>Configure your pipeline by creating a config file.</p>
+Welcome to Pipecat. Install with pip:
 
-  <h2>Running</h2>
-  <p>Run your bot with the following command:</p>
-  <pre><code>python bot.py</code></pre>
-</main>
-<footer>Copyright 2026</footer>
-</body>
-</html>
-"""
+```python
+pip install pipecat-ai
+```
 
-SAMPLE_HTML_NO_MAIN = """
-<html>
-<body>
-<h1>Simple Page</h1>
-<p>Some content here.</p>
-</body>
-</html>
+## Configuration
+
+Configure your pipeline by creating a config file.
+
+<Note>Make sure to set your API keys before running.</Note>
+
+<ParamField type="string">
+  The API key for authentication.
+</ParamField>
+
+## Running
+
+Run your bot with the following command:
+
+```python
+python bot.py
+```
+
+# API Reference
+Source: https://docs.pipecat.ai/api/reference
+
+The Pipecat API reference.
+
+## Pipeline
+
+<Warning>This API is in beta.</Warning>
+
+The Pipeline class is the core abstraction.
+
+# Telephony
+Source: https://docs.pipecat.ai/guides/telephony
+
+Set up telephony integrations.
+
+## Twilio
+
+<Tip>Use websockets for best performance.</Tip>
+
+<Card title="Twilio Guide" href="/twilio">
+  Step-by-step Twilio setup.
+</Card>
 """
 
 
@@ -86,12 +106,11 @@ def crawler(
         index_writer=mock_writer,
         source_config=source_config,
         chunking_config=chunking_config,
-        max_pages=10,
     )
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: helper functions
+# Unit tests: _make_chunk_id
 # ---------------------------------------------------------------------------
 
 
@@ -116,59 +135,155 @@ class TestMakeChunkId:
         assert all(c in "0123456789abcdef" for c in result)
 
 
-class TestHtmlToMarkdown:
-    def test_strips_nav_header_footer(self):
-        result = _html_to_markdown(SAMPLE_HTML)
-        assert "Nav" not in result
-        assert "Site Header" not in result
-        assert "Copyright" not in result
-
-    def test_preserves_content(self):
-        result = _html_to_markdown(SAMPLE_HTML)
-        assert "Getting Started" in result
-        assert "Configuration" in result
-        assert "pip install pipecat-ai" in result
-
-    def test_uses_main_when_available(self):
-        result = _html_to_markdown(SAMPLE_HTML)
-        # Main content is preserved
-        assert "Welcome to Pipecat" in result
-
-    def test_fallback_without_main(self):
-        result = _html_to_markdown(SAMPLE_HTML_NO_MAIN)
-        assert "Simple Page" in result
-        assert "Some content" in result
-
-    def test_empty_html(self):
-        result = _html_to_markdown("")
-        assert result == ""
+# ---------------------------------------------------------------------------
+# Unit tests: _split_into_pages
+# ---------------------------------------------------------------------------
 
 
-class TestExtractLinks:
-    def test_extracts_internal_links(self):
-        from bs4 import BeautifulSoup
+class TestSplitIntoPages:
+    def test_splits_multiple_pages(self):
+        pages = _split_into_pages(SAMPLE_LLMS_TXT)
+        assert len(pages) == 3
 
-        html = '<a href="/guides/getting-started">Guide</a><a href="/api/overview">API</a>'
-        soup = BeautifulSoup(html, "html.parser")
-        links = _extract_links(soup, "https://docs.pipecat.ai/")
-        assert "https://docs.pipecat.ai/guides/getting-started" in links
-        assert "https://docs.pipecat.ai/api/overview" in links
+    def test_extracts_titles(self):
+        pages = _split_into_pages(SAMPLE_LLMS_TXT)
+        assert pages[0][0] == "Getting Started"
+        assert pages[1][0] == "API Reference"
+        assert pages[2][0] == "Telephony"
 
-    def test_skips_external_links(self):
-        from bs4 import BeautifulSoup
+    def test_extracts_source_urls(self):
+        pages = _split_into_pages(SAMPLE_LLMS_TXT)
+        assert pages[0][1] == "https://docs.pipecat.ai/guides/getting-started"
+        assert pages[1][1] == "https://docs.pipecat.ai/api/reference"
+        assert pages[2][1] == "https://docs.pipecat.ai/guides/telephony"
 
-        html = '<a href="https://github.com/foo">External</a>'
-        soup = BeautifulSoup(html, "html.parser")
-        links = _extract_links(soup, "https://docs.pipecat.ai/")
-        assert len(links) == 0
+    def test_body_excludes_title_and_source(self):
+        pages = _split_into_pages(SAMPLE_LLMS_TXT)
+        body = pages[0][2]
+        assert not body.startswith("# Getting Started")
+        assert "Source:" not in body
 
-    def test_strips_fragments(self):
-        from bs4 import BeautifulSoup
+    def test_body_has_content(self):
+        pages = _split_into_pages(SAMPLE_LLMS_TXT)
+        assert "Welcome to Pipecat" in pages[0][2]
+        assert "Pipeline class" in pages[1][2]
 
-        html = '<a href="/guide#section">Link</a>'
-        soup = BeautifulSoup(html, "html.parser")
-        links = _extract_links(soup, "https://docs.pipecat.ai/")
-        assert all("#" not in link for link in links)
+    def test_hash_comment_in_code_not_boundary(self):
+        text = (
+            "# Page\nSource: https://docs.pipecat.ai/page\n\n"
+            "```python\n# this is a comment\ncode = 1\n```\n"
+        )
+        pages = _split_into_pages(text)
+        assert len(pages) == 1
+        assert "# this is a comment" in pages[0][2]
+
+    def test_empty_input(self):
+        assert _split_into_pages("") == []
+
+    def test_no_source_line(self):
+        """A heading without a Source: line is not a page boundary."""
+        text = "# Just a heading\nSome content.\n"
+        assert _split_into_pages(text) == []
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _clean_mintlify_tags
+# ---------------------------------------------------------------------------
+
+
+class TestCleanMintlifyTags:
+    def test_strips_paramfield(self):
+        text = '<ParamField type="string">\n  API key\n</ParamField>'
+        result = _clean_mintlify_tags(text)
+        assert "<ParamField" not in result
+        assert "API key" in result
+
+    def test_converts_note_to_blockquote(self):
+        text = "<Note>Important info here.</Note>"
+        result = _clean_mintlify_tags(text)
+        assert "<Note>" not in result
+        assert "**Note:**" in result
+        assert "Important info" in result
+
+    def test_converts_warning_to_blockquote(self):
+        text = "<Warning>Be careful!</Warning>"
+        result = _clean_mintlify_tags(text)
+        assert "<Warning>" not in result
+        assert "**Warning:**" in result
+        assert "Be careful" in result
+
+    def test_converts_tip_to_blockquote(self):
+        text = "<Tip>Useful hint.</Tip>"
+        result = _clean_mintlify_tags(text)
+        assert "<Tip>" not in result
+        assert "**Tip:**" in result
+
+    def test_converts_info_to_blockquote(self):
+        text = "<Info>Background info.</Info>"
+        result = _clean_mintlify_tags(text)
+        assert "**Info:**" in result
+
+    def test_admonition_with_attributes(self):
+        text = '<Note type="warning">Be careful here.</Note>'
+        result = _clean_mintlify_tags(text)
+        assert "<Note" not in result
+        assert "**Note:**" in result
+        assert "Be careful here." in result
+
+    def test_warning_with_attributes(self):
+        text = '<Warning title="Deprecation">Old API.</Warning>'
+        result = _clean_mintlify_tags(text)
+        assert "<Warning" not in result
+        assert "**Warning:**" in result
+        assert "Old API." in result
+
+    def test_strips_card_tags(self):
+        text = '<Card title="Foo" href="/bar">\n  Content here.\n</Card>'
+        result = _clean_mintlify_tags(text)
+        assert "<Card" not in result
+        assert "</Card>" not in result
+        assert "Content here." in result
+
+    def test_strips_cardgroup(self):
+        text = "<CardGroup>\n<Card>A</Card>\n<Card>B</Card>\n</CardGroup>"
+        result = _clean_mintlify_tags(text)
+        assert "<CardGroup>" not in result
+        assert "A" in result
+        assert "B" in result
+
+    def test_strips_tabs(self):
+        text = "<Tabs>\n<Tab>\nContent\n</Tab>\n</Tabs>"
+        result = _clean_mintlify_tags(text)
+        assert "<Tabs>" not in result
+        assert "<Tab>" not in result
+        assert "Content" in result
+
+    def test_strips_steps(self):
+        text = "<Steps>\n<Step>\nDo this\n</Step>\n</Steps>"
+        result = _clean_mintlify_tags(text)
+        assert "<Steps>" not in result
+        assert "Do this" in result
+
+    def test_strips_self_closing_tags(self):
+        text = 'Before <Icon name="check" /> after.'
+        result = _clean_mintlify_tags(text)
+        assert "<Icon" not in result
+        assert "Before" in result
+        assert "after." in result
+
+    def test_preserves_plain_markdown(self):
+        text = "Regular markdown with **bold** and `code`."
+        assert _clean_mintlify_tags(text) == text
+
+    def test_collapses_blank_lines(self):
+        text = "<Card>A</Card>\n\n\n\n<Card>B</Card>"
+        result = _clean_mintlify_tags(text)
+        assert "\n\n\n" not in result
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _split_into_sections
+# ---------------------------------------------------------------------------
 
 
 class TestSplitIntoSections:
@@ -197,6 +312,35 @@ class TestSplitIntoSections:
     def test_empty_input(self):
         sections = _split_into_sections("")
         assert sections == []
+
+    def test_ignores_headings_in_fenced_code_blocks(self):
+        md_text = "# Real Heading\n\nSome text.\n\n```python\n# this is a comment\ncode = 1\n```\n\n## Another Heading\n\nMore text."
+        sections = _split_into_sections(md_text)
+        headings = [h for h, _ in sections]
+        assert "this is a comment" not in headings
+        assert "Real Heading" in headings
+        assert "Another Heading" in headings
+
+    def test_ignores_headings_in_tilde_fenced_blocks(self):
+        md_text = "# Title\n\nIntro.\n\n~~~\n# comment in tilde fence\n~~~\n\n## End\n\nDone."
+        sections = _split_into_sections(md_text)
+        headings = [h for h, _ in sections]
+        assert "comment in tilde fence" not in headings
+        assert "Title" in headings
+        assert "End" in headings
+
+    def test_fenced_block_content_preserved_in_body(self):
+        md_text = "# Title\n\n```\n# comment\ncode\n```"
+        sections = _split_into_sections(md_text)
+        assert len(sections) == 1
+        assert "# comment" in sections[0][1]
+        assert "code" in sections[0][1]
+
+    def test_multiple_fenced_blocks(self):
+        md_text = "# A\n\n```\n# not a heading\n```\n\n## B\n\n```\n# also not\n```"
+        sections = _split_into_sections(md_text)
+        headings = [h for h, _ in sections]
+        assert headings == ["A", "B"]
 
 
 # ---------------------------------------------------------------------------
@@ -267,12 +411,8 @@ class TestChunkMarkdown:
 
 class TestDocsCrawlerIngest:
     async def test_ingest_calls_writer(self, crawler: DocsCrawler, mock_writer: AsyncMock):
-        """Ingest fetches pages and upserts records."""
-        html_response = SAMPLE_HTML
-
-        with patch.object(crawler, "_crawl_site", return_value=[
-            ("https://docs.pipecat.ai/", html_response),
-        ]):
+        """Ingest fetches llms-full.txt and upserts records."""
+        with patch.object(crawler, "_fetch_llms_txt", return_value=SAMPLE_LLMS_TXT):
             result = await crawler.ingest()
 
         assert isinstance(result, IngestResult)
@@ -282,40 +422,48 @@ class TestDocsCrawlerIngest:
         assert result.duration_seconds > 0
         mock_writer.upsert.assert_called_once()
 
-        # Verify the records passed to upsert
-        call_args = mock_writer.upsert.call_args
-        records: list[ChunkedRecord] = call_args[0][0]
+        records: list[ChunkedRecord] = mock_writer.upsert.call_args[0][0]
         assert len(records) > 0
         for record in records:
             assert record.content_type == "doc"
-            assert record.source_url == "https://docs.pipecat.ai/"
             assert record.chunk_id
 
-    async def test_ingest_handles_crawl_failure(self, crawler: DocsCrawler):
-        """Ingest handles crawl exceptions gracefully."""
-        with patch.object(crawler, "_crawl_site", side_effect=RuntimeError("network error")):
+    async def test_ingest_produces_records_for_all_pages(
+        self, crawler: DocsCrawler, mock_writer: AsyncMock,
+    ):
+        """Records span all pages in the llms-full.txt file."""
+        with patch.object(crawler, "_fetch_llms_txt", return_value=SAMPLE_LLMS_TXT):
+            await crawler.ingest()
+
+        records: list[ChunkedRecord] = mock_writer.upsert.call_args[0][0]
+        source_urls = {r.source_url for r in records}
+        assert "https://docs.pipecat.ai/guides/getting-started" in source_urls
+        assert "https://docs.pipecat.ai/api/reference" in source_urls
+        assert "https://docs.pipecat.ai/guides/telephony" in source_urls
+
+    async def test_ingest_cleans_mintlify_tags(
+        self, crawler: DocsCrawler, mock_writer: AsyncMock,
+    ):
+        """Mintlify tags are cleaned from record content."""
+        with patch.object(crawler, "_fetch_llms_txt", return_value=SAMPLE_LLMS_TXT):
+            await crawler.ingest()
+
+        records: list[ChunkedRecord] = mock_writer.upsert.call_args[0][0]
+        all_content = " ".join(r.content for r in records)
+        assert "<ParamField" not in all_content
+        assert "<Card" not in all_content
+        assert "</Card>" not in all_content
+
+    async def test_ingest_handles_fetch_failure(self, crawler: DocsCrawler):
+        """Ingest handles fetch exceptions gracefully."""
+        with patch.object(
+            crawler, "_fetch_llms_txt", side_effect=httpx.HTTPError("timeout"),
+        ):
             result = await crawler.ingest()
 
         assert result.records_upserted == 0
         assert len(result.errors) == 1
-        assert "Crawl failed" in result.errors[0]
-
-    async def test_ingest_handles_processing_error(
-        self, crawler: DocsCrawler, mock_writer: AsyncMock,
-    ):
-        """Ingest handles per-page processing errors."""
-        with patch.object(crawler, "_crawl_site", return_value=[
-            ("https://docs.pipecat.ai/good", SAMPLE_HTML),
-            ("https://docs.pipecat.ai/bad", "valid html"),
-        ]):
-            with patch.object(
-                crawler, "_process_page",
-                side_effect=[RuntimeError("parse error"), []],
-            ):
-                result = await crawler.ingest()
-
-        assert len(result.errors) == 1
-        assert "Processing" in result.errors[0]
+        assert "Failed to fetch llms-full.txt" in result.errors[0]
 
     async def test_ingest_handles_upsert_failure(
         self, crawler: DocsCrawler, mock_writer: AsyncMock,
@@ -323,9 +471,7 @@ class TestDocsCrawlerIngest:
         """Ingest handles upsert exceptions."""
         mock_writer.upsert.side_effect = RuntimeError("DB error")
 
-        with patch.object(crawler, "_crawl_site", return_value=[
-            ("https://docs.pipecat.ai/", SAMPLE_HTML),
-        ]):
+        with patch.object(crawler, "_fetch_llms_txt", return_value=SAMPLE_LLMS_TXT):
             result = await crawler.ingest()
 
         assert "Upsert failed" in result.errors[0]
@@ -334,39 +480,11 @@ class TestDocsCrawlerIngest:
         self, crawler: DocsCrawler, mock_writer: AsyncMock,
     ):
         """refresh() is identical to ingest() in v0."""
-        with patch.object(crawler, "_crawl_site", return_value=[
-            ("https://docs.pipecat.ai/", SAMPLE_HTML),
-        ]):
+        with patch.object(crawler, "_fetch_llms_txt", return_value=SAMPLE_LLMS_TXT):
             result = await crawler.refresh()
 
         assert isinstance(result, IngestResult)
         assert result.records_upserted == 5
-
-
-class TestDocsCrawlerIngestUrls:
-    async def test_ingest_urls(self, crawler: DocsCrawler, mock_writer: AsyncMock):
-        """ingest_urls fetches specific URLs without crawling."""
-        mock_response = AsyncMock()
-        mock_response.text = SAMPLE_HTML
-        mock_response.status_code = 200
-        mock_response.raise_for_status = lambda: None
-
-        with patch.object(crawler, "_fetch_page", return_value=SAMPLE_HTML):
-            result = await crawler.ingest_urls(["https://docs.pipecat.ai/guide"])
-
-        assert result.records_upserted == 5
-        assert result.errors == []
-        mock_writer.upsert.assert_called_once()
-
-    async def test_ingest_urls_handles_fetch_failure(
-        self, crawler: DocsCrawler, mock_writer: AsyncMock,
-    ):
-        """ingest_urls records errors for failed fetches."""
-        with patch.object(crawler, "_fetch_page", return_value=None):
-            result = await crawler.ingest_urls(["https://docs.pipecat.ai/missing"])
-
-        assert len(result.errors) == 1
-        assert "Failed to fetch" in result.errors[0]
 
 
 class TestDocsCrawlerProtocol:
@@ -384,56 +502,25 @@ class TestDocsCrawlerProtocol:
         _ingester: Ingester = crawler  # noqa: F841
 
 
-class TestDocsCrawlerFetchPage:
-    async def test_fetch_page_success(self, crawler: DocsCrawler):
-        """fetch_page returns HTML on success."""
-        request = httpx.Request("GET", "https://docs.pipecat.ai/")
-        mock_response = httpx.Response(200, text="<html>ok</html>", request=request)
+class TestDocsCrawlerFetchLlmsTxt:
+    async def test_fetch_success(self, crawler: DocsCrawler):
+        """_fetch_llms_txt returns text on success."""
+        request = httpx.Request("GET", "https://docs.pipecat.ai/llms-full.txt")
+        mock_response = httpx.Response(200, text="# Page\nSource: url\n\nBody", request=request)
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(return_value=mock_response)
         crawler._client = mock_client
 
-        result = await crawler._fetch_page("https://docs.pipecat.ai/")
-        assert result == "<html>ok</html>"
+        result = await crawler._fetch_llms_txt()
+        assert "# Page" in result
 
-    async def test_fetch_page_error_returns_none(self, crawler: DocsCrawler):
-        """fetch_page returns None on HTTP errors."""
+    async def test_fetch_error_raises(self, crawler: DocsCrawler):
+        """_fetch_llms_txt raises on HTTP errors."""
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
+        mock_client.get = AsyncMock(
+            side_effect=httpx.ConnectError("connection refused"),
+        )
         crawler._client = mock_client
 
-        result = await crawler._fetch_page("https://docs.pipecat.ai/missing")
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
-# Integration test: real HTTP fetch
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(
-    True,  # Set to False to run integration test manually
-    reason="Integration test — requires network access to docs.pipecat.ai",
-)
-class TestDocsCrawlerIntegration:
-    async def test_fetch_real_page(self):
-        """Fetch a real page from docs.pipecat.ai and produce valid records."""
-        mock_writer = AsyncMock()
-        mock_writer.upsert = AsyncMock(return_value=0)
-        crawler = DocsCrawler(index_writer=mock_writer, max_pages=1)
-
-        try:
-            result = await crawler.ingest_urls(["https://docs.pipecat.ai/"])
-            assert result.errors == [] or len(result.errors) == 0
-
-            call_args = mock_writer.upsert.call_args
-            if call_args:
-                records: list[ChunkedRecord] = call_args[0][0]
-                assert len(records) > 0
-                for record in records:
-                    assert record.content_type == "doc"
-                    assert record.source_url == "https://docs.pipecat.ai/"
-                    assert record.chunk_id
-                    assert record.indexed_at.tzinfo == timezone.utc
-        finally:
-            await crawler.close()
+        with pytest.raises(httpx.ConnectError):
+            await crawler._fetch_llms_txt()

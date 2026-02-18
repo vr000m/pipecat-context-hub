@@ -68,7 +68,12 @@ class SourceConfig(BaseModel):
     """Source repositories and docs URL."""
 
     docs_url: str = Field(
-        default="https://docs.pipecat.ai/", description="Primary docs site to crawl."
+        default="https://docs.pipecat.ai/",
+        description="Base docs URL (used as canonical source identifier).",
+    )
+    docs_llms_txt_url: str = Field(
+        default="https://docs.pipecat.ai/llms-full.txt",
+        description="URL for the pre-rendered llms-full.txt docs file.",
     )
     repos: list[str] = Field(
         default=["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples"],

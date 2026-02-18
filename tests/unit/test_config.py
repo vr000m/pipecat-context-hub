@@ -89,9 +89,14 @@ class TestSourceConfig:
     def test_defaults(self):
         s = SourceConfig()
         assert s.docs_url == "https://docs.pipecat.ai/"
+        assert s.docs_llms_txt_url == "https://docs.pipecat.ai/llms-full.txt"
         assert s.repos == ["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples"]
         assert s.deepwiki_enabled is False
         assert s.deepwiki_urls == []
+
+    def test_custom_llms_txt_url(self):
+        s = SourceConfig(docs_llms_txt_url="https://example.com/docs.txt")
+        assert s.docs_llms_txt_url == "https://example.com/docs.txt"
 
     def test_round_trip(self):
         _round_trip(SourceConfig())
