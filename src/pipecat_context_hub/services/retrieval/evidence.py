@@ -7,7 +7,6 @@ known/unknown/confidence/next_retrieval_queries.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from pipecat_context_hub.shared.types import (
     Citation,
@@ -237,7 +236,6 @@ def build_single_item_evidence(
     Used for direct ID lookups rather than search results.
     """
     if result is None:
-        now = datetime.now(timezone.utc)
         return EvidenceReport(
             known=[],
             unknown=[

@@ -279,7 +279,6 @@ class HybridRetriever:
         citation = build_citation(result)
 
         # Build taxonomy entry from chunk metadata
-        cap_tags = chunk.metadata.get("capability_tags", [])
         key_files: list[str] = chunk.metadata.get("key_files", [])
         taxonomy = TaxonomyEntry(
             example_id=chunk.chunk_id,
@@ -372,13 +371,16 @@ class HybridRetriever:
             if input.path is not None and input.line_start is not None:
                 req_start = input.line_start
                 req_end = input.line_end or (req_start + input.max_lines - 1)
+                # Skip this chunk entirely if the requested range
+                # does not overlap with the chunk's line range.
+                if req_end < chunk_line_start or req_start > chunk_line_end:
+                    continue
                 # Compute offsets relative to chunk start
                 offset_start = max(0, req_start - chunk_line_start)
                 offset_end = min(len(all_lines), req_end - chunk_line_start + 1)
-                if offset_start < len(all_lines):
-                    all_lines = all_lines[offset_start:offset_end]
-                    chunk_line_start = req_start
-                    chunk_line_end = chunk_line_start + len(all_lines) - 1
+                all_lines = all_lines[offset_start:offset_end]
+                chunk_line_start = max(req_start, chunk_line_start)
+                chunk_line_end = chunk_line_start + len(all_lines) - 1
                 content = "\n".join(all_lines)
 
             # Respect max_lines

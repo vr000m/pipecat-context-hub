@@ -352,7 +352,7 @@ class TestFilterSemantics:
         for hit in result.hits:
             # All returned hits should be from python files
             assert hit.example_id != "js1", (
-                f"JavaScript record 'js1' should be filtered out by language='python'"
+                "JavaScript record 'js1' should be filtered out by language='python'"
             )
 
     async def test_foundational_class_filter_narrows_results(self, retriever: HybridRetriever):
@@ -431,6 +431,19 @@ class TestCodeSnippetLineRange:
             lines = snippet.content.splitlines()
             # Should have at most 4 lines (5,6,7,8)
             assert len(lines) <= 4
+
+    async def test_snippet_non_overlapping_range_before_chunk(self, retriever: HybridRetriever):
+        """Requesting lines before chunk range should not return unrelated content."""
+        # Chunk has lines 1-20; request lines 100-110 which don't overlap.
+        result = await retriever.get_code_snippet(
+            GetCodeSnippetInput(
+                path="examples/lines/bot.py",
+                line_start=100,
+                line_end=110,
+            )
+        )
+        # No snippet should be returned since the range doesn't overlap
+        assert len(result.snippets) == 0
 
 
 class TestGetExamplePathCorrectness:
