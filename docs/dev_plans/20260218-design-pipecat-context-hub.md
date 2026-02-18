@@ -36,7 +36,7 @@ The proposed solution is a Pipecat Context Hub with:
 ## Requirements
 1. Provide MCP tools for document and example retrieval with source citations.
 2. Support local MCP transport (`stdio`) with simple local setup.
-3. Maintain freshness via scheduled + event-driven ingestion.
+3. Maintain freshness in v0 via local `refresh` and add optional scheduled/event-driven ingestion in v1.
 4. Prioritize freshness using a single `latest` index in v0.
 5. Include cross-client onboarding for Claude Code, Cursor, VS Code, and Zed.
 6. Optimize v0 for the primary use case: "find the right docs/examples/snippets to build a Pipecat bot."
@@ -97,7 +97,7 @@ The proposed solution is a Pipecat Context Hub with:
 
 ### Phase 6: Composition Layer (v1)
 - [ ] Implement `compose_solution` and `propose_architecture`.
-- [ ] Add advanced guardrail inference and verification policies.
+- [ ] Add advanced guardrail inference and verification policies (minimal evidence-backed guardrails remain in v0).
 - [ ] Add optional scheduled auto-refresh and expanded observability.
 
 ## Task Manifest for Parallel Execution
@@ -133,6 +133,12 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
   - `pyproject.toml`
   - `src/pipecat_context_hub/__init__.py`
   - `src/pipecat_context_hub/shared/__init__.py`
+  - `src/pipecat_context_hub/services/__init__.py`
+  - `src/pipecat_context_hub/services/ingest/__init__.py`
+  - `src/pipecat_context_hub/services/index/__init__.py`
+  - `src/pipecat_context_hub/services/retrieval/__init__.py`
+  - `src/pipecat_context_hub/server/__init__.py`
+  - `src/pipecat_context_hub/server/tools/__init__.py`
   - `src/pipecat_context_hub/shared/types.py`
   - `src/pipecat_context_hub/shared/interfaces.py`
   - `src/pipecat_context_hub/shared/config.py`
@@ -145,7 +151,7 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 - **Depends on:** None
 - **Definition of done:**
   - `pip install -e ".[dev]"` succeeds.
-  - All shared types importable and serialization round-trips pass: `ChunkedRecord`, `TaxonomyEntry`, `CapabilityTag`, `Citation`, `EvidenceReport`, `KnownItem`, `UnknownItem`.
+  - All shared types importable and serialization round-trips pass: `ChunkedRecord`, `TaxonomyEntry`, `CapabilityTag`, `Citation`, `EvidenceReport`, `KnownItem`, `UnknownItem`, `IndexQuery`, `IndexResult`.
   - All tool I/O models importable: `SearchDocsInput`/`SearchDocsOutput`, `GetDocInput`/`GetDocOutput`, `SearchExamplesInput`/`SearchExamplesOutput`, `GetExampleInput`/`GetExampleOutput`, `GetCodeSnippetInput`/`GetCodeSnippetOutput`.
   - All service interface protocols importable: `IndexWriter`, `IndexReader`, `Retriever`, `Ingester`.
   - `pytest tests/unit/test_shared_types.py` passes.
@@ -155,8 +161,6 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 
 - **Description:** Implement crawler for `docs.pipecat.ai` that fetches pages, converts HTML to markdown, chunks per docs policy, and produces `ChunkedRecord` objects via `IndexWriter` interface.
 - **Owns:**
-  - `src/pipecat_context_hub/services/__init__.py`
-  - `src/pipecat_context_hub/services/ingest/__init__.py`
   - `src/pipecat_context_hub/services/ingest/docs_crawler.py`
   - `tests/unit/test_docs_crawler.py`
 - **Depends on:** T0
@@ -205,7 +209,6 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 
 - **Description:** Implement vector index and SQLite FTS5 keyword index with `IndexWriter` and `IndexReader` protocol implementations. Single `latest` namespace. Uses vector backend selected in T0.
 - **Owns:**
-  - `src/pipecat_context_hub/services/index/__init__.py`
   - `src/pipecat_context_hub/services/index/vector.py`
   - `src/pipecat_context_hub/services/index/fts.py`
   - `src/pipecat_context_hub/services/index/store.py`
@@ -227,7 +230,6 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 
 - **Description:** Implement hybrid retrieval combining vector and keyword search, lightweight reranking (reciprocal rank fusion + code-intent heuristics), citation assembly, and evidence reporting with known/unknown/confidence/next_queries.
 - **Owns:**
-  - `src/pipecat_context_hub/services/retrieval/__init__.py`
   - `src/pipecat_context_hub/services/retrieval/hybrid.py`
   - `src/pipecat_context_hub/services/retrieval/rerank.py`
   - `src/pipecat_context_hub/services/retrieval/evidence.py`
@@ -249,10 +251,8 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 
 - **Description:** Implement all 5 v0 MCP tool handlers, `stdio` transport adapter, server entry point, and `refresh` CLI command.
 - **Owns:**
-  - `src/pipecat_context_hub/server/__init__.py`
   - `src/pipecat_context_hub/server/main.py`
   - `src/pipecat_context_hub/server/transport.py`
-  - `src/pipecat_context_hub/server/tools/__init__.py`
   - `src/pipecat_context_hub/server/tools/search_docs.py`
   - `src/pipecat_context_hub/server/tools/get_doc.py`
   - `src/pipecat_context_hub/server/tools/search_examples.py`
@@ -499,28 +499,28 @@ pipecat-context-hub/
 │       │   ├── interfaces.py                         # T0
 │       │   └── config.py                             # T0
 │       ├── services/
-│       │   ├── __init__.py                           # T1 (first to create)
+│       │   ├── __init__.py                           # T0
 │       │   ├── ingest/
-│       │   │   ├── __init__.py                       # T1 (first to create)
+│       │   │   ├── __init__.py                       # T0
 │       │   │   ├── docs_crawler.py                   # T1
 │       │   │   ├── github_ingest.py                  # T2
 │       │   │   └── taxonomy.py                       # T3
 │       │   ├── index/
-│       │   │   ├── __init__.py                       # T4
+│       │   │   ├── __init__.py                       # T0
 │       │   │   ├── vector.py                         # T4
 │       │   │   ├── fts.py                            # T4
 │       │   │   └── store.py                          # T4
 │       │   └── retrieval/
-│       │       ├── __init__.py                       # T5
+│       │       ├── __init__.py                       # T0
 │       │       ├── hybrid.py                         # T5
 │       │       ├── rerank.py                         # T5
 │       │       └── evidence.py                       # T5
 │       └── server/
-│           ├── __init__.py                           # T6
+│           ├── __init__.py                           # T0
 │           ├── main.py                               # T6
 │           ├── transport.py                          # T6
 │           └── tools/
-│               ├── __init__.py                       # T6
+│               ├── __init__.py                       # T0
 │               ├── search_docs.py                    # T6
 │               ├── get_doc.py                        # T6
 │               ├── search_examples.py                # T6
@@ -561,7 +561,7 @@ pipecat-context-hub/
         └── test_end_to_end.py                        # T8
 ```
 
-**Note on shared `__init__.py` files:** When multiple parallel tasks create files under the same parent directory (e.g., `services/ingest/`), the first task to create the directory also creates its `__init__.py`. During T8 merge, the orchestrator resolves any conflicts on these trivial files.
+**Note on shared `__init__.py` files:** T0 creates all package `__init__.py` files before fan-out. Parallel tasks do not modify these files.
 
 ## Testing Notes
 - Contract tests for MCP tools (input/output and error behavior).
