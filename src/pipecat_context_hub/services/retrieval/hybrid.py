@@ -296,25 +296,16 @@ class HybridRetriever:
             indexed_at=chunk.indexed_at,
         )
 
-        # Build file list
+        # Build file list — always use the chunk's actual path to avoid
+        # mislabelling content when input.path doesn't match the chunk.
         files: list[ExampleFile] = []
-        if input.path:
-            # Specific file requested
-            files.append(
-                ExampleFile(
-                    path=input.path,
-                    content=chunk.content,
-                    language=chunk.metadata.get("language"),
-                )
+        files.append(
+            ExampleFile(
+                path=chunk.path,
+                content=chunk.content,
+                language=chunk.metadata.get("language"),
             )
-        else:
-            files.append(
-                ExampleFile(
-                    path=chunk.path,
-                    content=chunk.content,
-                    language=chunk.metadata.get("language"),
-                )
-            )
+        )
 
         symbols: list[str] = chunk.metadata.get("detected_symbols", [])
 
@@ -354,9 +345,8 @@ class HybridRetriever:
         elif input.path is not None and input.line_start is not None:
             query_text = input.path
             filters["path"] = input.path
-            filters["line_start"] = input.line_start
-            if input.line_end:
-                filters["line_end"] = input.line_end
+            # line_start/line_end are applied as post-filters below, not
+            # passed to index backends which don't support numeric ranges.
         else:
             # Should not happen due to model_validator, but be safe
             query_text = ""
@@ -369,20 +359,40 @@ class HybridRetriever:
         for r in results:
             citation = build_citation(r)
             content = r.chunk.content
-            # Respect max_lines
-            lines = content.splitlines()
-            if len(lines) > input.max_lines:
-                content = "\n".join(lines[: input.max_lines])
+            all_lines = content.splitlines()
 
-            line_start = r.chunk.metadata.get("line_start", 1)
-            line_end = r.chunk.metadata.get("line_end", line_start + len(lines) - 1)
+            # Derive line range from stored metadata
+            chunk_line_start: int = r.chunk.metadata.get("line_start", 1)
+            chunk_line_end: int = r.chunk.metadata.get(
+                "line_end", chunk_line_start + len(all_lines) - 1
+            )
+
+            # When path+line_start lookup was requested, extract the
+            # requested sub-range from within this chunk.
+            if input.path is not None and input.line_start is not None:
+                req_start = input.line_start
+                req_end = input.line_end or (req_start + input.max_lines - 1)
+                # Compute offsets relative to chunk start
+                offset_start = max(0, req_start - chunk_line_start)
+                offset_end = min(len(all_lines), req_end - chunk_line_start + 1)
+                if offset_start < len(all_lines):
+                    all_lines = all_lines[offset_start:offset_end]
+                    chunk_line_start = req_start
+                    chunk_line_end = chunk_line_start + len(all_lines) - 1
+                content = "\n".join(all_lines)
+
+            # Respect max_lines
+            if len(all_lines) > input.max_lines:
+                all_lines = all_lines[: input.max_lines]
+                content = "\n".join(all_lines)
+                chunk_line_end = chunk_line_start + len(all_lines) - 1
 
             snippets.append(
                 CodeSnippet(
                     content=content,
                     path=r.chunk.path,
-                    line_start=line_start,
-                    line_end=line_end,
+                    line_start=chunk_line_start,
+                    line_end=chunk_line_end,
                     language=r.chunk.metadata.get("language"),
                     citation=citation,
                     dependency_notes=r.chunk.metadata.get("dependency_notes", []),

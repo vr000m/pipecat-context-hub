@@ -7,6 +7,7 @@ ChromaDB + SQLite + sentence-transformers (no mocks).
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
@@ -258,3 +259,206 @@ class TestHybridRetrieverE2E:
         # Should still return a valid evidence report even with no hits
         assert result.evidence is not None
         assert result.evidence.confidence_rationale != ""
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for filter semantics (P1/P2 findings)
+# ---------------------------------------------------------------------------
+
+
+def _make_code_record_with_meta(
+    chunk_id: str,
+    content: str,
+    *,
+    language: str | None = None,
+    foundational_class: str | None = None,
+    execution_mode: str | None = None,
+    line_start: int | None = None,
+    line_end: int | None = None,
+    repo: str = "pipecat-ai/pipecat",
+    path: str = "examples/test/bot.py",
+) -> ChunkedRecord:
+    """Helper to build code records with varied metadata for filter tests."""
+    meta: dict[str, Any] = {
+        "capability_tags": ["tts"],
+        "key_files": [path],
+    }
+    if language is not None:
+        meta["language"] = language
+    if foundational_class is not None:
+        meta["foundational_class"] = foundational_class
+    if execution_mode is not None:
+        meta["execution_mode"] = execution_mode
+    if line_start is not None:
+        meta["line_start"] = line_start
+    if line_end is not None:
+        meta["line_end"] = line_end
+    return ChunkedRecord(
+        chunk_id=chunk_id,
+        content=content,
+        content_type="code",
+        source_url=f"https://github.com/{repo}/blob/main/{path}",
+        repo=repo,
+        path=path,
+        commit_sha="abc123",
+        indexed_at=NOW,
+        metadata=meta,
+    )
+
+
+class TestFilterSemantics:
+    """Regression tests for search_examples filter enforcement.
+
+    Validates that language, foundational_class, and execution_mode
+    filters actually narrow results (P1 finding).
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _seed_mixed_records(self, embedding_writer: EmbeddingIndexWriter):
+        """Seed index with records that differ on filterable metadata."""
+        records = [
+            _make_code_record_with_meta(
+                "py1",
+                "Python voice bot using DailyTransport and DeepgramSTT pipeline",
+                language="python",
+                foundational_class="hello-world",
+                execution_mode="local",
+                path="examples/py-bot/bot.py",
+            ),
+            _make_code_record_with_meta(
+                "js1",
+                "JavaScript voice bot using DailyTransport and DeepgramSTT pipeline",
+                language="javascript",
+                foundational_class="hello-world",
+                execution_mode="local",
+                path="examples/js-bot/bot.js",
+            ),
+            _make_code_record_with_meta(
+                "wake1",
+                "Wake word detection example using WakeWordProcessor pipeline",
+                language="python",
+                foundational_class="wake-word",
+                execution_mode="cloud",
+                path="examples/wake/bot.py",
+            ),
+        ]
+        await embedding_writer.upsert(records)
+
+    async def test_language_filter_narrows_results(self, retriever: HybridRetriever):
+        """search_examples(language='python') should exclude javascript records."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="voice bot pipeline", language="python")
+        )
+        for hit in result.hits:
+            # All returned hits should be from python files
+            assert hit.example_id != "js1", (
+                f"JavaScript record 'js1' should be filtered out by language='python'"
+            )
+
+    async def test_foundational_class_filter_narrows_results(self, retriever: HybridRetriever):
+        """search_examples(foundational_class='wake-word') should only return wake-word examples."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="voice bot", foundational_class="wake-word")
+        )
+        for hit in result.hits:
+            assert hit.example_id not in ("py1", "js1"), (
+                f"Record '{hit.example_id}' (hello-world) should be filtered out "
+                f"by foundational_class='wake-word'"
+            )
+
+    async def test_execution_mode_filter_narrows_results(self, retriever: HybridRetriever):
+        """search_examples(execution_mode='cloud') should only return cloud examples."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="voice bot pipeline", execution_mode="cloud")
+        )
+        for hit in result.hits:
+            assert hit.example_id not in ("py1", "js1"), (
+                f"Record '{hit.example_id}' (local) should be filtered out "
+                f"by execution_mode='cloud'"
+            )
+
+
+class TestCodeSnippetLineRange:
+    """Regression tests for get_code_snippet path+line_start (P1 finding).
+
+    Validates that line metadata is persisted and line-range extraction works.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _seed_code_with_lines(self, embedding_writer: EmbeddingIndexWriter):
+        """Seed a code record with known line metadata."""
+        lines = [f"line {i}: code content here" for i in range(1, 21)]
+        content = "\n".join(lines)
+        records = [
+            _make_code_record_with_meta(
+                "lines1",
+                content,
+                language="python",
+                line_start=1,
+                line_end=20,
+                path="examples/lines/bot.py",
+            ),
+        ]
+        await embedding_writer.upsert(records)
+
+    async def test_snippet_by_path_returns_content(self, retriever: HybridRetriever):
+        """get_code_snippet(path+line_start) should return matching snippet."""
+        result = await retriever.get_code_snippet(
+            GetCodeSnippetInput(
+                path="examples/lines/bot.py",
+                line_start=5,
+                line_end=10,
+            )
+        )
+        # Should find the record and return snippet content
+        assert len(result.snippets) > 0
+        # The returned snippet should contain the requested lines
+        snippet = result.snippets[0]
+        assert "line 5" in snippet.content
+        assert snippet.path == "examples/lines/bot.py"
+
+    async def test_snippet_line_range_trimmed(self, retriever: HybridRetriever):
+        """Snippet should be trimmed to requested line range, not full chunk."""
+        result = await retriever.get_code_snippet(
+            GetCodeSnippetInput(
+                path="examples/lines/bot.py",
+                line_start=5,
+                line_end=8,
+            )
+        )
+        if result.snippets:
+            snippet = result.snippets[0]
+            lines = snippet.content.splitlines()
+            # Should have at most 4 lines (5,6,7,8)
+            assert len(lines) <= 4
+
+
+class TestGetExamplePathCorrectness:
+    """Regression test for get_example path mislabelling (P2 finding).
+
+    Validates that get_example returns the chunk's actual path,
+    not the caller-supplied input.path.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _seed_example(self, embedding_writer: EmbeddingIndexWriter):
+        records = [
+            _make_code_record_with_meta(
+                "ex1",
+                "Example bot code for voice AI",
+                language="python",
+                path="examples/real-path/bot.py",
+            ),
+        ]
+        await embedding_writer.upsert(records)
+
+    async def test_file_path_matches_chunk_not_input(self, retriever: HybridRetriever):
+        """get_example should return files with the chunk's path, not input.path."""
+        result = await retriever.get_example(
+            GetExampleInput(example_id="ex1", path="examples/wrong-path/other.py")
+        )
+        assert result.example_id == "ex1"
+        assert len(result.files) > 0
+        # The file path should be the chunk's real path, not the input path
+        assert result.files[0].path == "examples/real-path/bot.py"
+        assert result.files[0].path != "examples/wrong-path/other.py"

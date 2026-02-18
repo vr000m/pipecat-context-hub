@@ -294,5 +294,10 @@ class FTSIndex:
             else:
                 clauses.append("c.metadata_json LIKE ?")
                 params.append(f"%{tags}%")
+        # Metadata JSON filters for fields stored in the JSON blob
+        for key in ("foundational_class", "language", "execution_mode"):
+            if key in filters:
+                clauses.append("c.metadata_json LIKE ?")
+                params.append(f'%"{key}": "{filters[key]}"%')
 
         return clauses, params

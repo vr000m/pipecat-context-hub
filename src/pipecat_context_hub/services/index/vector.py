@@ -44,6 +44,15 @@ def _record_to_metadata(
     tags = record.metadata.get("capability_tags")
     if tags and isinstance(tags, list):
         meta["capability_tags"] = ",".join(str(t) for t in tags)
+    # Persist additional metadata fields used by filters
+    for key in ("foundational_class", "language", "execution_mode"):
+        val = record.metadata.get(key)
+        if val is not None:
+            meta[key] = str(val)
+    for key in ("line_start", "line_end"):
+        val = record.metadata.get(key)
+        if val is not None:
+            meta[key] = int(val)
     return meta
 
 
@@ -57,6 +66,15 @@ def _metadata_to_record_fields(
     capability_tags_str = meta.get("capability_tags", "")
     if capability_tags_str:
         extra_meta["capability_tags"] = capability_tags_str.split(",")
+    # Round-trip optional metadata fields
+    for key in ("foundational_class", "language", "execution_mode"):
+        val = meta.get(key)
+        if val is not None:
+            extra_meta[key] = val
+    for key in ("line_start", "line_end"):
+        val = meta.get(key)
+        if val is not None:
+            extra_meta[key] = int(val)
 
     return ChunkedRecord(
         chunk_id=chunk_id,
@@ -85,6 +103,12 @@ def _build_where_clause(filters: dict[str, Any]) -> dict[str, Any] | None:
         conditions.append({"repo": {"$eq": filters["repo"]}})
     if "content_type" in filters:
         conditions.append({"content_type": {"$eq": filters["content_type"]}})
+    if "foundational_class" in filters:
+        conditions.append({"foundational_class": {"$eq": filters["foundational_class"]}})
+    if "language" in filters:
+        conditions.append({"language": {"$eq": filters["language"]}})
+    if "execution_mode" in filters:
+        conditions.append({"execution_mode": {"$eq": filters["execution_mode"]}})
 
     if not conditions:
         return None
