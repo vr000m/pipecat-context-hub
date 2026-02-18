@@ -130,7 +130,7 @@ def _make_tag(name: str, confidence: float, source: CapabilitySource) -> Capabil
 
 def _dedup_tags(tags: list[CapabilityTag]) -> list[CapabilityTag]:
     """Keep highest-confidence tag per name, prefer code > readme > directory."""
-    source_priority: dict[str, int] = {"code": 3, "readme": 2, "directory": 1, "manual": 0}
+    source_priority: dict[str, int] = {"manual": 4, "code": 3, "readme": 2, "directory": 1}
     best: dict[str, CapabilityTag] = {}
     for tag in tags:
         existing = best.get(tag.name)

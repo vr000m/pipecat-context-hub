@@ -6,6 +6,7 @@ files, and produces ChunkedRecord objects via an IndexWriter.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -278,7 +279,9 @@ class GitHubRepoIngester:
         records: list[ChunkedRecord] = []
 
         try:
-            repo_path, commit_sha = self._clone_or_fetch(repo_slug)
+            repo_path, commit_sha = await asyncio.to_thread(
+                self._clone_or_fetch, repo_slug
+            )
         except Exception as exc:
             msg = f"Failed to clone/fetch {repo_slug}: {exc}"
             logger.error(msg)
@@ -350,13 +353,20 @@ class GitHubRepoIngester:
 
         Returns (repo_path, HEAD commit SHA).
         """
-        safe_name = repo_slug.replace("/", "_")
+        # Sanitize slug to prevent path traversal
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", repo_slug)
         repo_path = self._repos_dir / safe_name
+        # Verify resolved path stays under repos dir
+        self._repos_dir.mkdir(parents=True, exist_ok=True)
+        repo_path.resolve().relative_to(self._repos_dir.resolve())
 
         if (repo_path / ".git").is_dir():
             git_repo = GitRepo(str(repo_path))
             origin = git_repo.remotes.origin
             origin.fetch()
+            # Update working tree to match fetched remote HEAD
+            remote_ref = origin.refs[0]
+            git_repo.head.reset(remote_ref.commit, index=True, working_tree=True)
         else:
             repo_path.mkdir(parents=True, exist_ok=True)
             clone_url = f"https://github.com/{repo_slug}.git"

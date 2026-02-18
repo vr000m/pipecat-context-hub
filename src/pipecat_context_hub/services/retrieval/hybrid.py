@@ -9,9 +9,13 @@ evidence module for citation/report assembly.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pipecat_context_hub.services.embedding import EmbeddingService
 
 from pipecat_context_hub.services.retrieval.evidence import (
     assemble_evidence,
@@ -54,11 +58,13 @@ class HybridRetriever:
     def __init__(
         self,
         index_reader: IndexReader,
+        embedding_service: EmbeddingService | None = None,
         rrf_k: int = 60,
         vector_weight: float = 0.6,
         keyword_weight: float = 0.4,
     ) -> None:
         self._index = index_reader
+        self._embedding = embedding_service
         self._rrf_k = rrf_k
         self._vector_weight = vector_weight
         self._keyword_weight = keyword_weight
@@ -80,8 +86,16 @@ class HybridRetriever:
         The limit is applied to each individual search path. After RRF
         merge, the combined results are truncated to the requested limit.
         """
+        # Compute query embedding for vector search if embedding service available
+        query_embedding: list[float] | None = None
+        if self._embedding is not None:
+            query_embedding = await asyncio.to_thread(
+                self._embedding.embed_query, query_text
+            )
+
         query = IndexQuery(
             query_text=query_text,
+            query_embedding=query_embedding,
             filters=filters,
             limit=limit,
         )
@@ -347,7 +361,8 @@ class HybridRetriever:
             # Should not happen due to model_validator, but be safe
             query_text = ""
 
-        results = await self._hybrid_search(query_text, filters, input.max_lines)
+        _DEFAULT_SNIPPET_CANDIDATES = 5
+        results = await self._hybrid_search(query_text, filters, _DEFAULT_SNIPPET_CANDIDATES)
         evidence = assemble_evidence(query_text, results, filters)
 
         snippets: list[CodeSnippet] = []

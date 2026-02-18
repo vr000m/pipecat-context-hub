@@ -1,7 +1,6 @@
 {
   "context_servers": {
     "pipecat-context-hub": {
-      "source": "custom",
       "command": "pipecat-context-hub",
       "args": ["serve"],
       "env": {}

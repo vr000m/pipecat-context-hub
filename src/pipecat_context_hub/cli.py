@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import time
 
 import click
 
@@ -30,7 +31,10 @@ def main(ctx: click.Context, log_level: str) -> None:
     """Pipecat Context Hub — local-first MCP server."""
     _configure_logging(log_level)
     ctx.ensure_object(dict)
-    ctx.obj["config"] = HubConfig(server=HubConfig().server.model_copy(update={"log_level": log_level}))
+    config = HubConfig()
+    ctx.obj["config"] = config.model_copy(
+        update={"server": config.server.model_copy(update={"log_level": log_level})}
+    )
     if ctx.invoked_subcommand is None:
         ctx.invoke(serve)
 
@@ -41,13 +45,18 @@ def serve(ctx: click.Context) -> None:
     """Start the MCP server (stdio transport)."""
     from pipecat_context_hub.server.main import create_server
     from pipecat_context_hub.server.transport import serve_stdio
-    from pipecat_context_hub.server._stub_retriever import StubRetriever
+    from pipecat_context_hub.services.embedding import EmbeddingService
+    from pipecat_context_hub.services.index.store import IndexStore
+    from pipecat_context_hub.services.retrieval.hybrid import HybridRetriever
 
     config: HubConfig = ctx.obj["config"]
-    logging.getLogger(__name__).info(
-        "Starting server with transport=%s", config.server.transport
-    )
-    retriever = StubRetriever()
+    logger = logging.getLogger(__name__)
+    logger.info("Starting server with transport=%s", config.server.transport)
+
+    index_store = IndexStore(config.storage)
+    embedding_svc = EmbeddingService(config.embedding)
+    retriever = HybridRetriever(index_store, embedding_svc)
+
     server = create_server(retriever)
     serve_stdio(server)
 
@@ -56,17 +65,64 @@ def serve(ctx: click.Context) -> None:
 @click.pass_context
 def refresh(ctx: click.Context) -> None:
     """Trigger a full index rebuild via the Ingester interface."""
-    from pipecat_context_hub.server._stub_ingester import StubIngester
+    from pipecat_context_hub.services.embedding import (
+        EmbeddingIndexWriter,
+        EmbeddingService,
+    )
+    from pipecat_context_hub.services.index.store import IndexStore
+    from pipecat_context_hub.services.ingest.docs_crawler import DocsCrawler
+    from pipecat_context_hub.services.ingest.github_ingest import GitHubRepoIngester
 
     logger = logging.getLogger(__name__)
+    config: HubConfig = ctx.obj["config"]
+
     logger.info("Starting index refresh")
-    ingester = StubIngester()
-    result = asyncio.run(ingester.refresh())
+    start = time.monotonic()
+
+    # Build the ingestion pipeline
+    index_store = IndexStore(config.storage)
+    embedding_svc = EmbeddingService(config.embedding)
+    writer = EmbeddingIndexWriter(index_store, embedding_svc)
+
+    total_upserted = 0
+    all_errors: list[str] = []
+
+    async def _run_refresh() -> None:
+        nonlocal total_upserted, all_errors
+
+        # 1. Crawl docs
+        crawler = DocsCrawler(writer, config.sources, config.chunking)
+        docs_result = await crawler.ingest()
+        total_upserted += docs_result.records_upserted
+        all_errors.extend(docs_result.errors)
+        logger.info(
+            "Docs crawl: upserted=%d errors=%d",
+            docs_result.records_upserted,
+            len(docs_result.errors),
+        )
+
+        # 2. Ingest GitHub repos
+        github = GitHubRepoIngester(config, writer)
+        github_result = await github.ingest()
+        total_upserted += github_result.records_upserted
+        all_errors.extend(github_result.errors)
+        logger.info(
+            "GitHub ingest: upserted=%d errors=%d",
+            github_result.records_upserted,
+            len(github_result.errors),
+        )
+
+    asyncio.run(_run_refresh())
+
+    duration = round(time.monotonic() - start, 1)
     logger.info(
-        "Refresh complete: source=%s upserted=%d deleted=%d errors=%d",
-        result.source,
-        result.records_upserted,
-        result.records_deleted,
-        len(result.errors),
+        "Refresh complete: upserted=%d errors=%d duration=%.1fs",
+        total_upserted,
+        len(all_errors),
+        duration,
     )
-    click.echo(f"Refresh complete: {result.records_upserted} records upserted.")
+    if all_errors:
+        for err in all_errors:
+            logger.warning("  %s", err)
+
+    click.echo(f"Refresh complete: {total_upserted} records upserted in {duration}s.")

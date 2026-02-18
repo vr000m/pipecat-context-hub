@@ -203,67 +203,6 @@ class TestCLI:
         assert "refresh" in main.commands
 
 
-# ---------------------------------------------------------------------------
-# Stub retriever and ingester tests
-# ---------------------------------------------------------------------------
-
-
-class TestStubs:
-    async def test_stub_retriever_search_docs(self):
-        from pipecat_context_hub.server._stub_retriever import StubRetriever
-        from pipecat_context_hub.shared.types import SearchDocsInput
-
-        r = StubRetriever()
-        out = await r.search_docs(SearchDocsInput(query="test"))
-        assert out.hits == []
-        assert out.evidence.confidence == 0.0
-
-    async def test_stub_retriever_get_doc(self):
-        from pipecat_context_hub.server._stub_retriever import StubRetriever
-        from pipecat_context_hub.shared.types import GetDocInput
-
-        r = StubRetriever()
-        out = await r.get_doc(GetDocInput(doc_id="x"))
-        assert out.doc_id == "x"
-        assert out.title == "(not indexed)"
-
-    async def test_stub_retriever_search_examples(self):
-        from pipecat_context_hub.server._stub_retriever import StubRetriever
-        from pipecat_context_hub.shared.types import SearchExamplesInput
-
-        r = StubRetriever()
-        out = await r.search_examples(SearchExamplesInput(query="test"))
-        assert out.hits == []
-
-    async def test_stub_retriever_get_example(self):
-        from pipecat_context_hub.server._stub_retriever import StubRetriever
-        from pipecat_context_hub.shared.types import GetExampleInput
-
-        r = StubRetriever()
-        out = await r.get_example(GetExampleInput(example_id="e1"))
-        assert out.example_id == "e1"
-
-    async def test_stub_retriever_get_code_snippet(self):
-        from pipecat_context_hub.server._stub_retriever import StubRetriever
-        from pipecat_context_hub.shared.types import GetCodeSnippetInput
-
-        r = StubRetriever()
-        out = await r.get_code_snippet(GetCodeSnippetInput(intent="test"))
-        assert out.snippets == []
-
-    async def test_stub_ingester_ingest(self):
-        from pipecat_context_hub.server._stub_ingester import StubIngester
-
-        i = StubIngester()
-        out = await i.ingest()
-        assert out.source == "stub"
-
-    async def test_stub_ingester_refresh(self):
-        from pipecat_context_hub.server._stub_ingester import StubIngester
-
-        i = StubIngester()
-        out = await i.refresh()
-        assert out.source == "stub"
 
 
 # ---------------------------------------------------------------------------

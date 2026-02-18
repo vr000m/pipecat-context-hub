@@ -199,8 +199,14 @@ class VectorIndex:
         needs_post_filter = "path" in query.filters or "capability_tags" in query.filters
         where = _build_where_clause(query.filters)
 
+        # Clamp n_results to collection size to prevent ChromaDB crash
+        collection_count = self._collection.count()
+        if collection_count == 0:
+            return []
+
         # Over-fetch when post-filtering to ensure enough results survive.
         n_results = query.limit * 3 if needs_post_filter else query.limit
+        n_results = min(n_results, collection_count)
 
         kwargs: dict[str, Any] = {
             "query_embeddings": [query.query_embedding],

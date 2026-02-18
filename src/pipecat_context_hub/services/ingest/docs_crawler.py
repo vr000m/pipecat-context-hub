@@ -266,6 +266,7 @@ class DocsCrawler:
             soup = BeautifulSoup(html, "html.parser")
             for link in _extract_links(soup, url):
                 if link not in visited:
+                    visited.add(link)
                     to_visit.append(link)
 
         return results

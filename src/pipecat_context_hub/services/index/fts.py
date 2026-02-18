@@ -135,7 +135,15 @@ class FTSIndex:
         return count
 
     def search(self, query: IndexQuery) -> list[IndexResult]:
-        """Search by keyword relevance using FTS5 BM25. Returns ranked results."""
+        """Search by keyword relevance using FTS5 BM25. Returns ranked results.
+
+        When a ``chunk_id`` filter is present the search becomes a direct
+        lookup and the FTS MATCH clause is skipped.
+        """
+        # Direct lookup by chunk_id — bypass FTS MATCH
+        if "chunk_id" in query.filters:
+            return self._get_by_chunk_id(query.filters["chunk_id"])
+
         if not query.query_text.strip():
             return []
 
@@ -210,6 +218,41 @@ class FTSIndex:
             )
 
         return items
+
+    def _get_by_chunk_id(self, chunk_id: str) -> list[IndexResult]:
+        """Direct lookup by chunk_id, bypassing FTS MATCH."""
+        cursor = self._conn.execute(
+            """
+            SELECT chunk_id, content, content_type, source_url,
+                   repo, path, commit_sha, indexed_at, metadata_json
+            FROM chunks
+            WHERE chunk_id = ?
+            LIMIT 1
+            """,
+            (chunk_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return []
+
+        (
+            cid, content, content_type, source_url,
+            repo, path, commit_sha, indexed_at_str, metadata_json,
+        ) = row
+
+        extra_meta: dict[str, Any] = json.loads(metadata_json) if metadata_json else {}
+        record = ChunkedRecord(
+            chunk_id=cid,
+            content=content,
+            content_type=content_type,
+            source_url=source_url,
+            repo=repo,
+            path=path,
+            commit_sha=commit_sha,
+            indexed_at=datetime.fromisoformat(indexed_at_str),
+            metadata=extra_meta,
+        )
+        return [IndexResult(chunk=record, score=1.0, match_type="keyword")]
 
     @staticmethod
     def _sanitize_fts_query(query_text: str) -> str:

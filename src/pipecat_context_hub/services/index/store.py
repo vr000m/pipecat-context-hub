@@ -32,7 +32,15 @@ class IndexStore:
     async def upsert(self, records: list[ChunkedRecord]) -> int:
         """Insert or update records in both indexes. Returns count written."""
         vector_count = self._vector.upsert(records)
-        self._fts.upsert(records)
+        try:
+            fts_count = self._fts.upsert(records)
+        except Exception:
+            logger.exception("FTS upsert failed; vector index may have diverged")
+            fts_count = 0
+        if vector_count != fts_count:
+            logger.warning(
+                "Index divergence: vector=%d fts=%d records", vector_count, fts_count
+            )
         return vector_count
 
     async def delete_by_source(self, source_url: str) -> int:
