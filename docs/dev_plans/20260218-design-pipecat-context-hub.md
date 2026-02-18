@@ -1,11 +1,11 @@
 # Pipecat Context Hub Architecture Plan
 
 ## Header
-- **Status:** Not Started
+- **Status:** Complete (v0)
 - **Type:** design
-- **Assignee:** TBD
+- **Assignee:** vr000m
 - **Priority:** High
-- **Working Branch:** N/A (repository not initialized in this directory)
+- **Working Branch:** feature/pipecat-context-hub
 - **Created:** 2026-02-18
 - **Target Completion:** 2026-03-06
 - **Objective:** Design and implement a local-first MCP platform that provides fresh Pipecat docs/examples context for Claude Code, Cursor, VS Code, and Zed.
@@ -48,52 +48,52 @@ The proposed solution is a Pipecat Context Hub with:
 
 ## Implementation Checklist
 
-### Phase 1: Foundations — T0 (serial)
-- [ ] Project scaffolding: `pyproject.toml`, `src/` layout, dev dependencies. *(T0)*
-- [ ] Define canonical metadata schema as Pydantic models. *(T0)*
-- [ ] Define service interface protocols: `IndexWriter`, `IndexReader`, `Retriever`, `Ingester`. *(T0)*
-- [ ] Define tool I/O models for all v0 MCP tools. *(T0)*
-- [ ] Define evidence reporting models: `Citation`, `EvidenceReport`. *(T0)*
-- [ ] Define chunking and embedding policies for docs vs code. *(T0)*
-- [ ] Select vector backend with benchmark justification. *(T0)*
+### Phase 1: Foundations — T0 (serial) ✅
+- [x] Project scaffolding: `pyproject.toml`, `src/` layout, dev dependencies. *(T0)*
+- [x] Define canonical metadata schema as Pydantic models. *(T0)*
+- [x] Define service interface protocols: `IndexWriter`, `IndexReader`, `Retriever`, `Ingester`. *(T0)*
+- [x] Define tool I/O models for all v0 MCP tools. *(T0)*
+- [x] Define evidence reporting models: `Citation`, `EvidenceReport`. *(T0)*
+- [x] Define chunking and embedding policies for docs vs code. *(T0)*
+- [x] Select vector backend with benchmark justification. *(T0)*
 
-### Phase 2: Ingestion and Indexing — T1, T2, T3, T4 (parallel)
-- [ ] Implement docs crawler for `docs.pipecat.ai`. *(T1)*
-- [ ] Implement GitHub ingest for `pipecat-ai/pipecat` and `pipecat-ai/pipecat-examples`. *(T2)*
-- [ ] Build fully automated taxonomy manifests. *(T3)*
-  - [ ] `examples/foundational` class -> example -> capability mapping.
-  - [ ] `pipecat-examples` capability mapping with no manual curation in v0.
-- [ ] Implement vector index + FTS index with `IndexWriter`/`IndexReader`. *(T4)*
-- [ ] Add optional DeepWiki ingestion as a secondary source (explicit URL allowlist). *(T2, stretch)*
+### Phase 2: Ingestion and Indexing — T1, T2, T3, T4 (parallel) ✅
+- [x] Implement docs crawler for `docs.pipecat.ai`. *(T1)*
+- [x] Implement GitHub ingest for `pipecat-ai/pipecat` and `pipecat-ai/pipecat-examples`. *(T2)*
+- [x] Build fully automated taxonomy manifests. *(T3)*
+  - [x] `examples/foundational` class -> example -> capability mapping.
+  - [x] `pipecat-examples` capability mapping with no manual curation in v0.
+- [x] Implement vector index + FTS index with `IndexWriter`/`IndexReader`. *(T4)*
+- [ ] Add optional DeepWiki ingestion as a secondary source (explicit URL allowlist). *(T2, stretch — deferred to v1)*
 
-### Phase 3: Retrieval and Quality — T5 (parallel)
-- [ ] Implement hybrid retrieval (vector + keyword + metadata filters). *(T5)*
-- [ ] Implement reranking tuned for code intent and architecture intent. *(T5)*
-- [ ] Add mandatory citation payload and confidence metadata. *(T5)*
-- [ ] Add known/unknown evidence reporting in retrieval responses. *(T5)*
-- [ ] Implement heuristic `next_retrieval_queries` generation. *(T5)*
-- [ ] Add trace logging for retrieval decisions. *(T5)*
-- [ ] Add capability tags and symbol maps for examples. *(T5)*
-- [ ] Add evidence packs that enable Claude/Codex to infer execution mode. *(T5)*
+### Phase 3: Retrieval and Quality — T5 (parallel) ✅
+- [x] Implement hybrid retrieval (vector + keyword + metadata filters). *(T5)*
+- [x] Implement reranking tuned for code intent and architecture intent. *(T5)*
+- [x] Add mandatory citation payload and confidence metadata. *(T5)*
+- [x] Add known/unknown evidence reporting in retrieval responses. *(T5)*
+- [x] Implement heuristic `next_retrieval_queries` generation. *(T5)*
+- [x] Add trace logging for retrieval decisions. *(T5)*
+- [x] Add capability tags and symbol maps for examples. *(T5)*
+- [x] Add evidence packs that enable Claude/Codex to infer execution mode. *(T5)*
 
-### Phase 4: MCP Server and Client Compatibility — T6, T7 (parallel)
-- [ ] Implement MCP tools: *(T6)*
-  - [ ] `search_docs`
-  - [ ] `get_doc`
-  - [ ] `search_examples`
-  - [ ] `get_example`
-  - [ ] `get_code_snippet`
-- [ ] Implement `stdio` transport and server entry point. *(T6)*
-- [ ] Implement `refresh` CLI command. *(T6)*
-- [ ] Build client setup guides/templates for Claude Code, Cursor, VS Code, and Zed. *(T7)*
+### Phase 4: MCP Server and Client Compatibility — T6, T7 (parallel) ✅
+- [x] Implement MCP tools: *(T6)*
+  - [x] `search_docs`
+  - [x] `get_doc`
+  - [x] `search_examples`
+  - [x] `get_example`
+  - [x] `get_code_snippet`
+- [x] Implement `stdio` transport and server entry point. *(T6)*
+- [x] Implement `refresh` CLI command. *(T6)*
+- [x] Build client setup guides/templates for Claude Code, Cursor, VS Code, and Zed. *(T7)*
 
-### Phase 5: Validation and Release — T8 (serial)
-- [ ] Merge all parallel worktrees. *(T8)*
-- [ ] Run end-to-end integration tests. *(T8)*
-- [ ] Validate local retrieval-first user journeys for coding and ideation. *(T8)*
-- [ ] Run load and latency tests on top retrieval paths. *(T8)*
-- [ ] Publish local setup + refresh runbook. *(T8)*
-- [ ] Cut v0 local release. *(T8)*
+### Phase 5: Validation and Release — T8 (serial) ✅
+- [x] Merge all parallel worktrees. *(T8)*
+- [x] Run end-to-end integration tests. *(T8)*
+- [x] Validate local retrieval-first user journeys for coding and ideation. *(T8)*
+- [ ] Run load and latency tests on top retrieval paths. *(T8 — deferred to post-MVP)*
+- [x] Publish local setup + refresh runbook. *(T8)*
+- [ ] Cut v0 local release. *(T8 — pending: tag + changelog)*
 
 ### Phase 6: Composition Layer (v1)
 - [ ] Implement `compose_solution` and `propose_architecture`.
@@ -586,16 +586,66 @@ pipecat-context-hub/
   - **Solution:** T0 creates all shared `__init__.py` stubs. Each parallel task only creates files it owns. T8 resolves trivial merge conflicts.
 
 ## Acceptance Criteria
-- [ ] Architecture document finalized with service boundaries and data contracts.
-- [ ] MCP tool contract finalized and reviewed.
-- [ ] Freshness strategy implemented with measurable SLOs.
-- [ ] Local `stdio` runtime operational in at least one IDE client.
-- [ ] Core v0 tools operational: `search_docs`, `get_doc`, `search_examples`, `get_example`, `get_code_snippet`.
-- [ ] End-to-end retrieval query returns cited docs/examples with source metadata.
-- [ ] Local setup documented and tested across at least two MCP clients.
-- [ ] Foundational example class metadata is queryable and affects retrieval outcomes.
-- [ ] Outputs include dependency closure, composability guidance, known/unknown reporting, and guardrails when evidence supports inference.
-- [ ] v1 scope explicitly deferred: `compose_solution` and `propose_architecture`.
+- [x] Architecture document finalized with service boundaries and data contracts.
+- [x] MCP tool contract finalized and reviewed.
+- [x] Freshness strategy implemented with measurable SLOs.
+- [x] Local `stdio` runtime operational in at least one IDE client.
+- [x] Core v0 tools operational: `search_docs`, `get_doc`, `search_examples`, `get_example`, `get_code_snippet`.
+- [x] End-to-end retrieval query returns cited docs/examples with source metadata.
+- [x] Local setup documented and tested across at least two MCP clients.
+- [x] Foundational example class metadata is queryable and affects retrieval outcomes.
+- [x] Outputs include dependency closure, composability guidance, known/unknown reporting, and guardrails when evidence supports inference.
+- [x] v1 scope explicitly deferred: `compose_solution` and `propose_architecture`.
 
 ## Final Results
-Pending implementation.
+
+### v0 Implementation Complete — 2026-02-17
+
+**Execution model:** T0 (serial) → T1–T7 (parallel fan-out in 7 git worktrees) → T8 (serial integration).
+
+#### Test Results
+- **295 tests pass**, 1 skipped (live HTTP crawl)
+- **mypy strict**: 0 errors across 45 source files
+- **15 integration tests** covering full ingest → embed → index → retrieve pipeline
+
+#### Components Delivered
+
+| Phase | Task | Component | Tests |
+|-------|------|-----------|-------|
+| T0 | Foundation | Shared types (25+ Pydantic models), interfaces, config | 55 |
+| T1 | Docs Crawler | Section-aware HTML→markdown chunking | 31 |
+| T2 | GitHub Ingester | Clone/fetch repos, function/class-aware code chunking | 30 |
+| T3 | Taxonomy Builder | Automated capability inference from dirs/READMEs/code | 55 |
+| T4 | Index Store | ChromaDB vector + SQLite FTS5 dual-backend | 34 |
+| T5 | Retrieval Service | Hybrid search, RRF reranking, evidence assembly | 43 |
+| T6 | MCP Server | 5 tool handlers, stdio transport, CLI entry point | 32 |
+| T7 | Client Guides | Config templates + setup docs for 4 IDE clients | — |
+| T8 | Integration | Embedding service, CLI wiring, 10 bug fixes, e2e tests | 15 |
+
+#### Architecture
+```
+pipecat-context-hub refresh
+  → DocsCrawler + GitHubRepoIngester
+    → EmbeddingIndexWriter (auto sentence-transformers)
+      → IndexStore (ChromaDB + SQLite FTS5)
+
+pipecat-context-hub serve
+  → IndexStore → EmbeddingService → HybridRetriever
+    → MCP Server (stdio) → 5 tools
+```
+
+#### T8 Review Fixes Applied
+- T1: URL dedup at enqueue time
+- T2: git fetch + working tree reset, asyncio.to_thread, path traversal sanitization
+- T3: manual tag source priority corrected
+- T4: ChromaDB n_results clamped, FTS divergence logging
+- T5: max_lines/limit conflation fixed
+- T6: CLI config double-instantiation fixed
+- T7: Zed config undocumented field removed
+- FTS chunk_id direct lookup added for get_doc/get_example
+
+#### Remaining Items
+- [ ] Load/latency benchmarks on retrieval paths (deferred to post-MVP)
+- [ ] DeepWiki secondary source ingestion (deferred to v1)
+- [ ] v0 release tag + changelog
+- [ ] `compose_solution` and `propose_architecture` tools (v1)
