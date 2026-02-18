@@ -121,9 +121,14 @@ class Citation(BaseModel):
     @classmethod
     def coerce_line_range(cls, v: Any) -> tuple[int, int] | None:
         """Coerce list→tuple so JSON round-trips (which deserialize as list) work."""
+        if v is None:
+            return None
         if isinstance(v, list):
-            return tuple(v)  # type: ignore[return-value]
-        return v
+            return (v[0], v[1])
+        if isinstance(v, tuple):
+            return v
+        msg = f"line_range must be a tuple, list, or None, got {type(v)}"
+        raise TypeError(msg)
 
 
 class KnownItem(BaseModel):

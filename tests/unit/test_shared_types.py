@@ -48,8 +48,8 @@ def _round_trip(model_instance):
     return rebuilt
 
 
-def _make_citation(**overrides) -> Citation:
-    defaults = dict(
+def _make_citation(**overrides: object) -> Citation:
+    defaults: dict[str, object] = dict(
         source_url="https://docs.pipecat.ai/guides/start",
         repo="pipecat-ai/pipecat",
         path="guides/start",
@@ -58,11 +58,11 @@ def _make_citation(**overrides) -> Citation:
         indexed_at=NOW,
     )
     defaults.update(overrides)
-    return Citation(**defaults)
+    return Citation.model_validate(defaults)
 
 
-def _make_evidence(**overrides) -> EvidenceReport:
-    defaults = dict(
+def _make_evidence(**overrides: object) -> EvidenceReport:
+    defaults: dict[str, object] = dict(
         known=[KnownItem(statement="X works", citations=[_make_citation()], confidence=0.9)],
         unknown=[UnknownItem(question="Y?", reason="Not found", suggested_queries=["search Y"])],
         confidence=0.8,
@@ -70,7 +70,7 @@ def _make_evidence(**overrides) -> EvidenceReport:
         next_retrieval_queries=["try Z"],
     )
     defaults.update(overrides)
-    return EvidenceReport(**defaults)
+    return EvidenceReport.model_validate(defaults)
 
 
 # ---------------------------------------------------------------------------
