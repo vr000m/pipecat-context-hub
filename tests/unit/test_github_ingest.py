@@ -515,3 +515,49 @@ class TestGitHubRepoIngester:
         paths = {r.path for r in records}
         assert any("01-hello" in p for p in paths)
         assert any("02-goodbye" in p for p in paths)
+
+    async def test_taxonomy_metadata_enrichment(self, tmp_path: Path):
+        """Records are enriched with taxonomy-derived metadata."""
+        repo_dir = _create_fake_repo(
+            tmp_path / "data" / "repos",
+            "test-org_test-repo",
+            {
+                "examples/foundational/01-hello/bot.py": (
+                    "from pipecat.transports.daily import DailyTransport\n"
+                    "from pipecat.services.deepgram import DeepgramSTT\n\n"
+                    "def main():\n"
+                    "    transport = DailyTransport()\n"
+                    "    stt = DeepgramSTT()\n"
+                ),
+            },
+        )
+
+        config = self._make_config(tmp_path)
+        writer = _make_mock_writer()
+        ingester = GitHubRepoIngester(config, writer)
+
+        from git import Repo as GitRepo
+
+        commit_sha = GitRepo(str(repo_dir)).head.commit.hexsha
+
+        with patch.object(
+            ingester, "_clone_or_fetch", return_value=(repo_dir, commit_sha)
+        ):
+            result = await ingester.ingest()
+
+        assert result.records_upserted > 0
+        records: list[ChunkedRecord] = writer.upsert.call_args[0][0]
+        rec = records[0]
+
+        # Taxonomy should have populated these fields
+        assert rec.metadata.get("language") == "python"
+        assert rec.metadata.get("foundational_class") == "01-hello"
+        assert isinstance(rec.metadata.get("capability_tags"), list)
+        # Code imports daily + deepgram, so those tags should be present
+        tags = rec.metadata["capability_tags"]
+        assert "daily" in tags
+        assert "deepgram" in tags
+        # Line range metadata should be set
+        assert rec.metadata.get("line_start") == 1
+        assert isinstance(rec.metadata.get("line_end"), int)
+        assert rec.metadata["line_end"] >= 1

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from git import Repo as GitRepo
 
 from pipecat_context_hub.shared.config import HubConfig
-from pipecat_context_hub.shared.types import ChunkedRecord, IngestResult
+from pipecat_context_hub.shared.types import ChunkedRecord, IngestResult, TaxonomyEntry
 
 if TYPE_CHECKING:
     from pipecat_context_hub.shared.interfaces import IndexWriter
@@ -38,6 +38,19 @@ _SKIP_DIRS: frozenset[str] = frozenset({
 
 # Max file size (bytes) we'll attempt to chunk.
 _MAX_FILE_BYTES: int = 512_000  # 500 KB
+
+# File extension → language name for metadata.
+_EXTENSION_TO_LANGUAGE: dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".jsx": "javascript",
+    ".tsx": "typescript",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +245,101 @@ def _iter_code_files(directory: Path) -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
+# Taxonomy + metadata enrichment
+# ---------------------------------------------------------------------------
+
+
+def _build_taxonomy_lookup(
+    repo_path: Path,
+    repo_slug: str,
+    commit_sha: str,
+) -> dict[str, TaxonomyEntry]:
+    """Run TaxonomyBuilder on a cloned repo and return a path→entry lookup.
+
+    Keys are relative directory paths (e.g. ``examples/foundational/07-interruptible``).
+    """
+    from pipecat_context_hub.services.ingest.taxonomy import TaxonomyBuilder
+
+    builder = TaxonomyBuilder()
+    entries = builder.build_from_directory(repo_path, repo=repo_slug, commit_sha=commit_sha)
+    lookup: dict[str, TaxonomyEntry] = {}
+    for entry in entries:
+        lookup[entry.path] = entry
+    logger.debug(
+        "Taxonomy built for %s: %d entries",
+        repo_slug,
+        len(lookup),
+    )
+    return lookup
+
+
+def _build_chunk_metadata(
+    *,
+    repo_slug: str,
+    commit_sha: str,
+    chunk_index: int,
+    language: str | None,
+    line_start: int,
+    line_end: int,
+    taxonomy_entry: TaxonomyEntry | None,
+) -> dict[str, object]:
+    """Build enriched metadata dict for a ChunkedRecord.
+
+    Merges basic provenance fields with taxonomy-derived fields
+    (foundational_class, capability_tags, key_files).
+    """
+    meta: dict[str, object] = {
+        "repo": repo_slug,
+        "commit_sha": commit_sha,
+        "chunk_index": chunk_index,
+        "line_start": line_start,
+        "line_end": line_end,
+    }
+    if language is not None:
+        meta["language"] = language
+
+    if taxonomy_entry is not None:
+        if taxonomy_entry.foundational_class is not None:
+            meta["foundational_class"] = taxonomy_entry.foundational_class
+        cap_tag_names = [t.name for t in taxonomy_entry.capabilities]
+        if cap_tag_names:
+            meta["capability_tags"] = cap_tag_names
+        if taxonomy_entry.key_files:
+            meta["key_files"] = taxonomy_entry.key_files
+
+    return meta
+
+
+def _compute_chunk_line_ranges(
+    source: str,
+    chunks: list[str],
+) -> list[tuple[int, int]]:
+    """Compute approximate (line_start, line_end) 1-indexed for each chunk.
+
+    Uses sequential line counting. With overlap, ranges may slightly
+    overlap between adjacent chunks — acceptable for v0.
+    """
+    if not chunks:
+        return []
+
+    total_lines = len(source.splitlines())
+    ranges: list[tuple[int, int]] = []
+    line_cursor = 1
+
+    for chunk in chunks:
+        num_lines = len(chunk.splitlines()) if chunk else 1
+        line_start = max(1, line_cursor)
+        line_end = min(line_start + num_lines - 1, total_lines)
+        ranges.append((line_start, line_end))
+        # Advance cursor to next unique content start.
+        # With overlap, some lines are shared with the next chunk,
+        # but for line tracking we simply advance past this chunk.
+        line_cursor = line_end + 1
+
+    return ranges
+
+
+# ---------------------------------------------------------------------------
 # GitHubRepoIngester
 # ---------------------------------------------------------------------------
 
@@ -287,6 +395,9 @@ class GitHubRepoIngester:
             logger.error(msg)
             return IngestResult(source=repo_slug, errors=[msg])
 
+        # Build taxonomy for this repo to enrich chunk metadata.
+        taxonomy_lookup = _build_taxonomy_lookup(repo_path, repo_slug, commit_sha)
+
         example_dirs = _find_example_dirs(repo_path)
         if not example_dirs:
             logger.warning("No example directories found in %s", repo_slug)
@@ -295,6 +406,10 @@ class GitHubRepoIngester:
         chunking = self._config.chunking
 
         for ex_dir in example_dirs:
+            # Look up taxonomy entry for this example directory.
+            rel_ex_dir = str(ex_dir.relative_to(repo_path))
+            taxonomy_entry = taxonomy_lookup.get(rel_ex_dir)
+
             code_files = _iter_code_files(ex_dir)
             for code_file in code_files:
                 try:
@@ -307,6 +422,7 @@ class GitHubRepoIngester:
                 source_url = (
                     f"https://github.com/{repo_slug}/blob/{commit_sha}/{rel_path}"
                 )
+                language = _EXTENSION_TO_LANGUAGE.get(code_file.suffix)
 
                 chunks = _chunk_code(
                     content,
@@ -314,9 +430,22 @@ class GitHubRepoIngester:
                     overlap_tokens=chunking.code_overlap_tokens,
                     prefer_boundaries=chunking.code_prefer_function_boundaries,
                 )
+                line_ranges = _compute_chunk_line_ranges(content, chunks)
 
                 for idx, chunk_text in enumerate(chunks):
                     chunk_id = _make_chunk_id(repo_slug, rel_path, commit_sha, idx)
+                    line_start, line_end = line_ranges[idx]
+
+                    meta = _build_chunk_metadata(
+                        repo_slug=repo_slug,
+                        commit_sha=commit_sha,
+                        chunk_index=idx,
+                        language=language,
+                        line_start=line_start,
+                        line_end=line_end,
+                        taxonomy_entry=taxonomy_entry,
+                    )
+
                     records.append(
                         ChunkedRecord(
                             chunk_id=chunk_id,
@@ -327,11 +456,7 @@ class GitHubRepoIngester:
                             path=rel_path,
                             commit_sha=commit_sha,
                             indexed_at=now,
-                            metadata={
-                                "repo": repo_slug,
-                                "commit_sha": commit_sha,
-                                "chunk_index": idx,
-                            },
+                            metadata=meta,
                         )
                     )
 
