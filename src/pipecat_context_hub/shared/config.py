@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class ChunkingConfig(BaseModel):
@@ -44,12 +44,16 @@ class StorageConfig(BaseModel):
     sqlite_filename: str = Field(default="metadata.db", description="SQLite database filename.")
     chroma_dirname: str = Field(default="chroma", description="ChromaDB persistence directory.")
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sqlite_path(self) -> Path:
+        """Full path to SQLite database. Included in model_dump()/JSON."""
         return self.data_dir / self.sqlite_filename
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def chroma_path(self) -> Path:
+        """Full path to ChromaDB directory. Included in model_dump()/JSON."""
         return self.data_dir / self.chroma_dirname
 
 

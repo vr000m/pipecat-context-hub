@@ -103,7 +103,7 @@ def sample_index_result(sample_chunked_record: ChunkedRecord) -> IndexResult:
     return IndexResult(
         chunk=sample_chunked_record,
         score=0.85,
-        match_type="hybrid",
+        match_type="vector",
     )
 
 

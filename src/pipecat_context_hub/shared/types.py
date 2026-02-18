@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -49,12 +49,17 @@ class IndexQuery(BaseModel):
 
 
 class IndexResult(BaseModel):
-    """A single result from the index store."""
+    """A single result from the index store.
+
+    Note: match_type is "vector" or "keyword" at the index layer.
+    The retrieval layer (T5) may tag merged results as "hybrid" in
+    RetrievalResult, but IndexReader only returns single-path results.
+    """
 
     chunk: ChunkedRecord
     score: float = Field(description="Relevance score (higher is better).")
-    match_type: Literal["vector", "keyword", "hybrid"] = Field(
-        description="Which retrieval path produced this result."
+    match_type: Literal["vector", "keyword"] = Field(
+        description="Which index path produced this result."
     )
 
 
@@ -90,6 +95,10 @@ class TaxonomyEntry(BaseModel):
     readme_content: str | None = Field(
         default=None, description="README contents if present."
     )
+    commit_sha: str | None = Field(default=None, description="Git commit SHA at index time.")
+    indexed_at: datetime | None = Field(
+        default=None, description="Timestamp when this entry was last indexed."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +116,14 @@ class Citation(BaseModel):
     section: str | None = None
     line_range: tuple[int, int] | None = None
     indexed_at: datetime
+
+    @field_validator("line_range", mode="before")
+    @classmethod
+    def coerce_line_range(cls, v: Any) -> tuple[int, int] | None:
+        """Coerce list→tuple so JSON round-trips (which deserialize as list) work."""
+        if isinstance(v, list):
+            return tuple(v)  # type: ignore[return-value]
+        return v
 
 
 class KnownItem(BaseModel):
@@ -318,6 +335,22 @@ class GetCodeSnippetInput(BaseModel):
     framework: str | None = None
     example_ids: list[str] | None = None
     max_lines: int = Field(default=50, ge=1, le=500)
+
+    @model_validator(mode="after")
+    def validate_lookup_mode(self) -> GetCodeSnippetInput:
+        """Enforce exactly one lookup mode: symbol, intent, or path+line_start."""
+        modes = [
+            self.symbol is not None,
+            self.intent is not None,
+            self.path is not None and self.line_start is not None,
+        ]
+        if sum(modes) == 0:
+            raise ValueError(
+                "Exactly one of symbol, intent, or (path + line_start) must be provided."
+            )
+        if sum(modes) > 1:
+            raise ValueError("Only one lookup mode may be set at a time.")
+        return self
 
 
 class CodeSnippet(BaseModel):

@@ -159,6 +159,20 @@ class TestTaxonomyEntry:
         rebuilt = _round_trip(entry)
         assert rebuilt.foundational_class is None
         assert rebuilt.capabilities == []
+        assert rebuilt.commit_sha is None
+        assert rebuilt.indexed_at is None
+
+    def test_with_freshness_fields(self):
+        entry = TaxonomyEntry(
+            example_id="ex-1",
+            repo="r/r",
+            path="p",
+            commit_sha="abc123",
+            indexed_at=NOW,
+        )
+        rebuilt = _round_trip(entry)
+        assert rebuilt.commit_sha == "abc123"
+        assert rebuilt.indexed_at == NOW
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +188,19 @@ class TestCitation:
         c = _make_citation(line_range=(10, 25))
         rebuilt = _round_trip(c)
         assert rebuilt.line_range == (10, 25)
+
+    def test_line_range_list_coercion(self):
+        """list→tuple coercion for JSON round-trips via model_validate."""
+        import json
+
+        c = _make_citation(line_range=(10, 25))
+        raw_dict = json.loads(c.model_dump_json())
+        # JSON round-trip produces a list, not tuple
+        assert isinstance(raw_dict["line_range"], list)
+        # model_validate should coerce it back to tuple
+        rebuilt = Citation.model_validate(raw_dict)
+        assert rebuilt.line_range == (10, 25)
+        assert isinstance(rebuilt.line_range, tuple)
 
 
 class TestKnownItem:
@@ -359,6 +386,27 @@ class TestGetCodeSnippet:
 
     def test_input_by_symbol(self):
         _round_trip(GetCodeSnippetInput(symbol="Pipeline.run"))
+
+    def test_input_rejects_no_mode(self):
+        """Must provide at least one lookup mode."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Exactly one of"):
+            GetCodeSnippetInput()
+
+    def test_input_rejects_multiple_modes(self):
+        """Cannot set both symbol and intent."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Only one lookup mode"):
+            GetCodeSnippetInput(symbol="Pipeline.run", intent="create pipeline")
+
+    def test_input_path_without_line_start_is_not_a_mode(self):
+        """path alone (without line_start) doesn't count as path+line_start mode."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Exactly one of"):
+            GetCodeSnippetInput(path="examples/01.py")
 
     def test_output_round_trip(self):
         out = GetCodeSnippetOutput(
