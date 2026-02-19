@@ -95,6 +95,26 @@ The proposed solution is a Pipecat Context Hub with:
 - [x] Publish local setup + refresh runbook. *(T8)*
 - [ ] Cut v0 local release. *(T8 — pending: tag + changelog)*
 
+### Phase 5b: Integration Seam Fixes — T10 (serial) ✅
+Post-merge audit of cross-component boundaries revealed three integration seam bugs
+that component-level testing missed. All fixed.
+
+- [x] **Stale records on refresh:** `refresh` used upsert-only — deleted/renamed pages
+  persisted forever. Fixed: added `clear()` to IndexStore, then refined to per-content-type
+  `delete_by_content_type()` so each ingester clears only its own data before re-ingesting.
+  If one ingester fails, the other's data survives.
+- [x] **Unclosed HTTP client:** `DocsCrawler` opened an httpx client in `ingest()` but
+  `cli.py` never called `close()`. Fixed: `await crawler.close()` in `finally` block.
+- [x] **Dead `refresh()` methods:** Both ingesters and the `Ingester` protocol defined
+  `refresh()` (identical to `ingest()`), but it was never called from `cli.py`. Removed
+  dead code from `docs_crawler.py`, `github_ingest.py`, `interfaces.py`, and tests.
+
+**Root cause:** Fan-out agents built correct components in isolation, but integration
+seams (where one component's output feeds another's input) were never tested until T8.
+`delete_by_source()` existed but wasn't wired into the refresh flow. Updated global
+`/fan-out` and `/dev-plan` skills with integration seam awareness to prevent this class
+of bug in future parallel agent work.
+
 ### Phase 6: Composition Layer (v1)
 - [ ] Implement `compose_solution` and `propose_architecture`.
 - [ ] Add advanced guardrail inference and verification policies (minimal evidence-backed guardrails remain in v0).
