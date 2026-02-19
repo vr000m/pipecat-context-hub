@@ -81,7 +81,6 @@ def refresh(ctx: click.Context) -> None:
 
     # Build the ingestion pipeline
     index_store = IndexStore(config.storage)
-    index_store.clear()
     embedding_svc = EmbeddingService(config.embedding)
     writer = EmbeddingIndexWriter(index_store, embedding_svc)
 
@@ -91,18 +90,23 @@ def refresh(ctx: click.Context) -> None:
     async def _run_refresh() -> None:
         nonlocal total_upserted, all_errors
 
-        # 1. Crawl docs
+        # 1. Crawl docs — clear stale doc records first
+        await index_store.delete_by_content_type("doc")
         crawler = DocsCrawler(writer, config.sources, config.chunking)
-        docs_result = await crawler.ingest()
-        total_upserted += docs_result.records_upserted
-        all_errors.extend(docs_result.errors)
-        logger.info(
-            "Docs crawl: upserted=%d errors=%d",
-            docs_result.records_upserted,
-            len(docs_result.errors),
-        )
+        try:
+            docs_result = await crawler.ingest()
+            total_upserted += docs_result.records_upserted
+            all_errors.extend(docs_result.errors)
+            logger.info(
+                "Docs crawl: upserted=%d errors=%d",
+                docs_result.records_upserted,
+                len(docs_result.errors),
+            )
+        finally:
+            await crawler.close()
 
-        # 2. Ingest GitHub repos
+        # 2. Ingest GitHub repos — clear stale code records first
+        await index_store.delete_by_content_type("code")
         github = GitHubRepoIngester(config, writer)
         github_result = await github.ingest()
         total_upserted += github_result.records_upserted

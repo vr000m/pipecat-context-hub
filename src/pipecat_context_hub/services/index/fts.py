@@ -121,6 +121,25 @@ class FTSIndex:
         logger.debug("Upserted %d records into FTS index", count)
         return count
 
+    def delete_by_content_type(self, content_type: str) -> int:
+        """Delete all records with a given content type. Returns count deleted."""
+        cursor = self._conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE content_type = ?",
+            (content_type,),
+        )
+        row = cursor.fetchone()
+        count: int = row[0] if row else 0
+
+        if count > 0:
+            self._conn.execute(
+                "DELETE FROM chunks WHERE content_type = ?",
+                (content_type,),
+            )
+            self._conn.commit()
+            logger.debug("Deleted %d records from FTS index for content_type=%s", count, content_type)
+
+        return count
+
     def delete_by_source(self, source_url: str) -> int:
         """Delete all records with a given source URL. Returns count deleted."""
         cursor = self._conn.execute(

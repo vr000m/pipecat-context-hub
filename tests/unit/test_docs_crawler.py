@@ -476,28 +476,14 @@ class TestDocsCrawlerIngest:
 
         assert "Upsert failed" in result.errors[0]
 
-    async def test_refresh_delegates_to_ingest(
-        self, crawler: DocsCrawler, mock_writer: AsyncMock,
-    ):
-        """refresh() is identical to ingest() in v0."""
-        with patch.object(crawler, "_fetch_llms_txt", return_value=SAMPLE_LLMS_TXT):
-            result = await crawler.refresh()
-
-        assert isinstance(result, IngestResult)
-        assert result.records_upserted == 5
-
-
 class TestDocsCrawlerProtocol:
     def test_implements_ingester_protocol(self, mock_writer: AsyncMock):
         """DocsCrawler satisfies the Ingester protocol."""
         from pipecat_context_hub.shared.interfaces import Ingester
 
         crawler = DocsCrawler(index_writer=mock_writer)
-        # Protocol compliance: has ingest() and refresh()
         assert hasattr(crawler, "ingest")
-        assert hasattr(crawler, "refresh")
         assert callable(crawler.ingest)
-        assert callable(crawler.refresh)
         # Structural subtyping check: should be assignable to Ingester
         _ingester: Ingester = crawler  # noqa: F841
 

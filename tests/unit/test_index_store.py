@@ -144,6 +144,26 @@ class TestVectorIndex:
         deleted = vector_index.delete_by_source("https://nonexistent.com")
         assert deleted == 0
 
+    def test_delete_by_content_type(self, vector_index: VectorIndex):
+        records = [
+            _make_record(chunk_id="d1", content_type="doc"),
+            _make_record(chunk_id="d2", content_type="doc"),
+            _make_record(chunk_id="c1", content_type="code"),
+        ]
+        vector_index.upsert(records)
+
+        deleted = vector_index.delete_by_content_type("doc")
+        assert deleted == 2
+
+        query = IndexQuery(
+            query_text="test",
+            query_embedding=_random_embedding(0),
+            limit=10,
+        )
+        results = vector_index.search(query)
+        assert len(results) == 1
+        assert results[0].chunk.content_type == "code"
+
     def test_search_without_embedding(self, vector_index: VectorIndex):
         query = IndexQuery(query_text="test", limit=10)
         results = vector_index.search(query)
@@ -324,6 +344,22 @@ class TestFTSIndex:
         deleted = fts_index.delete_by_source("https://nonexistent.com")
         assert deleted == 0
 
+    def test_delete_by_content_type(self, fts_index: FTSIndex):
+        records = [
+            _make_record(chunk_id="d1", content_type="doc", content="pipecat doc one"),
+            _make_record(chunk_id="d2", content_type="doc", content="pipecat doc two"),
+            _make_record(chunk_id="c1", content_type="code", content="pipecat code one"),
+        ]
+        fts_index.upsert(records)
+
+        deleted = fts_index.delete_by_content_type("doc")
+        assert deleted == 2
+
+        query = IndexQuery(query_text="pipecat", limit=10)
+        results = fts_index.search(query)
+        assert len(results) == 1
+        assert results[0].chunk.content_type == "code"
+
     def test_search_empty_query(self, fts_index: FTSIndex):
         fts_index.upsert(_make_records(1))
         query = IndexQuery(query_text="", limit=10)
@@ -492,6 +528,34 @@ class TestIndexStore:
         results = await store.keyword_search(query)
         assert len(results) == 3
         assert all(r.match_type == "keyword" for r in results)
+
+    @pytest.mark.asyncio
+    async def test_delete_by_content_type_both_indexes(self, store: IndexStore):
+        records = [
+            _make_record(chunk_id="d1", content_type="doc", content="pipecat doc"),
+            _make_record(chunk_id="d2", content_type="doc", content="pipecat doc two"),
+            _make_record(chunk_id="c1", content_type="code", content="pipecat code"),
+        ]
+        await store.upsert(records)
+
+        deleted = await store.delete_by_content_type("doc")
+        assert deleted == 2
+
+        # Vector search should only find code
+        vq = IndexQuery(
+            query_text="test",
+            query_embedding=_random_embedding(0),
+            limit=10,
+        )
+        v_results = await store.vector_search(vq)
+        assert len(v_results) == 1
+        assert v_results[0].chunk.content_type == "code"
+
+        # Keyword search should also only find code
+        kq = IndexQuery(query_text="pipecat", limit=10)
+        k_results = await store.keyword_search(kq)
+        assert len(k_results) == 1
+        assert k_results[0].chunk.content_type == "code"
 
     @pytest.mark.asyncio
     async def test_delete_by_source_both_indexes(self, store: IndexStore):

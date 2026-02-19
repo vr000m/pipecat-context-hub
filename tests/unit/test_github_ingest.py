@@ -435,20 +435,6 @@ class TestGitHubRepoIngester:
         assert result.records_upserted == 0
         assert result.errors == []
 
-    async def test_refresh_delegates_to_ingest(self, tmp_path: Path):
-        """refresh() calls ingest() in v0."""
-        config = self._make_config(tmp_path)
-        writer = _make_mock_writer()
-        ingester = GitHubRepoIngester(config, writer)
-
-        with patch.object(
-            ingester, "_clone_or_fetch", side_effect=RuntimeError("skip")
-        ):
-            result = await ingester.refresh()
-
-        # Should still return an IngestResult (from ingest path).
-        assert result.source == "github"
-
     async def test_source_url_format(self, tmp_path: Path):
         """Records have correct GitHub blob URLs."""
         repo_dir = _create_fake_repo(
@@ -481,11 +467,8 @@ class TestGitHubRepoIngester:
         writer = _make_mock_writer()
         ingester = GitHubRepoIngester(config, writer)
 
-        # Protocol structural check: has ingest() and refresh().
         assert hasattr(ingester, "ingest")
-        assert hasattr(ingester, "refresh")
         assert callable(ingester.ingest)
-        assert callable(ingester.refresh)
 
     async def test_foundational_nested_examples(self, tmp_path: Path):
         """Discovers nested example dirs (foundational/01-hello pattern)."""

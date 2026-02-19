@@ -49,6 +49,12 @@ class IndexStore:
             )
         return vector_count
 
+    async def delete_by_content_type(self, content_type: str) -> int:
+        """Delete records by content type from both indexes. Returns count deleted."""
+        vector_count = self._vector.delete_by_content_type(content_type)
+        self._fts.delete_by_content_type(content_type)
+        return vector_count
+
     async def delete_by_source(self, source_url: str) -> int:
         """Delete records by source URL from both indexes. Returns count deleted."""
         vector_count = self._vector.delete_by_source(source_url)

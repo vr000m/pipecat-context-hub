@@ -209,6 +209,16 @@ class VectorIndex:
         logger.debug("Upserted %d records into vector index", len(ids))
         return len(ids)
 
+    def delete_by_content_type(self, content_type: str) -> int:
+        """Delete all records matching a content type. Returns count deleted."""
+        where_clause: dict[str, Any] = {"content_type": {"$eq": content_type}}
+        existing = self._collection.get(where=where_clause, include=[])
+        count = len(existing["ids"])
+        if count > 0:
+            self._collection.delete(where=where_clause)
+            logger.debug("Deleted %d records from vector index for content_type=%s", count, content_type)
+        return count
+
     def delete_by_source(self, source_url: str) -> int:
         """Delete all records matching a source URL. Returns count deleted."""
         where_clause: dict[str, Any] = {"source_url": {"$eq": source_url}}

@@ -386,10 +386,6 @@ class DocsCrawler:
             duration_seconds=duration,
         )
 
-    async def refresh(self) -> IngestResult:
-        """Incremental refresh (identical to ingest in v0)."""
-        return await self.ingest()
-
     async def close(self) -> None:
         """Close the HTTP client."""
         if self._client is not None:

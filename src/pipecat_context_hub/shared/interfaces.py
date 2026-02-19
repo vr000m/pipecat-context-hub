@@ -85,7 +85,3 @@ class Ingester(Protocol):
     async def ingest(self) -> IngestResult:
         """Run a full ingestion pass."""
         ...
-
-    async def refresh(self) -> IngestResult:
-        """Incremental refresh (may be identical to ingest in v0)."""
-        ...

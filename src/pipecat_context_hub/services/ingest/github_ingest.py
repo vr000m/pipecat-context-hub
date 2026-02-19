@@ -430,10 +430,6 @@ class GitHubRepoIngester:
             duration_seconds=round(time.monotonic() - start, 3),
         )
 
-    async def refresh(self) -> IngestResult:
-        """Incremental refresh (same as ingest in v0)."""
-        return await self.ingest()
-
     # -- Internal helpers ----------------------------------------------------
 
     async def _ingest_repo(self, repo_slug: str) -> IngestResult:
