@@ -22,6 +22,7 @@
 - More advanced reranking and guardrail inference.
 - Optional scheduled auto-refresh and richer local observability.
 - Decide and document refresh failure policy: **empty-on-failure** (current v0 behavior — stale data is worse than missing data for LLM context) vs **retain-previous-on-failure** (keep last-known-good records when ingestion fails). May require snapshot/swap semantics in IndexStore.
+- Version-pinned ingestion: allow pinning to a specific pipecat release tag instead of always ingesting HEAD. Track index-level metadata (pipecat version, docs fetch timestamp) so users building against older pipecat versions get matching context. Warn when the indexed pipecat version diverges from the user's installed version.
 
 ## Context
 Pipecat developers need grounded context for coding and ideation based on rapidly changing docs and examples. A static prompt-only approach drifts quickly and does not provide verifiable citations or reproducible outputs.
