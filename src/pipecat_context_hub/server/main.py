@@ -74,7 +74,7 @@ def create_server(retriever: Retriever) -> Server:
     """Create and configure the MCP server with all tool handlers."""
     server = Server(
         name="pipecat-context-hub",
-        version="0.0.1",
+        version="0.0.2",
         instructions=_SERVER_INSTRUCTIONS,
     )
 

@@ -5,6 +5,28 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.2] - 2026-02-21
+
+### Added
+
+- `PIPECAT_HUB_EXTRA_REPOS` environment variable for adding community repos
+  without modifying source code (comma-separated slugs, appended to defaults
+  with deduplication)
+- CLI loads `.env` from the working directory on startup (explicit env vars
+  take precedence)
+- `.env.example` with documented usage
+- Single-project repo ingestion: repos with no qualifying subdirectories
+  (e.g. `src/`-layout packages) now fall back to treating the repo root as
+  a single example — all code files are indexed recursively
+- Root-level code file capture for Layout B repos: entry-point scripts
+  (e.g. `sidekick.py`) sitting at the repo root are now indexed alongside
+  subdirectory examples
+- MCP server instructions (uv package manager guidance for LLM clients)
+
+### Fixed
+
+- Server version string corrected from `0.1.0` to match package version
+
 ## [0.0.1] - 2026-02-19
 
 Initial release — local-first MCP server providing Pipecat docs and examples
