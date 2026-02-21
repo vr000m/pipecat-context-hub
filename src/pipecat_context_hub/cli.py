@@ -14,6 +14,8 @@ from pathlib import Path
 
 import click
 
+from pipecat_context_hub.shared.config import HubConfig
+
 
 def _load_dotenv() -> None:
     """Load ``.env`` file from the current directory if it exists.
@@ -33,8 +35,6 @@ def _load_dotenv() -> None:
         value = value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
-
-from pipecat_context_hub.shared.config import HubConfig
 
 
 def _configure_logging(level: str) -> None:
