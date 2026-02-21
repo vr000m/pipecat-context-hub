@@ -703,12 +703,20 @@ pipecat-context-hub serve
   root (e.g. `sidekick.py`) alongside subdirectory examples
 - Added `_iter_root_level_code_files()` helper (non-recursive scan)
 
-**get_code_snippet fix:**
-- `intent` + `path` + `line_start` now accepted together — `path` scopes the
-  intent search to a specific file instead of triggering a validation error
+**Bug fixes:**
+- Root-fallback repos now get full taxonomy enrichment (`execution_mode`,
+  `capability_tags`, `key_files`) — previously the `"."` key missed
+- Root-level captured files inherit taxonomy from a repo-root entry
+- Root-fallback scan skips `tests/`, `docs/`, `.github/`, etc. — exclusion
+  uses first-component-only check so nested modules like `src/pkg/config/`
+  are preserved
+- `.env` parser handles inline comments and quoted values correctly
+- `HubConfig` import moved to top of `cli.py` (E402)
+- `get_code_snippet`: `intent` + `path` + `line_start` now accepted
+  together — `path` scopes the intent search to a specific file
+- Server version string corrected (0.1.0 → 0.0.2)
 
 **Server:**
 - Added MCP server instructions (uv package manager guidance)
-- Fixed version string (0.1.0 → 0.0.2)
 
-**Test results:** 365 tests pass (13 new)
+**Test results:** 387 tests pass (35 new)
