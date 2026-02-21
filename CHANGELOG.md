@@ -33,6 +33,9 @@ This project uses [Semantic Versioning](https://semver.org/).
   (`execution_mode`, `capability_tags`, `key_files`) — previously the
   taxonomy lookup keyed by `"."` missed, producing unenriched chunks that
   broke filtered retrieval (e.g. `execution_mode="local"` returned 0 hits)
+- Root-level captured files (e.g. `sidekick.py` in Layout B repos) now
+  inherit taxonomy metadata from a repo-root entry — previously the per-file
+  lookup always missed, leaving chunks without `execution_mode`/`capability_tags`
 - Root-fallback ingestion now skips `tests/`, `docs/`, `.github/`, and other
   non-source directories — previously `_iter_code_files` only skipped build
   artifacts, polluting example search with test and CI files
