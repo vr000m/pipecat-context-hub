@@ -38,7 +38,10 @@ This project uses [Semantic Versioning](https://semver.org/).
   lookup always missed, leaving chunks without `execution_mode`/`capability_tags`
 - Root-fallback ingestion now skips `tests/`, `docs/`, `.github/`, and other
   non-source directories — previously `_iter_code_files` only skipped build
-  artifacts, polluting example search with test and CI files
+  artifacts, polluting example search with test and CI files.  The exclusion
+  is applied only to the **first** path component relative to the scan root,
+  so nested modules with the same name (e.g. `src/pkg/config/settings.py`)
+  are preserved
 - `.env` parser now correctly handles inline comments and quoted values —
   `KEY="val" # note` previously included `" # note` in the value, producing
   malformed repo slugs

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 from pipecat_context_hub.services.ingest.github_ingest import (
     GitHubRepoIngester,
-    _ROOT_FALLBACK_SKIP_DIRS,
+    _ROOT_FALLBACK_SKIP_ROOT_DIRS,
     _chunk_by_boundaries,
     _chunk_by_lines,
     _chunk_code,
@@ -265,8 +265,8 @@ class TestIterCodeFiles:
         result = _iter_code_files(tmp_path)
         assert len(result) == 0
 
-    def test_root_fallback_skip_dirs_excludes_tests_and_docs(self, tmp_path: Path):
-        """With _ROOT_FALLBACK_SKIP_DIRS, tests/ and docs/ are excluded."""
+    def test_skip_root_dirs_excludes_top_level_tests_and_docs(self, tmp_path: Path):
+        """With skip_root_dirs, top-level tests/ and docs/ are excluded."""
         (tmp_path / "src" / "pkg").mkdir(parents=True)
         (tmp_path / "src" / "pkg" / "server.py").write_text("pass")
         (tmp_path / "tests").mkdir()
@@ -276,25 +276,36 @@ class TestIterCodeFiles:
         (tmp_path / ".github" / "workflows").mkdir(parents=True)
         (tmp_path / ".github" / "workflows" / "ci.yml").write_text("on: push")
 
-        result = _iter_code_files(tmp_path, skip_dirs=_ROOT_FALLBACK_SKIP_DIRS)
+        result = _iter_code_files(tmp_path, skip_root_dirs=_ROOT_FALLBACK_SKIP_ROOT_DIRS)
         paths = {str(p.relative_to(tmp_path)) for p in result}
         assert "src/pkg/server.py" in paths
         assert "tests/test_server.py" not in paths
         assert "docs/conf.py" not in paths
         assert ".github/workflows/ci.yml" not in paths
 
-    def test_root_fallback_skip_dirs_keeps_src_and_lib(self, tmp_path: Path):
+    def test_skip_root_dirs_keeps_src_and_lib(self, tmp_path: Path):
         """Root fallback intentionally keeps src/ and lib/ (source code)."""
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "mod.py").write_text("pass")
         (tmp_path / "lib").mkdir()
         (tmp_path / "lib" / "util.py").write_text("pass")
 
-        # Use _ROOT_FALLBACK_SKIP_DIRS — src/ and lib/ should NOT be skipped
-        result = _iter_code_files(tmp_path, skip_dirs=_ROOT_FALLBACK_SKIP_DIRS)
+        result = _iter_code_files(tmp_path, skip_root_dirs=_ROOT_FALLBACK_SKIP_ROOT_DIRS)
         names = {p.name for p in result}
         assert "mod.py" in names
         assert "util.py" in names
+
+    def test_skip_root_dirs_keeps_nested_config_module(self, tmp_path: Path):
+        """Nested config/ module is NOT excluded — only top-level config/ is."""
+        (tmp_path / "src" / "pkg" / "config").mkdir(parents=True)
+        (tmp_path / "src" / "pkg" / "config" / "settings.py").write_text("DB='postgres'")
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "deploy.yaml").write_text("env: prod")
+
+        result = _iter_code_files(tmp_path, skip_root_dirs=_ROOT_FALLBACK_SKIP_ROOT_DIRS)
+        paths = {str(p.relative_to(tmp_path)) for p in result}
+        assert "src/pkg/config/settings.py" in paths
+        assert "config/deploy.yaml" not in paths
 
 
 # ---------------------------------------------------------------------------

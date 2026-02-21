@@ -207,11 +207,11 @@ _NON_EXAMPLE_ROOT_DIRS: frozenset[str] = frozenset({
     "include", "man", "config", "deploy",
 })
 
-# Directories to skip when the repo root IS the single example (root fallback).
-# Like _NON_EXAMPLE_ROOT_DIRS but keeps ``src/`` and ``lib/`` — those contain
-# the actual source code in single-project repos.
-_ROOT_FALLBACK_SKIP_DIRS: frozenset[str] = frozenset({
-    *_SKIP_DIRS,
+# Top-level directories to skip when the repo root IS the single example.
+# Only checked against the FIRST path component relative to the scan root —
+# nested dirs with the same name (e.g. ``src/pkg/config/``) are NOT excluded.
+# Keeps ``src/`` and ``lib/`` since those contain actual source code.
+_ROOT_FALLBACK_SKIP_ROOT_DIRS: frozenset[str] = frozenset({
     "docs", "doc", "tests", "test", "scripts", "tools",
     "ci", ".github", ".tox", ".nox", "assets", "static", "bin",
     "include", "man", "config", "deploy",
@@ -288,23 +288,29 @@ def _discover_root_level_examples(repo_root: Path) -> list[Path]:
 def _iter_code_files(
     directory: Path,
     *,
-    skip_dirs: frozenset[str] = _SKIP_DIRS,
+    skip_root_dirs: frozenset[str] = frozenset(),
 ) -> list[Path]:
     """Return all code files under *directory*, respecting skip/size rules.
 
     Args:
         directory: Root directory to scan recursively.
-        skip_dirs: Directory names to exclude from traversal.  Defaults to
-            ``_SKIP_DIRS``; callers may pass ``_ROOT_FALLBACK_SKIP_DIRS``
-            when scanning a repo root as a single example to also exclude
-            ``tests/``, ``docs/``, ``.github/``, etc.
+        skip_root_dirs: Extra directory names to exclude, checked only against
+            the **first** path component relative to *directory*.  This avoids
+            excluding nested modules that share a name with a top-level
+            non-source directory (e.g. ``src/pkg/config/`` is kept even when
+            top-level ``config/`` is excluded).  ``_SKIP_DIRS`` is always
+            checked at all depths.
     """
     files: list[Path] = []
     for p in sorted(directory.rglob("*")):
         if not p.is_file():
             continue
-        if any(part in skip_dirs for part in p.parts):
+        if any(part in _SKIP_DIRS for part in p.parts):
             continue
+        if skip_root_dirs:
+            first_component = p.relative_to(directory).parts[0]
+            if first_component in skip_root_dirs:
+                continue
         if p.suffix not in _CODE_EXTENSIONS:
             continue
         if p.stat().st_size > _MAX_FILE_BYTES:
@@ -533,10 +539,12 @@ class GitHubRepoIngester:
                     repo_slug,
                 )
 
-            # When the repo root IS the example, skip non-source dirs
-            # (tests/, docs/, .github/, …) to avoid polluting example search.
-            skip = _ROOT_FALLBACK_SKIP_DIRS if (is_root_fallback and ex_dir == repo_path) else _SKIP_DIRS
-            code_files = _iter_code_files(ex_dir, skip_dirs=skip)
+            # When the repo root IS the example, skip top-level non-source
+            # dirs (tests/, docs/, .github/, …) to avoid polluting example
+            # search.  Only the first path component is checked so nested
+            # modules like src/pkg/config/ are still indexed.
+            root_skip = _ROOT_FALLBACK_SKIP_ROOT_DIRS if (is_root_fallback and ex_dir == repo_path) else frozenset()
+            code_files = _iter_code_files(ex_dir, skip_root_dirs=root_skip)
             for code_file in code_files:
                 try:
                     content = code_file.read_text(encoding="utf-8", errors="replace")
