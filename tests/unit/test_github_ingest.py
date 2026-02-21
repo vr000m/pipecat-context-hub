@@ -439,6 +439,50 @@ class TestGitHubRepoIngester:
         records: list[ChunkedRecord] = writer.upsert.call_args[0][0]
         assert any(r.path == "src/main.py" for r in records)
 
+    async def test_root_fallback_chunks_have_taxonomy_metadata(self, tmp_path: Path):
+        """Root-fallback repos (src/-layout) get execution_mode/capability_tags."""
+        repo_dir = _create_fake_repo(
+            tmp_path / "data" / "repos",
+            "test-org_test-repo",
+            {
+                "src/pkg/server.py": (
+                    "from pipecat.pipeline import Pipeline\n"
+                    "from pipecat.services.deepgram import DeepgramSTTService\n"
+                    "def main():\n"
+                    "    Pipeline()\n"
+                ),
+            },
+        )
+
+        config = self._make_config(tmp_path)
+        writer = _make_mock_writer()
+        ingester = GitHubRepoIngester(config, writer)
+
+        from git import Repo as GitRepo
+
+        commit_sha = GitRepo(str(repo_dir)).head.commit.hexsha
+
+        with patch.object(
+            ingester, "_clone_or_fetch", return_value=(repo_dir, commit_sha)
+        ):
+            result = await ingester.ingest()
+
+        assert result.records_upserted > 0
+        assert result.errors == []
+        records: list[ChunkedRecord] = writer.upsert.call_args[0][0]
+
+        for rec in records:
+            assert rec.metadata.get("execution_mode") is not None, (
+                f"chunk {rec.path} missing execution_mode"
+            )
+            assert isinstance(rec.metadata.get("capability_tags"), list), (
+                f"chunk {rec.path} missing capability_tags"
+            )
+        # deepgram is not a cloud tag → execution_mode should be "local"
+        assert records[0].metadata["execution_mode"] == "local"
+        tag_names = records[0].metadata["capability_tags"]
+        assert "deepgram" in tag_names
+
     async def test_source_url_format(self, tmp_path: Path):
         """Records have correct GitHub blob URLs."""
         repo_dir = _create_fake_repo(

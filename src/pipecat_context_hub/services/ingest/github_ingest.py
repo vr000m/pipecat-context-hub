@@ -482,6 +482,18 @@ class GitHubRepoIngester:
         if not example_dirs:
             logger.warning("No example directories found in %s", repo_slug)
 
+        # When the root fallback is active (repo_path IS an example dir),
+        # the taxonomy lookup key is "." but build_from_directory never
+        # produces that key.  Synthesize it so chunks get full enrichment
+        # (execution_mode, capability_tags, key_files).
+        if repo_path in example_dirs and "." not in taxonomy_lookup:
+            from pipecat_context_hub.services.ingest.taxonomy import TaxonomyBuilder
+
+            root_builder = TaxonomyBuilder()
+            taxonomy_lookup["."] = root_builder.build_entry_for_repo_root(
+                repo_path, repo=repo_slug, commit_sha=commit_sha,
+            )
+
         now = datetime.now(tz=timezone.utc)
         chunking = self._config.chunking
 

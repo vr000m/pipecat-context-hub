@@ -536,6 +536,58 @@ class TestTaxonomyBuilderExamplesRepo:
         assert entries == []
 
 
+class TestBuildEntryForRepoRoot:
+    """Tests for build_entry_for_repo_root (single-project repos)."""
+
+    def test_path_is_dot(self, tmp_path: Path):
+        """Root entry uses path '.' for ingester lookup compatibility."""
+        (tmp_path / "main.py").write_text("from pipecat.pipeline import Pipeline\n")
+        builder = TaxonomyBuilder()
+        entry = builder.build_entry_for_repo_root(tmp_path, repo="org/repo")
+        assert entry.path == "."
+
+    def test_capabilities_inferred_from_code(self, tmp_path: Path):
+        """Root entry scans all .py files recursively for tags."""
+        src = tmp_path / "src" / "pkg"
+        src.mkdir(parents=True)
+        (src / "server.py").write_text(
+            "from pipecat.transports.daily import DailyTransport\n"
+            "from pipecat.services.deepgram import DeepgramSTTService\n"
+        )
+        builder = TaxonomyBuilder()
+        entry = builder.build_entry_for_repo_root(tmp_path, repo="org/repo")
+        tag_names = {t.name for t in entry.capabilities}
+        assert "daily" in tag_names
+        assert "deepgram" in tag_names
+
+    def test_readme_captured(self, tmp_path: Path):
+        """Root README is captured in the entry."""
+        (tmp_path / "main.py").write_text("pass\n")
+        (tmp_path / "README.md").write_text(
+            "# My Bot\n\nA voice agent for local use.\n"
+        )
+        builder = TaxonomyBuilder()
+        entry = builder.build_entry_for_repo_root(tmp_path, repo="org/repo")
+        assert entry.readme_content is not None
+        assert "voice agent" in entry.summary.lower()
+
+    def test_accumulated_in_entries(self, tmp_path: Path):
+        """Root entry is added to builder.entries."""
+        (tmp_path / "main.py").write_text("pass\n")
+        builder = TaxonomyBuilder()
+        builder.build_entry_for_repo_root(tmp_path, repo="org/repo")
+        assert len(builder.entries) == 1
+        assert builder.entries[0].path == "."
+
+    def test_commit_sha_propagated(self, tmp_path: Path):
+        (tmp_path / "main.py").write_text("pass\n")
+        builder = TaxonomyBuilder()
+        entry = builder.build_entry_for_repo_root(
+            tmp_path, repo="org/repo", commit_sha="abc123"
+        )
+        assert entry.commit_sha == "abc123"
+
+
 class TestTaxonomyBuilderBuildFromDirectory:
     def test_auto_detects_foundational(self, full_repo_dir: Path):
         builder = TaxonomyBuilder()
