@@ -281,6 +281,27 @@ class TaxonomyBuilder:
         self._entries.extend(entries)
         return entries
 
+    def build_entry_for_repo_root(
+        self,
+        root: Path,
+        *,
+        repo: str = "unknown",
+        commit_sha: str | None = None,
+    ) -> TaxonomyEntry:
+        """Build a single TaxonomyEntry treating the repo root as the example.
+
+        Used for single-project repos where the root IS the example (e.g.
+        ``src/``-layout packages).  The returned entry uses ``path="."`` so the
+        ingester's taxonomy lookup succeeds when
+        ``_discover_root_level_examples`` falls back to repo root.
+        """
+        entry = self._build_entry_for_example(
+            root, repo=repo, commit_sha=commit_sha,
+        )
+        entry = entry.model_copy(update={"path": "."})
+        self._entries.append(entry)
+        return entry
+
     def build_from_examples_repo(
         self,
         root: Path,

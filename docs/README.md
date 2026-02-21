@@ -53,7 +53,7 @@ See [docs/setup/README.md](setup/README.md) for the full setup overview.
 ```
 Ingestion:
   DocsCrawler (llms-full.txt)    ──┐
-  GitHubRepoIngester (2 repos)   ──┤→ EmbeddingIndexWriter → IndexStore
+  GitHubRepoIngester (N repos)   ──┤→ EmbeddingIndexWriter → IndexStore
   TaxonomyBuilder (auto-infer)   ──┘   (sentence-transformers)   (ChromaDB + FTS5)
     ↑                                         ↑
     Per-file taxonomy enrichment:             Metadata stored per chunk:
@@ -75,6 +75,9 @@ Retrieval:
   - Supports flat file layout (e.g. `01-say-one-thing.py`) and subdirectory layout
 - `pipecat-ai/pipecat-examples` — project-level examples
   - Discovered via root-level directory scanning (no `examples/` dir required)
+- Additional repos via `PIPECAT_HUB_EXTRA_REPOS` env var (comma-separated slugs)
+  - Supports single-project repos (`src/`-layout, root-level entry scripts)
+  - See `.env.example` for usage
 
 ### Technology
 

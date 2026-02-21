@@ -408,6 +408,27 @@ class TestGetCodeSnippet:
         with pytest.raises(ValueError, match="Exactly one of"):
             GetCodeSnippetInput(path="examples/01.py")
 
+    def test_input_intent_with_path_and_line_start(self):
+        """intent + path + line_start is valid (path scopes the intent search)."""
+        inp = GetCodeSnippetInput(
+            intent="kokoro TTS functions",
+            path="src/processors/kokoro_tts.py",
+            line_start=40,
+            max_lines=100,
+        )
+        assert inp.intent == "kokoro TTS functions"
+        assert inp.path == "src/processors/kokoro_tts.py"
+        assert inp.line_start == 40
+
+    def test_input_intent_with_path_only(self):
+        """intent + path (no line_start) is valid — path filters results."""
+        inp = GetCodeSnippetInput(
+            intent="create pipeline",
+            path="examples/bot.py",
+        )
+        assert inp.intent is not None
+        assert inp.path is not None
+
     def test_output_round_trip(self):
         out = GetCodeSnippetOutput(
             snippets=[

@@ -327,9 +327,11 @@ class GetExampleOutput(BaseModel):
 class GetCodeSnippetInput(BaseModel):
     """Input for the get_code_snippet MCP tool.
 
-    Exactly one of `symbol`, `intent`, or (`path` + `line_start`) must be provided.
-    v0: `intent` and `path + line_start` are required capabilities;
-    `symbol` lookup is best-effort.
+    Exactly one lookup mode must be provided:
+    - ``symbol`` — search by symbol name (best-effort in v0)
+    - ``intent`` — search by intent description (optionally scoped by ``path``
+      and/or ``line_start``/``line_end``)
+    - ``path`` + ``line_start`` (without ``intent``) — direct line-range lookup
     """
 
     symbol: str | None = None
@@ -343,12 +345,21 @@ class GetCodeSnippetInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_lookup_mode(self) -> GetCodeSnippetInput:
-        """Enforce exactly one lookup mode: symbol, intent, or path+line_start."""
-        modes = [
-            self.symbol is not None,
-            self.intent is not None,
-            self.path is not None and self.line_start is not None,
-        ]
+        """Enforce exactly one lookup mode.
+
+        ``path`` and ``line_start`` may accompany ``intent`` as optional
+        filters (scoping results to a specific file/range) without
+        triggering the "multiple modes" error.
+        """
+        has_symbol = self.symbol is not None
+        has_intent = self.intent is not None
+        # path+line_start is its own mode only when intent is absent.
+        has_path_range = (
+            self.path is not None
+            and self.line_start is not None
+            and not has_intent
+        )
+        modes = [has_symbol, has_intent, has_path_range]
         if sum(modes) == 0:
             raise ValueError(
                 "Exactly one of symbol, intent, or (path + line_start) must be provided."

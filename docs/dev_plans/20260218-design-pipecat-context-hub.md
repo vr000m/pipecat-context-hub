@@ -410,6 +410,7 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 5. `get_code_snippet`
 - **Purpose:** Return targeted code spans for reuse, not full files.
 - **Input:** one of `symbol` | `intent` | `path + line range`, optional `framework`, optional `example_ids`, optional `max_lines`.
+  - `intent` may be combined with `path` and/or `line_start`/`line_end` to scope the search to a specific file and line range.
 - **v0 behavior:** `intent` and `path + line range` are required capabilities; `symbol` lookup is best-effort and may fall back to intent/path retrieval.
 - **Output:** Minimal snippet(s) with start/end lines, dependency notes, required companion snippets, and interface expectations.
 
@@ -685,5 +686,29 @@ pipecat-context-hub serve
 #### Remaining Items
 - [ ] Load/latency benchmarks on retrieval paths (deferred to post-MVP)
 - [x] ~~DeepWiki secondary source ingestion~~ — DoA: replaced by llms-full.txt
-- [ ] v0 release tag + changelog
+- [x] v0 release tag + changelog
 - [ ] `compose_solution` and `propose_architecture` tools (v1)
+
+### v0.0.2 — Community Repos and Ingestion Improvements (2026-02-21)
+
+**Configurable extra repos:**
+- `PIPECAT_HUB_EXTRA_REPOS` env var for adding repos without modifying source
+- CLI loads `.env` from working directory on startup
+- `.env.example` added with documented usage
+
+**Ingestion for single-project repos:**
+- Root fallback: repos with only filtered dirs (e.g. `src/`-layout packages
+  like `pipecat-mcp-server`) now treat the repo root as a single example
+- Root-level file capture: Layout B repos also index code files at the repo
+  root (e.g. `sidekick.py`) alongside subdirectory examples
+- Added `_iter_root_level_code_files()` helper (non-recursive scan)
+
+**get_code_snippet fix:**
+- `intent` + `path` + `line_start` now accepted together — `path` scopes the
+  intent search to a specific file instead of triggering a validation error
+
+**Server:**
+- Added MCP server instructions (uv package manager guidance)
+- Fixed version string (0.1.0 → 0.0.2)
+
+**Test results:** 365 tests pass (13 new)

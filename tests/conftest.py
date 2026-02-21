@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
 import pytest
@@ -17,6 +18,20 @@ from pipecat_context_hub.shared.types import (
     TaxonomyEntry,
     UnknownItem,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_env_vars():
+    """Remove any env vars added during a test to prevent leakage.
+
+    Functions like ``_load_dotenv()`` write directly to ``os.environ``,
+    bypassing ``monkeypatch``.  Without this fixture, env vars set in one
+    test leak into subsequent tests in the same process.
+    """
+    before = set(os.environ)
+    yield
+    for key in set(os.environ) - before:
+        del os.environ[key]
 
 
 @pytest.fixture

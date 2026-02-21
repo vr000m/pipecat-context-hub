@@ -315,6 +315,20 @@ class TestGetCodeSnippet:
         parsed = GetCodeSnippetOutput.model_validate_json(result)
         assert len(parsed.snippets) == 1
 
+    async def test_by_intent_with_path_and_line(self, mock_retriever):
+        """intent + path + line_start is valid (path scopes the search)."""
+        result = await handle_get_code_snippet(
+            {
+                "intent": "kokoro TTS functions",
+                "path": "src/processors/kokoro_tts.py",
+                "line_start": 40,
+                "max_lines": 100,
+            },
+            mock_retriever,
+        )
+        parsed = GetCodeSnippetOutput.model_validate_json(result)
+        assert len(parsed.snippets) == 1
+
     async def test_no_lookup_mode_raises(self, mock_retriever):
         with pytest.raises(ValidationError):
             await handle_get_code_snippet({}, mock_retriever)

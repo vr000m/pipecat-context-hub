@@ -5,6 +5,46 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.2] - 2026-02-21
+
+### Added
+
+- `PIPECAT_HUB_EXTRA_REPOS` environment variable for adding community repos
+  without modifying source code (comma-separated slugs, appended to defaults
+  with deduplication)
+- CLI loads `.env` from the working directory on startup (explicit env vars
+  take precedence)
+- `.env.example` with documented usage
+- Single-project repo ingestion: repos with no qualifying subdirectories
+  (e.g. `src/`-layout packages) now fall back to treating the repo root as
+  a single example — all code files are indexed recursively
+- Root-level code file capture for Layout B repos: entry-point scripts
+  (e.g. `sidekick.py`) sitting at the repo root are now indexed alongside
+  subdirectory examples
+- MCP server instructions (uv package manager guidance for LLM clients)
+
+### Fixed
+
+- `get_code_snippet` now accepts `intent` combined with `path` and
+  `line_start` — `path` acts as an optional filter scoping the intent search
+  to a specific file, and `line_start`/`line_end` trim results to the
+  requested range
+- Root-fallback repos (`src/`-layout) now get full taxonomy enrichment
+  (`execution_mode`, `capability_tags`, `key_files`) — previously the
+  taxonomy lookup keyed by `"."` missed, producing unenriched chunks that
+  broke filtered retrieval (e.g. `execution_mode="local"` returned 0 hits)
+- Root-level captured files (e.g. `sidekick.py` in Layout B repos) now
+  inherit taxonomy metadata from a repo-root entry — previously the per-file
+  lookup always missed, leaving chunks without `execution_mode`/`capability_tags`
+- Root-fallback ingestion now skips `tests/`, `docs/`, `.github/`, and other
+  non-source directories — previously `_iter_code_files` only skipped build
+  artifacts, polluting example search with test and CI files
+- `.env` parser now correctly handles inline comments and quoted values —
+  `KEY="val" # note` previously included `" # note` in the value, producing
+  malformed repo slugs
+- `HubConfig` import moved to top of `cli.py` (fixes E402 lint violation)
+- Server version string corrected from `0.1.0` to match package version
+
 ## [0.0.1] - 2026-02-19
 
 Initial release — local-first MCP server providing Pipecat docs and examples

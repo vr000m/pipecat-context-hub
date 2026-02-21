@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 from pipecat_context_hub.shared.config import (
     ChunkingConfig,
@@ -11,6 +13,7 @@ from pipecat_context_hub.shared.config import (
     ServerConfig,
     SourceConfig,
     StorageConfig,
+    _EXTRA_REPOS_ENV,
 )
 
 
@@ -98,6 +101,47 @@ class TestSourceConfig:
 
     def test_round_trip(self):
         _round_trip(SourceConfig())
+
+    def test_effective_repos_without_env(self):
+        """Without env var, effective_repos equals repos."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(_EXTRA_REPOS_ENV, None)
+            s = SourceConfig()
+            assert s.effective_repos == s.repos
+
+    def test_effective_repos_with_env(self):
+        """Env var appends extra repos to defaults."""
+        with patch.dict(os.environ, {_EXTRA_REPOS_ENV: "org/repo-a,org/repo-b"}):
+            s = SourceConfig()
+            assert s.effective_repos == [
+                "pipecat-ai/pipecat",
+                "pipecat-ai/pipecat-examples",
+                "org/repo-a",
+                "org/repo-b",
+            ]
+
+    def test_effective_repos_deduplicates(self):
+        """Env var duplicates of default repos are ignored."""
+        with patch.dict(os.environ, {_EXTRA_REPOS_ENV: "pipecat-ai/pipecat,org/new"}):
+            s = SourceConfig()
+            assert s.effective_repos == [
+                "pipecat-ai/pipecat",
+                "pipecat-ai/pipecat-examples",
+                "org/new",
+            ]
+
+    def test_effective_repos_strips_whitespace(self):
+        """Whitespace around slugs is trimmed."""
+        with patch.dict(os.environ, {_EXTRA_REPOS_ENV: " org/a , org/b "}):
+            s = SourceConfig()
+            assert "org/a" in s.effective_repos
+            assert "org/b" in s.effective_repos
+
+    def test_effective_repos_ignores_empty_env(self):
+        """Empty or whitespace-only env var adds nothing."""
+        with patch.dict(os.environ, {_EXTRA_REPOS_ENV: "  "}):
+            s = SourceConfig()
+            assert s.effective_repos == s.repos
 
 
 class TestHubConfig:

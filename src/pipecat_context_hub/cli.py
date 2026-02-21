@@ -7,12 +7,53 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import time
+from pathlib import Path
 
 import click
 
 from pipecat_context_hub.shared.config import HubConfig
+
+
+def _load_dotenv() -> None:
+    """Load ``.env`` file from the current directory if it exists.
+
+    Only sets variables that are not already in the environment so that
+    explicit env vars always take precedence.  Supports quoted values
+    and inline comments::
+
+        KEY="value"          # ok
+        KEY='value'          # ok
+        KEY=value            # ok
+        KEY="value" # note   # inline comment stripped
+        KEY=value # note     # inline comment stripped
+    """
+    env_path = Path.cwd() / ".env"
+    if not env_path.is_file():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        # Quoted value: extract content between matching quotes.
+        if value and value[0] in ('"', "'"):
+            quote = value[0]
+            end = value.find(quote, 1)
+            value = value[1:end] if end != -1 else value[1:]
+        else:
+            # Unquoted: strip inline comments (# preceded by whitespace).
+            idx = value.find(" #")
+            if idx != -1:
+                value = value[:idx].rstrip()
+        if key not in os.environ:
+            os.environ[key] = value
 
 
 def _configure_logging(level: str) -> None:
@@ -29,6 +70,7 @@ def _configure_logging(level: str) -> None:
 @click.pass_context
 def main(ctx: click.Context, log_level: str) -> None:
     """Pipecat Context Hub — local-first MCP server."""
+    _load_dotenv()
     _configure_logging(log_level)
     ctx.ensure_object(dict)
     config = HubConfig()

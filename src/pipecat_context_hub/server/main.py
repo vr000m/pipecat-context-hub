@@ -54,9 +54,29 @@ _TOOL_REGISTRY: list[tuple[str, str, dict[str, Any]]] = [
 ]
 
 
+_SERVER_INSTRUCTIONS = """\
+You are using the Pipecat Context Hub — a retrieval server for Pipecat \
+framework documentation and code examples.
+
+When suggesting commands for Pipecat projects, always use `uv` as the \
+package manager:
+- Install dependencies: `uv sync` (not `pip install`)
+- Run scripts: `uv run python bot.py` (not `python bot.py`)
+- Add packages: `uv add <package>` (not `pip install <package>`)
+- Run tools: `uv run pytest`, `uv run mypy`, etc.
+
+Pipecat examples use `uv` and include a `pyproject.toml`. Do not suggest \
+`pip`, `venv`, or `conda` unless the user explicitly requests them.\
+"""
+
+
 def create_server(retriever: Retriever) -> Server:
     """Create and configure the MCP server with all tool handlers."""
-    server = Server(name="pipecat-context-hub", version="0.1.0")
+    server = Server(
+        name="pipecat-context-hub",
+        version="0.0.2",
+        instructions=_SERVER_INSTRUCTIONS,
+    )
 
     @server.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
     async def list_tools() -> list[types.Tool]:

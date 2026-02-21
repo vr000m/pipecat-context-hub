@@ -5,10 +5,14 @@ Defines chunking policies, embedding settings, storage paths, and server config.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field
+
+# Environment variable for adding extra repos (comma-separated).
+_EXTRA_REPOS_ENV = "PIPECAT_HUB_EXTRA_REPOS"
 
 
 class ChunkingConfig(BaseModel):
@@ -65,7 +69,13 @@ class ServerConfig(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    """Source repositories and docs URL."""
+    """Source repositories and docs URL.
+
+    Extra repos can be added via the ``PIPECAT_HUB_EXTRA_REPOS`` environment
+    variable (comma-separated slugs, e.g.
+    ``PIPECAT_HUB_EXTRA_REPOS="vr000m/decartai-sidekick,vr000m/pipecat-mcp-server"``).
+    They are appended to the default repos list.
+    """
 
     docs_url: str = Field(
         default="https://docs.pipecat.ai/",
@@ -79,6 +89,23 @@ class SourceConfig(BaseModel):
         default=["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples"],
         description="GitHub repos to ingest.",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_repos(self) -> list[str]:
+        """Repos list with any ``PIPECAT_HUB_EXTRA_REPOS`` entries appended."""
+        extra = os.environ.get(_EXTRA_REPOS_ENV, "").strip()
+        if not extra:
+            return list(self.repos)
+        extra_slugs = [s.strip() for s in extra.split(",") if s.strip()]
+        # Deduplicate while preserving order.
+        seen = set(self.repos)
+        result = list(self.repos)
+        for slug in extra_slugs:
+            if slug not in seen:
+                seen.add(slug)
+                result.append(slug)
+        return result
 
 
 class HubConfig(BaseModel):
