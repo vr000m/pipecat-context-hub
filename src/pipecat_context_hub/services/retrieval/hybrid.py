@@ -341,6 +341,9 @@ class HybridRetriever:
             filters["symbol"] = input.symbol
         elif input.intent:
             query_text = input.intent
+            # path narrows intent search to a specific file
+            if input.path is not None:
+                filters["path"] = input.path
         elif input.path is not None and input.line_start is not None:
             query_text = input.path
             filters["path"] = input.path
