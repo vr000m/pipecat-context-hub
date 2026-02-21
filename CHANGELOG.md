@@ -29,6 +29,11 @@ This project uses [Semantic Versioning](https://semver.org/).
   `line_start` — `path` acts as an optional filter scoping the intent search
   to a specific file, and `line_start`/`line_end` trim results to the
   requested range
+- Root-fallback repos (`src/`-layout) now get full taxonomy enrichment
+  (`execution_mode`, `capability_tags`, `key_files`) — previously the
+  taxonomy lookup keyed by `"."` missed, producing unenriched chunks that
+  broke filtered retrieval (e.g. `execution_mode="local"` returned 0 hits)
+- `HubConfig` import moved to top of `cli.py` (fixes E402 lint violation)
 - Server version string corrected from `0.1.0` to match package version
 
 ## [0.0.1] - 2026-02-19
