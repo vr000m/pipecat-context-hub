@@ -7,7 +7,7 @@ name = "pipecat-context-hub"
 version = "0.0.3"
 description = "Local-first MCP server providing fresh Pipecat docs/examples context for Claude Code, Cursor, VS Code, and Zed."
 readme = "docs/README.md"
-license = "MIT"
+license = "BSD-2-Clause"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0,<3.0",
