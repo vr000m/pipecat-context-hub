@@ -114,6 +114,7 @@ def refresh(ctx: click.Context) -> None:
     from pipecat_context_hub.services.index.store import IndexStore
     from pipecat_context_hub.services.ingest.docs_crawler import DocsCrawler
     from pipecat_context_hub.services.ingest.github_ingest import GitHubRepoIngester
+    from pipecat_context_hub.services.ingest.source_ingest import SourceIngester
 
     logger = logging.getLogger(__name__)
     config: HubConfig = ctx.obj["config"]
@@ -164,6 +165,18 @@ def refresh(ctx: click.Context) -> None:
             "GitHub ingest: upserted=%d errors=%d",
             github_result.records_upserted,
             len(github_result.errors),
+        )
+
+        # 3. Ingest pipecat source API — clear stale source records first
+        await index_store.delete_by_content_type("source")
+        source_ingester = SourceIngester(config, writer)
+        source_result = await source_ingester.ingest()
+        total_upserted += source_result.records_upserted
+        all_errors.extend(source_result.errors)
+        logger.info(
+            "Source ingest: upserted=%d errors=%d",
+            source_result.records_upserted,
+            len(source_result.errors),
         )
 
     asyncio.run(_run_refresh())

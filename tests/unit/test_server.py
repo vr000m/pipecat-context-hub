@@ -116,8 +116,8 @@ def mock_retriever():
 
 
 class TestToolRegistration:
-    def test_registry_has_five_tools(self):
-        assert len(_TOOL_REGISTRY) == 5
+    def test_registry_has_six_tools(self):
+        assert len(_TOOL_REGISTRY) == 6
 
     def test_registry_tool_names(self):
         names = [name for name, _, _ in _TOOL_REGISTRY]
@@ -127,6 +127,7 @@ class TestToolRegistration:
             "search_examples",
             "get_example",
             "get_code_snippet",
+            "search_api",
         ]
 
     def test_registry_schemas_are_valid_json_schema(self):

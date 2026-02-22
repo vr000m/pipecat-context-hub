@@ -13,12 +13,14 @@ from pipecat_context_hub.shared.types import (
     GetCodeSnippetInput,
     GetDocInput,
     GetExampleInput,
+    SearchApiInput,
     SearchDocsInput,
     SearchExamplesInput,
 )
 from pipecat_context_hub.server.tools.get_code_snippet import handle_get_code_snippet
 from pipecat_context_hub.server.tools.get_doc import handle_get_doc
 from pipecat_context_hub.server.tools.get_example import handle_get_example
+from pipecat_context_hub.server.tools.search_api import handle_search_api
 from pipecat_context_hub.server.tools.search_docs import handle_search_docs
 from pipecat_context_hub.server.tools.search_examples import handle_search_examples
 
@@ -50,6 +52,12 @@ _TOOL_REGISTRY: list[tuple[str, str, dict[str, Any]]] = [
         "get_code_snippet",
         "Get a code snippet by symbol name, intent description, or file path + line range.",
         GetCodeSnippetInput.model_json_schema(),
+    ),
+    (
+        "search_api",
+        "Search Pipecat framework API source code. Returns class definitions, method signatures, "
+        "base classes, and source snippets. Filter by module, class name, chunk type, or dataclass status.",
+        SearchApiInput.model_json_schema(),
     ),
 ]
 
@@ -100,6 +108,7 @@ def create_server(retriever: Retriever) -> Server:
             "search_examples": handle_search_examples,
             "get_example": handle_get_example,
             "get_code_snippet": handle_get_code_snippet,
+            "search_api": handle_search_api,
         }
         handler = handler_map.get(name)
         if handler is None:
