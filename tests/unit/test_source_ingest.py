@@ -294,6 +294,73 @@ class TestBuildChunks:
         assert len(class_chunks) == 1
         assert isinstance(class_chunks[0].metadata["base_classes"], list)
 
+    def test_backslash_rel_path_produces_valid_module_path(self):
+        """Regression: Windows-style backslash rel_path must not corrupt module_path.
+
+        _build_chunks receives rel_path from the ingester. If the caller
+        passes a Windows-style backslash path (e.g. from ``str(Path(...))``
+        on Windows), module_path must still be dotted, not contain
+        backslashes.
+        """
+        module_info = extract_module_info("x = 1\n", "pipecat.services.tts")
+        chunks = _build_chunks(
+            module_info=module_info,
+            source="x = 1\n",
+            rel_path="pipecat\\services\\tts.py",  # Windows-style
+            commit_sha="abc",
+            now=datetime(2026, 2, 21, tzinfo=timezone.utc),
+        )
+        # Source URLs should still work (backslashes are fine in URL path)
+        # but module_path is derived from module_info, not rel_path, so it
+        # should be correct. The real risk is in the ingester's rel_path
+        # derivation — see test_rel_path_uses_posix_separators below.
+        assert len(chunks) > 0
+        for chunk in chunks:
+            assert "\\" not in chunk.metadata["module_path"]
+
+
+class TestRelPathNormalization:
+    """Regression tests for cross-platform path normalization."""
+
+    def test_rel_path_uses_posix_separators(self, tmp_path: Path):
+        """as_posix() ensures forward slashes regardless of OS.
+
+        On Windows, Path.relative_to() returns backslash-separated paths.
+        The ingester must use as_posix() to normalize before building
+        module_path. We verify this by checking that as_posix() on a
+        relative path always uses forward slashes.
+        """
+        # Simulate the exact code path from source_ingest.py:
+        #   rel_path = py_file.relative_to(clone_dir / "src").as_posix()
+        #   module_path = rel_path.replace("/", ".").removesuffix(".py")
+        clone_src = tmp_path / "src"
+        clone_src.mkdir()
+        nested = clone_src / "pipecat" / "services" / "tts.py"
+        nested.parent.mkdir(parents=True)
+        nested.write_text("x = 1\n")
+
+        rel_path = nested.relative_to(clone_src).as_posix()
+        module_path = rel_path.replace("/", ".").removesuffix(".py")
+
+        assert rel_path == "pipecat/services/tts.py"
+        assert module_path == "pipecat.services.tts"
+        assert "\\" not in rel_path
+        assert "\\" not in module_path
+
+    def test_init_module_path_normalization(self, tmp_path: Path):
+        """__init__.py normalization works with posix paths."""
+        clone_src = tmp_path / "src"
+        nested = clone_src / "pipecat" / "frames" / "__init__.py"
+        nested.parent.mkdir(parents=True)
+        nested.write_text("")
+
+        rel_path = nested.relative_to(clone_src).as_posix()
+        module_path = rel_path.replace("/", ".").removesuffix(".py")
+        if module_path.endswith(".__init__"):
+            module_path = module_path.removesuffix(".__init__")
+
+        assert module_path == "pipecat.frames"
+
 
 # ---------------------------------------------------------------------------
 # SourceIngester tests
