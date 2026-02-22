@@ -53,6 +53,20 @@ def _record_to_metadata(
         val = record.metadata.get(key)
         if val is not None:
             meta[key] = int(val)
+    # Source API metadata fields
+    for key in ("module_path", "class_name", "chunk_type", "method_name", "method_signature", "return_type"):
+        val = record.metadata.get(key)
+        if val is not None:
+            meta[key] = str(val)
+    # Boolean metadata fields
+    for key in ("is_dataclass", "is_abstract"):
+        val = record.metadata.get(key)
+        if val is not None:
+            meta[key] = bool(val)
+    # List metadata stored as comma-separated
+    base_classes = record.metadata.get("base_classes")
+    if base_classes and isinstance(base_classes, list):
+        meta["base_classes"] = ",".join(str(b) for b in base_classes)
     return meta
 
 
@@ -75,6 +89,17 @@ def _metadata_to_record_fields(
         val = meta.get(key)
         if val is not None:
             extra_meta[key] = int(val)
+    for key in ("module_path", "class_name", "chunk_type", "method_name", "method_signature", "return_type"):
+        val = meta.get(key)
+        if val is not None:
+            extra_meta[key] = val
+    for key in ("is_dataclass", "is_abstract"):
+        val = meta.get(key)
+        if val is not None:
+            extra_meta[key] = bool(val)
+    base_classes_str = meta.get("base_classes", "")
+    if base_classes_str:
+        extra_meta["base_classes"] = base_classes_str.split(",")
 
     return ChunkedRecord(
         chunk_id=chunk_id,
@@ -109,6 +134,12 @@ def _build_where_clause(filters: dict[str, Any]) -> dict[str, Any] | None:
         conditions.append({"language": {"$eq": filters["language"]}})
     if "execution_mode" in filters:
         conditions.append({"execution_mode": {"$eq": filters["execution_mode"]}})
+    if "class_name" in filters:
+        conditions.append({"class_name": {"$eq": filters["class_name"]}})
+    if "chunk_type" in filters:
+        conditions.append({"chunk_type": {"$eq": filters["chunk_type"]}})
+    if "is_dataclass" in filters:
+        conditions.append({"is_dataclass": {"$eq": filters["is_dataclass"]}})
 
     if not conditions:
         return None
@@ -139,6 +170,10 @@ def _apply_post_filters(
             for r in filtered
             if _record_has_tags(r, tags_to_match)
         ]
+
+    if "module_path" in filters:
+        prefix = filters["module_path"]
+        filtered = [r for r in filtered if r.chunk.metadata.get("module_path", "").startswith(prefix)]
 
     return filtered
 
@@ -239,7 +274,7 @@ class VectorIndex:
             logger.warning("vector_search called without query_embedding")
             return []
 
-        needs_post_filter = "path" in query.filters or "capability_tags" in query.filters
+        needs_post_filter = "path" in query.filters or "capability_tags" in query.filters or "module_path" in query.filters
         where = _build_where_clause(query.filters)
 
         # Clamp n_results to collection size to prevent ChromaDB crash
