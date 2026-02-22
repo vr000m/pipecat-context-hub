@@ -275,6 +275,26 @@ class TestBuildSignature:
         sig = build_signature("func", params, None)
         assert sig == "(**kwargs: Any)"
 
+    def test_posonly_separator(self):
+        params = [
+            ParameterInfo(name="a", annotation="int"),
+            ParameterInfo(name="/"),
+            ParameterInfo(name="b", annotation="str"),
+        ]
+        sig = build_signature("func", params, None)
+        assert sig == "(a: int, /, b: str)"
+
+    def test_posonly_and_kwonly_separators(self):
+        params = [
+            ParameterInfo(name="a", annotation="int"),
+            ParameterInfo(name="/"),
+            ParameterInfo(name="b"),
+            ParameterInfo(name="*"),
+            ParameterInfo(name="c", annotation="bool", default="True"),
+        ]
+        sig = build_signature("func", params, "None")
+        assert sig == "(a: int, /, b, *, c: bool = True) -> None"
+
 
 class TestEmptyModule:
     """Parse empty string, verify empty ModuleInfo."""
@@ -470,6 +490,99 @@ class TestKwOnlyWithStarSeparator:
         port = [p for p in func.parameters if p.name == "port"][0]
         assert port.annotation == "int"
         assert port.default == "8080"
+
+
+class TestPosOnlyWithSlashSeparator:
+    """Ensure positional-only params (before /) are extracted with separator."""
+
+    SOURCE = textwrap.dedent("""\
+        def f(a: int, b: int, /, c: str = "x") -> None:
+            pass
+    """)
+
+    def test_slash_separator_present(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        param_names = [p.name for p in func.parameters]
+        assert "/" in param_names
+
+    def test_posonly_before_slash(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        param_names = [p.name for p in func.parameters]
+        slash_idx = param_names.index("/")
+        assert param_names[:slash_idx] == ["a", "b"]
+
+    def test_regular_after_slash(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        param_names = [p.name for p in func.parameters]
+        slash_idx = param_names.index("/")
+        assert "c" in param_names[slash_idx + 1:]
+
+    def test_posonly_annotations(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        a = [p for p in func.parameters if p.name == "a"][0]
+        assert a.annotation == "int"
+        c = [p for p in func.parameters if p.name == "c"][0]
+        assert c.annotation == "str"
+        assert c.default == "'x'"
+
+    def test_signature_includes_slash(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        sig = build_signature(func.name, func.parameters, func.return_type)
+        assert sig == "(a: int, b: int, /, c: str = 'x') -> None"
+
+
+class TestPosOnlyAndKwOnly:
+    """Ensure both / and * separators work together."""
+
+    SOURCE = textwrap.dedent("""\
+        def g(a: int, /, b: str, *, c: bool = True) -> None:
+            pass
+    """)
+
+    def test_both_separators_present(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        param_names = [p.name for p in func.parameters]
+        assert "/" in param_names
+        assert "*" in param_names
+
+    def test_order(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        param_names = [p.name for p in func.parameters]
+        assert param_names == ["a", "/", "b", "*", "c"]
+
+    def test_signature(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        sig = build_signature(func.name, func.parameters, func.return_type)
+        assert sig == "(a: int, /, b: str, *, c: bool = True) -> None"
+
+
+class TestPosOnlyOnly:
+    """All params are positional-only (no regular params after /)."""
+
+    SOURCE = textwrap.dedent("""\
+        def h(x: int, y: int, /) -> int:
+            return x + y
+    """)
+
+    def test_slash_at_end(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        param_names = [p.name for p in func.parameters]
+        assert param_names == ["x", "y", "/"]
+
+    def test_signature(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        func = info.functions[0]
+        sig = build_signature(func.name, func.parameters, func.return_type)
+        assert sig == "(x: int, y: int, /) -> int"
 
 
 class TestFunctionSourceExtraction:

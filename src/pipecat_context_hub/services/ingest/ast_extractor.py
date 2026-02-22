@@ -123,8 +123,9 @@ def _extract_parameters(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> li
     args = func_node.args
     params: list[ParameterInfo] = []
 
-    # Positional-only args (before /)
+    # Positional-only args (before /) and regular positional args
     all_positional = args.posonlyargs + args.args
+    num_posonly = len(args.posonlyargs)
 
     # Compute defaults alignment: defaults are right-aligned to positional args
     num_positional = len(all_positional)
@@ -138,6 +139,9 @@ def _extract_parameters(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> li
         if default_idx >= 0 and default_idx < len(args.defaults):
             default = ast.unparse(args.defaults[default_idx])
         params.append(ParameterInfo(name=arg.arg, annotation=annotation, default=default))
+        # Insert / separator after the last positional-only arg
+        if num_posonly > 0 and i == num_posonly - 1:
+            params.append(ParameterInfo(name="/"))
 
     # *args
     if args.vararg:
