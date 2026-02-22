@@ -19,6 +19,8 @@ from pipecat_context_hub.shared.types import (
     IndexQuery,
     IndexResult,
     IngestResult,
+    SearchApiInput,
+    SearchApiOutput,
     SearchDocsInput,
     SearchDocsOutput,
     SearchExamplesInput,
@@ -72,6 +74,8 @@ class Retriever(Protocol):
     async def get_example(self, input: GetExampleInput) -> GetExampleOutput: ...
 
     async def get_code_snippet(self, input: GetCodeSnippetInput) -> GetCodeSnippetOutput: ...
+
+    async def search_api(self, input: SearchApiInput) -> SearchApiOutput: ...
 
 
 # ---------------------------------------------------------------------------
