@@ -134,6 +134,7 @@ def _get_commit_sha(clone_dir: Path) -> str:
             capture_output=True,
             text=True,
             check=True,
+            timeout=10,
         )
         return result.stdout.strip()
     except Exception:
@@ -316,7 +317,7 @@ def _build_module_overview(info: ModuleInfo) -> str:
         parts.append("\n## Functions")
         for func in info.functions:
             sig = build_signature(func.name, func.parameters, func.return_type)
-            parts.append(f"- {func.name}{sig}")
+            parts.append(f"- def {func.name}{sig}")
     return "\n".join(parts)
 
 
@@ -335,7 +336,7 @@ def _build_class_overview(cls: ClassInfo, module_path: str) -> str:
     init_method = next((m for m in cls.methods if m.name == "__init__"), None)
     if init_method:
         sig = build_signature("__init__", init_method.parameters, init_method.return_type)
-        parts.append(f"\n## Constructor\n```python\ndef __init__{sig}\n```")
+        parts.append(f"\n## Constructor\n```python\ndef __init__{sig}\n```")  # sig is (params) -> ret
         if init_method.docstring:
             parts.append(init_method.docstring)
 
@@ -353,7 +354,7 @@ def _build_class_overview(cls: ClassInfo, module_path: str) -> str:
             if any(d == "classmethod" for d in m.decorators):
                 markers.append("classmethod")
             marker_str = f" [{', '.join(markers)}]" if markers else ""
-            parts.append(f"- {m.name}{sig}{marker_str}")
+            parts.append(f"- def {m.name}{sig}{marker_str}")
     return "\n".join(parts)
 
 

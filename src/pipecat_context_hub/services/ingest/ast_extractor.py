@@ -86,7 +86,11 @@ class ModuleInfo:
 def build_signature(name: str, params: list[ParameterInfo], return_type: str | None) -> str:
     """Build a human-readable signature string for a function or method.
 
-    Format: ``def name(param1: type = default, ...) -> ReturnType``
+    Format: ``(param1: type = default, ...) -> ReturnType``
+
+    The ``name`` parameter is accepted for API compatibility but is not
+    included in the output.  Callers that need ``def name(...)`` should
+    prepend it themselves.
     """
     parts: list[str] = []
     for p in params:
@@ -97,7 +101,7 @@ def build_signature(name: str, params: list[ParameterInfo], return_type: str | N
             part += f" = {p.default}"
         parts.append(part)
 
-    sig = f"def {name}({', '.join(parts)})"
+    sig = f"({', '.join(parts)})"
     if return_type is not None:
         sig += f" -> {return_type}"
     return sig

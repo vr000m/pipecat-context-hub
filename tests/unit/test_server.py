@@ -1,7 +1,7 @@
 """Unit tests for the MCP server: tool registration, call dispatch, transport.
 
 Tests cover:
-1. Server registers all 5 tools and tools/list returns them.
+1. Server registers all 6 tools and tools/list returns them.
 2. Tool calls dispatch correctly and return valid JSON.
 3. Unknown tool name raises ValueError.
 4. Transport module is importable and functions exist.
@@ -17,9 +17,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from pipecat_context_hub.shared.types import (
+    ApiHit,
     Citation,
     EvidenceReport,
     KnownItem,
+    SearchApiOutput,
     SearchDocsOutput,
     DocHit,
     GetDocOutput,
@@ -102,6 +104,21 @@ def mock_retriever():
             CodeSnippet(
                 content="pass", path="f.py", line_start=1, line_end=1,
                 language="python", citation=_citation(),
+            )
+        ],
+        evidence=_evidence(),
+    )
+
+    retriever.search_api.return_value = SearchApiOutput(
+        hits=[
+            ApiHit(
+                chunk_id="a1",
+                module_path="pipecat.services.tts",
+                chunk_type="class_overview",
+                snippet="class TTSService:",
+                is_dataclass=False,
+                citation=_citation(),
+                score=0.9,
             )
         ],
         evidence=_evidence(),

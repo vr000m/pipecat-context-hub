@@ -249,11 +249,11 @@ class TestBuildSignature:
 
     def test_no_params_no_return(self):
         sig = build_signature("foo", [], None)
-        assert sig == "def foo()"
+        assert sig == "()"
 
     def test_self_only(self):
         sig = build_signature("bar", [ParameterInfo(name="self")], None)
-        assert sig == "def bar(self)"
+        assert sig == "(self)"
 
     def test_typed_params_with_defaults(self):
         params = [
@@ -262,18 +262,18 @@ class TestBuildSignature:
             ParameterInfo(name="y", annotation="str"),
         ]
         sig = build_signature("baz", params, "bool")
-        assert sig == "def baz(self, x: int = 5, y: str) -> bool"
+        assert sig == "(self, x: int = 5, y: str) -> bool"
 
     def test_return_type_only(self):
         sig = build_signature("qux", [], "None")
-        assert sig == "def qux() -> None"
+        assert sig == "() -> None"
 
     def test_kwargs(self):
         params = [
             ParameterInfo(name="**kwargs", annotation="Any"),
         ]
         sig = build_signature("func", params, None)
-        assert sig == "def func(**kwargs: Any)"
+        assert sig == "(**kwargs: Any)"
 
 
 class TestEmptyModule:
