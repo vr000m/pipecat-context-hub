@@ -151,8 +151,9 @@ def _extract_parameters(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> li
     for i, arg in enumerate(args.kwonlyargs):
         annotation = ast.unparse(arg.annotation) if arg.annotation else None
         default = None
-        if i < len(args.kw_defaults) and args.kw_defaults[i] is not None:
-            default = ast.unparse(args.kw_defaults[i])
+        kw_default = args.kw_defaults[i] if i < len(args.kw_defaults) else None
+        if kw_default is not None:
+            default = ast.unparse(kw_default)
         params.append(ParameterInfo(name=arg.arg, annotation=annotation, default=default))
 
     # **kwargs

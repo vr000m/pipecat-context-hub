@@ -324,11 +324,15 @@ class FTSIndex:
             if key in filters:
                 clauses.append("c.metadata_json LIKE ?")
                 params.append(f'%"{key}": "{filters[key]}"%')
-        # Source API metadata filters
-        for key in ("class_name", "chunk_type", "module_path", "method_name"):
+        # Source API metadata filters (exact match)
+        for key in ("class_name", "chunk_type", "method_name"):
             if key in filters:
                 clauses.append("c.metadata_json LIKE ?")
                 params.append(f'%"{key}": "{filters[key]}"%')
+        # module_path is a prefix filter (e.g. "pipecat.services" matches "pipecat.services.tts")
+        if "module_path" in filters:
+            clauses.append("c.metadata_json LIKE ?")
+            params.append(f'%"module_path": "{filters["module_path"]}%')
         if "is_dataclass" in filters:
             val = "true" if filters["is_dataclass"] else "false"
             clauses.append("c.metadata_json LIKE ?")
