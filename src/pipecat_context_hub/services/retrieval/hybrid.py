@@ -1,7 +1,8 @@
 """Hybrid retrieval service combining vector and keyword search.
 
-Implements the Retriever protocol with five MCP tool methods:
-search_docs, get_doc, search_examples, get_example, get_code_snippet.
+Implements the Retriever protocol with six MCP tool methods:
+search_docs, get_doc, search_examples, get_example, get_code_snippet,
+search_api.
 
 Uses an IndexReader for data access, reranker for result merging, and
 evidence module for citation/report assembly.
@@ -25,6 +26,7 @@ from pipecat_context_hub.services.retrieval.evidence import (
 from pipecat_context_hub.services.retrieval.rerank import rerank
 from pipecat_context_hub.shared.interfaces import IndexReader
 from pipecat_context_hub.shared.types import (
+    ApiHit,
     Citation,
     CodeSnippet,
     DocHit,
@@ -38,6 +40,8 @@ from pipecat_context_hub.shared.types import (
     GetExampleOutput,
     IndexQuery,
     IndexResult,
+    SearchApiInput,
+    SearchApiOutput,
     SearchDocsInput,
     SearchDocsOutput,
     SearchExamplesInput,
@@ -410,6 +414,54 @@ class HybridRetriever:
 
         logger.debug("get_code_snippet: query=%r snippets=%d", query_text, len(snippets))
         return GetCodeSnippetOutput(snippets=snippets, evidence=evidence)
+
+    # -----------------------------------------------------------------
+    # search_api
+    # -----------------------------------------------------------------
+
+    async def search_api(self, input: SearchApiInput) -> SearchApiOutput:
+        """Search framework API source with hybrid retrieval."""
+        filters: dict[str, Any] = {"content_type": "source"}
+        if input.module:
+            filters["module_path"] = input.module
+        if input.class_name:
+            filters["class_name"] = input.class_name
+        if input.chunk_type:
+            filters["chunk_type"] = input.chunk_type
+        if input.is_dataclass is not None:
+            filters["is_dataclass"] = input.is_dataclass
+
+        results = await self._hybrid_search(input.query, filters, input.limit)
+        evidence = assemble_evidence(input.query, results, filters)
+
+        hits: list[ApiHit] = []
+        for r in results:
+            citation = build_citation(r)
+            base_classes_raw = r.chunk.metadata.get("base_classes", [])
+            if isinstance(base_classes_raw, str):
+                import json as _json
+                try:
+                    base_classes_raw = _json.loads(base_classes_raw)
+                except (ValueError, TypeError):
+                    base_classes_raw = base_classes_raw.split(",") if base_classes_raw else []
+            hits.append(
+                ApiHit(
+                    chunk_id=r.chunk.chunk_id,
+                    module_path=r.chunk.metadata.get("module_path", ""),
+                    class_name=r.chunk.metadata.get("class_name") or None,
+                    method_name=r.chunk.metadata.get("method_name") or None,
+                    base_classes=base_classes_raw,
+                    chunk_type=r.chunk.metadata.get("chunk_type", "unknown"),
+                    snippet=r.chunk.content[:500],
+                    method_signature=r.chunk.metadata.get("method_signature") or None,
+                    is_dataclass=bool(r.chunk.metadata.get("is_dataclass", False)),
+                    citation=citation,
+                    score=r.score,
+                )
+            )
+
+        logger.debug("search_api: query=%r hits=%d", input.query, len(hits))
+        return SearchApiOutput(hits=hits, evidence=evidence)
 
 
 # ---------------------------------------------------------------------------

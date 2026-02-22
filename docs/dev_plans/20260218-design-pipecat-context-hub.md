@@ -414,6 +414,11 @@ All of T1–T7 depend only on T0. T8 depends on all of T1–T7.
 - **v0 behavior:** `intent` and `path + line range` are required capabilities; `symbol` lookup is best-effort and may fall back to intent/path retrieval.
 - **Output:** Minimal snippet(s) with start/end lines, dependency notes, required companion snippets, and interface expectations.
 
+6. `search_api` *(added v0.0.3)*
+- **Purpose:** Search pipecat framework source API — classes, methods, constructors, frame types.
+- **Input:** `query`, optional `module` (prefix filter), optional `class_name`, optional `chunk_type` (`module_overview`|`class_overview`|`method`|`function`), optional `is_dataclass`, optional `limit`.
+- **Output:** Ranked `ApiHit` records with `module_path`, `class_name`, `method_name`, `base_classes`, `chunk_type`, `snippet`, `method_signature`, `is_dataclass`, citation, and score.
+
 ### MCP Tool Contracts (v1 deferred)
 1. `compose_solution`
 - **Purpose:** Build a capability graph by combining snippets from multiple examples and filling missing glue logic.
@@ -525,8 +530,10 @@ pipecat-context-hub/
 │       │   ├── __init__.py                           # T0
 │       │   ├── ingest/
 │       │   │   ├── __init__.py                       # T0
+│       │   │   ├── ast_extractor.py                  # v0.0.3
 │       │   │   ├── docs_crawler.py                   # T1
 │       │   │   ├── github_ingest.py                  # T2
+│       │   │   ├── source_ingest.py                  # v0.0.3
 │       │   │   └── taxonomy.py                       # T3
 │       │   ├── index/
 │       │   │   ├── __init__.py                       # T0
@@ -548,7 +555,8 @@ pipecat-context-hub/
 │               ├── get_doc.py                        # T6
 │               ├── search_examples.py                # T6
 │               ├── get_example.py                    # T6
-│               └── get_code_snippet.py               # T6
+│               ├── get_code_snippet.py               # T6
+│               └── search_api.py                     # v0.0.3
 ├── config/
 │   └── clients/
 │       ├── claude-code.json                          # T7
@@ -570,9 +578,11 @@ pipecat-context-hub/
     ├── conftest.py                                   # T0
     ├── unit/
     │   ├── __init__.py                               # T0
+    │   ├── test_ast_extractor.py                     # v0.0.3
     │   ├── test_shared_types.py                      # T0
     │   ├── test_docs_crawler.py                      # T1
     │   ├── test_github_ingest.py                     # T2
+    │   ├── test_source_ingest.py                     # v0.0.3
     │   ├── test_taxonomy.py                          # T3
     │   ├── test_index_store.py                       # T4
     │   ├── test_retrieval.py                         # T5
@@ -649,13 +659,13 @@ pipecat-context-hub/
 #### Architecture
 ```
 pipecat-context-hub refresh
-  → DocsCrawler + GitHubRepoIngester + TaxonomyBuilder
+  → DocsCrawler + GitHubRepoIngester + TaxonomyBuilder + SourceIngester
     → EmbeddingIndexWriter (auto sentence-transformers)
       → IndexStore (ChromaDB + SQLite FTS5)
 
 pipecat-context-hub serve
   → IndexStore → EmbeddingService → HybridRetriever
-    → MCP Server (stdio) → 5 tools
+    → MCP Server (stdio) → 6 tools
 ```
 
 #### T8 Review Fixes Applied
@@ -720,3 +730,80 @@ pipecat-context-hub serve
 - Added MCP server instructions (uv package manager guidance)
 
 **Test results:** 387 tests pass (35 new)
+
+### v0.0.3 — Source API Ingester (2026-02-21)
+
+**Motivation:** User feedback that the hub is "marginally useful at best" because
+it only has high-level docs and code examples. When users need class constructors,
+method signatures, frame types, or processor internals, they read `.venv` source
+directly. The hub indexed `docs.pipecat.ai` (guides) and GitHub repos (examples)
+but not the pipecat framework API itself.
+
+**New: AST-based source ingester (`SourceIngester`)**
+- Walks `repos/pipecat-ai_pipecat/src/pipecat/` (from existing GitHubRepoIngester
+  clone) and extracts structured API metadata via Python `ast` module
+- Two-tier chunking:
+  - **Module overview** (1 per file): module docstring + listing of classes/functions
+  - **Class overview** (1 per class): docstring + constructor + method signatures
+  - **Method/function chunk** (1 per non-trivial method/function ≥3 body lines): full source + docstring
+- Extracts: class names, base classes, decorators, method signatures with parameter
+  types/defaults, return types, docstrings, `@dataclass`/`@abstractmethod` detection
+- Chunks stored as `content_type="source"` with rich metadata: `module_path`,
+  `class_name`, `chunk_type`, `base_classes`, `method_signature`, `is_dataclass`,
+  `is_abstract`, `line_start`/`line_end`
+- Runs as step 3 in refresh, after GitHubRepoIngester guarantees fresh clone
+
+**New: `search_api` MCP tool**
+- Hybrid retrieval over `content_type="source"` chunks
+- Filters: `module` (prefix match), `class_name`, `chunk_type`, `is_dataclass`
+- Returns `ApiHit` objects with `module_path`, `base_classes`, `method_signature`, `snippet`
+
+**New types:** `SearchApiInput`, `ApiHit`, `SearchApiOutput`
+
+**Index backend updates:**
+- ChromaDB: Added `module_path`, `class_name`, `chunk_type`, `is_dataclass`,
+  `is_abstract`, `base_classes` to metadata serialization; native `$eq` filters
+  for `class_name`, `chunk_type`, `is_dataclass`; `module_path` prefix post-filter
+- SQLite FTS5: Added LIKE clauses for `class_name`, `chunk_type`, `module_path`,
+  `method_name`; boolean `is_dataclass` filter on metadata_json
+
+**Execution model:** T0 (serial: types + interfaces) → T1–T4 (parallel fan-out
+in 4 git worktrees) → T8 (serial integration + review fixes)
+
+| Task | Component | Files |
+|------|-----------|-------|
+| T0 | Foundation types | `types.py`, `interfaces.py` |
+| T1 | AST extractor | `ast_extractor.py`, `test_ast_extractor.py` |
+| T2 | Source ingester | `source_ingest.py`, `test_source_ingest.py` |
+| T3 | Index backends | `vector.py`, `fts.py` |
+| T4 | Retrieval + tool + CLI | `hybrid.py`, `search_api.py`, `main.py`, `cli.py` |
+| T8 | Integration | Conflict resolution, review fixes, `test_server.py` |
+
+**Review fixes applied:**
+- `build_signature()` returned `def name(params)` but callers prepended name
+  again → doubled names in module/class overview chunks. Fixed: returns
+  `(params) -> ReturnType` only, callers prepend `def name` where needed
+- `_get_commit_sha()` missing `timeout` on subprocess.run → could block
+  indefinitely. Fixed: `timeout=10`
+- `mock_retriever` fixture missing `search_api` return value → search_api
+  dispatch untested. Fixed: added `SearchApiOutput` mock with `ApiHit`
+- mypy type narrowing for `kw_defaults[i]` in AST extractor
+- FTS `module_path` filter: exact-match → prefix-match
+- `_make_chunk_id()`: added `line_start` to disambiguate duplicate
+  class/method names in same module (pipecat source has overloaded methods
+  and re-opened classes)
+- `base_classes` metadata: comma-join → JSON string (lossless for generics)
+- `rel_path`: `str()` → `as_posix()` for cross-platform Windows support
+- `chunk_type` field description: added missing `'function'` type
+
+**Refresh results:** 454 files → 5,075 source chunks, 10,017 total index
+(3,520 docs + 1,422 code + 5,075 source)
+
+**New files:**
+- `src/pipecat_context_hub/services/ingest/ast_extractor.py` (334 lines)
+- `src/pipecat_context_hub/services/ingest/source_ingest.py` (380 lines)
+- `src/pipecat_context_hub/server/tools/search_api.py` (18 lines)
+- `tests/unit/test_ast_extractor.py` (495 lines)
+- `tests/unit/test_source_ingest.py` (519 lines)
+
+**Test results:** 475 tests pass (88 new)

@@ -22,8 +22,8 @@ class ChunkedRecord(BaseModel):
 
     chunk_id: str = Field(description="Deterministic content-hash ID.")
     content: str = Field(description="The chunk text (markdown or code).")
-    content_type: Literal["doc", "code", "readme"] = Field(
-        description="Whether this chunk came from documentation, code, or a README."
+    content_type: Literal["doc", "code", "readme", "source"] = Field(
+        description="Whether this chunk came from documentation, code, a README, or framework source."
     )
     source_url: str = Field(description="Canonical URL for the source.")
     repo: str | None = Field(default=None, description="GitHub repo slug, e.g. 'pipecat-ai/pipecat'.")
@@ -393,4 +393,46 @@ class GetCodeSnippetOutput(BaseModel):
     """Output for the get_code_snippet MCP tool."""
 
     snippets: list[CodeSnippet] = Field(default_factory=list)
+    evidence: EvidenceReport
+
+
+# ---------------------------------------------------------------------------
+# MCP Tool I/O models — search_api
+# ---------------------------------------------------------------------------
+
+
+class SearchApiInput(BaseModel):
+    """Input for the search_api MCP tool."""
+
+    query: str
+    module: str | None = Field(default=None, description="Filter by module path prefix, e.g. 'pipecat.services'.")
+    class_name: str | None = Field(default=None, description="Filter by class name, e.g. 'TTSService'.")
+    chunk_type: str | None = Field(
+        default=None,
+        description="Filter by chunk type: 'module_overview', 'class_overview', 'method', or 'function'.",
+    )
+    is_dataclass: bool | None = Field(default=None, description="Filter for dataclass types only.")
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class ApiHit(BaseModel):
+    """A single API source search result."""
+
+    chunk_id: str
+    module_path: str
+    class_name: str | None = None
+    method_name: str | None = None
+    base_classes: list[str] = Field(default_factory=list)
+    chunk_type: str
+    snippet: str
+    method_signature: str | None = None
+    is_dataclass: bool = False
+    citation: Citation
+    score: float
+
+
+class SearchApiOutput(BaseModel):
+    """Output for the search_api MCP tool."""
+
+    hits: list[ApiHit] = Field(default_factory=list)
     evidence: EvidenceReport

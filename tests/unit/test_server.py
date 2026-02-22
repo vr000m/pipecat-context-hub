@@ -1,7 +1,7 @@
 """Unit tests for the MCP server: tool registration, call dispatch, transport.
 
 Tests cover:
-1. Server registers all 5 tools and tools/list returns them.
+1. Server registers all 6 tools and tools/list returns them.
 2. Tool calls dispatch correctly and return valid JSON.
 3. Unknown tool name raises ValueError.
 4. Transport module is importable and functions exist.
@@ -17,9 +17,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from pipecat_context_hub.shared.types import (
+    ApiHit,
     Citation,
     EvidenceReport,
     KnownItem,
+    SearchApiOutput,
     SearchDocsOutput,
     DocHit,
     GetDocOutput,
@@ -107,6 +109,21 @@ def mock_retriever():
         evidence=_evidence(),
     )
 
+    retriever.search_api.return_value = SearchApiOutput(
+        hits=[
+            ApiHit(
+                chunk_id="a1",
+                module_path="pipecat.services.tts",
+                chunk_type="class_overview",
+                snippet="class TTSService:",
+                is_dataclass=False,
+                citation=_citation(),
+                score=0.9,
+            )
+        ],
+        evidence=_evidence(),
+    )
+
     return retriever
 
 
@@ -116,8 +133,8 @@ def mock_retriever():
 
 
 class TestToolRegistration:
-    def test_registry_has_five_tools(self):
-        assert len(_TOOL_REGISTRY) == 5
+    def test_registry_has_six_tools(self):
+        assert len(_TOOL_REGISTRY) == 6
 
     def test_registry_tool_names(self):
         names = [name for name, _, _ in _TOOL_REGISTRY]
@@ -127,6 +144,7 @@ class TestToolRegistration:
             "search_examples",
             "get_example",
             "get_code_snippet",
+            "search_api",
         ]
 
     def test_registry_schemas_are_valid_json_schema(self):

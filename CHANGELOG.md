@@ -5,6 +5,44 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.3] - 2026-02-21
+
+### Added
+
+- **Source API ingester**: AST-based extraction of structured API metadata from
+  the pipecat framework source (`src/pipecat/`). Produces three chunk types —
+  module overview, class overview, and method/function — stored as
+  `content_type="source"`. Extracts class names, base classes, decorators,
+  method signatures with parameter types/defaults, return types, docstrings,
+  and `@dataclass`/`@abstractmethod` detection (454 files, 5,075 chunks)
+- New MCP tool `search_api` for searching framework internals (constructors,
+  method signatures, frame types, processor APIs) with filters for `module`
+  (prefix), `class_name`, `chunk_type` (`module_overview`, `class_overview`,
+  `method`, `function`), and `is_dataclass`
+- New shared types: `SearchApiInput`, `ApiHit`, `SearchApiOutput`
+- `Retriever` protocol extended with `search_api` method
+- ChromaDB and SQLite FTS5 index backends support new metadata fields:
+  `module_path`, `class_name`, `chunk_type`, `base_classes`, `method_signature`,
+  `is_dataclass`, `is_abstract`
+
+### Fixed
+
+- `build_signature()` no longer prepends `def name` — callers control the
+  prefix, preventing doubled names in module/class overview chunks
+- `_get_commit_sha()` now has `timeout=10` to prevent indefinite blocking
+- `_make_chunk_id()` includes `line_start` to disambiguate duplicate
+  class/method names within the same module (e.g. overloaded methods,
+  re-opened classes in pipecat source)
+- FTS `module_path` filter changed from exact-match to prefix-match, aligning
+  with the vector backend and `search_api` contract
+- mypy type narrowing for `kw_defaults[i]` in AST extractor (local variable
+  assignment before None check)
+- `base_classes` metadata stored as JSON string instead of comma-join,
+  preventing corruption for generics like `Base[Foo, Bar]`
+- `rel_path` in source ingester uses `as_posix()` for cross-platform
+  compatibility (Windows backslashes no longer break module path derivation)
+- `chunk_type` field description updated to include `'function'`
+
 ## [0.0.2] - 2026-02-21
 
 ### Added
