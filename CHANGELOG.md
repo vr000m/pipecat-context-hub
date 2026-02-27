@@ -29,9 +29,12 @@ This project uses [Semantic Versioning](https://semver.org/).
 - **Tool descriptions** rewritten to be action-oriented with use-case hints
   (e.g. `search_docs` now says "Use for 'how do I...?' questions")
 - `create_server()` accepts optional `index_store` parameter for
-  `get_hub_status` dispatch
-- CLI `refresh` command now persists metadata after each run
+  `get_hub_status` dispatch; tool is only listed when store is provided
+- CLI `refresh` command now persists metadata after each successful run
+  (failed refreshes record `last_refresh_errored_at` instead)
 - CLI `serve` command passes `index_store` to `create_server`
+- Single `_SERVER_VERSION` constant shared by server and handler
+- `IndexStore.data_dir` property exposes index path without private access
 
 ## [0.0.3] - 2026-02-21
 

@@ -7,6 +7,7 @@ to the VectorIndex and FTSIndex backends.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from pipecat_context_hub.services.index.fts import FTSIndex
@@ -26,9 +27,15 @@ class IndexStore:
 
     def __init__(self, config: StorageConfig) -> None:
         config.data_dir.mkdir(parents=True, exist_ok=True)
+        self._data_dir = config.data_dir
         self._vector = VectorIndex(config.chroma_path)
         self._fts = FTSIndex(config.sqlite_path)
         logger.info("IndexStore initialized with data_dir=%s", config.data_dir)
+
+    @property
+    def data_dir(self) -> Path:
+        """Path to the index data directory."""
+        return self._data_dir
 
     def clear(self) -> None:
         """Drop all records from both indexes for a clean rebuild."""

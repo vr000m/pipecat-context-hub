@@ -154,7 +154,7 @@ class TestHandleGetHubStatus:
         self,
         stats: dict[str, Any] | None = None,
         metadata: dict[str, str] | None = None,
-        sqlite_path: Path | None = None,
+        data_dir: Path | None = None,
     ) -> MagicMock:
         store = MagicMock()
         store.get_index_stats.return_value = stats or {
@@ -163,8 +163,7 @@ class TestHandleGetHubStatus:
             "commit_shas": [],
         }
         store.get_all_metadata.return_value = metadata or {}
-        # Mock the nested _fts._sqlite_path for index_path
-        store._fts._sqlite_path = sqlite_path or Path("/tmp/test/metadata.db")
+        store.data_dir = data_dir or Path("/tmp/test")
         return store
 
     async def test_fresh_install_no_metadata(self):
@@ -210,7 +209,7 @@ class TestHandleGetHubStatus:
     async def test_index_path_returned(self):
         from pipecat_context_hub.server.tools.get_hub_status import handle_get_hub_status
 
-        store = self._mock_index_store(sqlite_path=Path("/home/user/.pipecat-context-hub/metadata.db"))
+        store = self._mock_index_store(data_dir=Path("/home/user/.pipecat-context-hub"))
         result_json = await handle_get_hub_status({}, store)
         output = HubStatusOutput.model_validate_json(result_json)
         assert output.index_path == "/home/user/.pipecat-context-hub"

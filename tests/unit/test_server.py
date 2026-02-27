@@ -156,6 +156,7 @@ class TestToolRegistration:
         all_tools = list(_BASE_TOOLS) + [_HUB_STATUS_TOOL]
         for name, _, schema in all_tools:
             assert schema["type"] == "object", f"{name} schema must be an object"
+            assert "properties" in schema, f"{name} schema must have properties"
 
     def test_hub_status_not_listed_without_store(self, mock_retriever):
         """Without index_store, get_hub_status should not be registered."""
