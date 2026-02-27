@@ -30,7 +30,7 @@ from pipecat_context_hub.server.tools.search_examples import handle_search_examp
 logger = logging.getLogger(__name__)
 
 # Tool name → (description, input schema, handler)
-_TOOL_REGISTRY: list[tuple[str, str, dict[str, Any]]] = [
+_BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
     (
         "search_docs",
         "Search Pipecat documentation for conceptual questions, guides, configuration, and API "
@@ -69,13 +69,14 @@ _TOOL_REGISTRY: list[tuple[str, str, dict[str, Any]]] = [
         "or inheritance hierarchies.",
         SearchApiInput.model_json_schema(),
     ),
-    (
-        "get_hub_status",
-        "Get index health: last refresh time, record counts by type, indexed pipecat version, "
-        "and commit SHAs. Use to check if the index is fresh before answering questions.",
-        GetHubStatusInput.model_json_schema(),
-    ),
 ]
+
+_HUB_STATUS_TOOL: tuple[str, str, dict[str, Any]] = (
+    "get_hub_status",
+    "Get index health: last refresh time, record counts by type, indexed pipecat version, "
+    "and commit SHAs. Use to check if the index is fresh before answering questions.",
+    GetHubStatusInput.model_json_schema(),
+)
 
 
 _SERVER_INSTRUCTIONS = """\
@@ -106,7 +107,16 @@ Pipecat examples use `uv` and include a `pyproject.toml`. Do not suggest \
 
 
 def create_server(retriever: Retriever, index_store: IndexStore | None = None) -> Server:
-    """Create and configure the MCP server with all tool handlers."""
+    """Create and configure the MCP server with all tool handlers.
+
+    When *index_store* is provided the ``get_hub_status`` tool is registered;
+    otherwise it is omitted so clients never discover an unusable tool.
+    """
+    # Build the tool list — only include get_hub_status when store is available
+    tool_registry = list(_BASE_TOOLS)
+    if index_store is not None:
+        tool_registry.append(_HUB_STATUS_TOOL)
+
     server = Server(
         name="pipecat-context-hub",
         version="0.0.4",
@@ -121,7 +131,7 @@ def create_server(retriever: Retriever, index_store: IndexStore | None = None) -
                 description=description,
                 inputSchema=schema,
             )
-            for name, description, schema in _TOOL_REGISTRY
+            for name, description, schema in tool_registry
         ]
 
     @server.call_tool()  # type: ignore[untyped-decorator]
@@ -131,9 +141,7 @@ def create_server(retriever: Retriever, index_store: IndexStore | None = None) -
         args = arguments or {}
 
         # get_hub_status has a different dispatch signature (needs index_store)
-        if name == "get_hub_status":
-            if index_store is None:
-                raise ValueError("get_hub_status requires index_store")
+        if name == "get_hub_status" and index_store is not None:
             result_json = await handle_get_hub_status(args, index_store)
             return [types.TextContent(type="text", text=result_json)]
 
