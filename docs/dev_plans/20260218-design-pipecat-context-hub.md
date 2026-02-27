@@ -836,15 +836,26 @@ in 4 git worktrees) → T8 (serial integration + review fixes)
   timestamp, duration, record counts by type, commit SHAs, index path
 - `create_server()` accepts optional `index_store` for status tool dispatch
 
+**Review fixes (3 rounds: Codex + self-review):**
+- Conditional tool registration: `get_hub_status` only listed when
+  `index_store` is provided (split `_BASE_TOOLS` + `_HUB_STATUS_TOOL`)
+- Success-gated metadata: `last_refresh_at` only on success; failed
+  refreshes write `last_refresh_errored_at`
+- `IndexStore.data_dir` public property replaces private `_fts._sqlite_path`
+  access in handler
+- Single `_SERVER_VERSION` constant shared by server and handler (no
+  duplicate)
+- Handler typed as `IndexStore` instead of `Any`
+
 | File | Action |
 |------|--------|
-| `server/main.py` | Edit (instructions, descriptions, register tool, signature) |
-| `server/tools/get_hub_status.py` | Create |
+| `server/main.py` | Edit (instructions, descriptions, `_BASE_TOOLS`/`_HUB_STATUS_TOOL` split, `_SERVER_VERSION`, conditional registration) |
+| `server/tools/get_hub_status.py` | Create (imports `_SERVER_VERSION`, typed `IndexStore`, uses `data_dir`) |
 | `services/index/fts.py` | Edit (metadata table + methods + stats) |
-| `services/index/store.py` | Edit (metadata/stats proxy methods) |
+| `services/index/store.py` | Edit (metadata/stats proxy methods + `data_dir` property) |
 | `shared/types.py` | Edit (GetHubStatusInput, HubStatusOutput) |
-| `cli.py` | Edit (persist metadata, pass index_store) |
+| `cli.py` | Edit (persist metadata success-gated, pass index_store) |
 | `tests/unit/test_hub_status.py` | Create (15 tests) |
-| `tests/unit/test_server.py` | Edit (updated tool count and names) |
+| `tests/unit/test_server.py` | Edit (tool count/names, conditional registration, restored assertion) |
 
-**Test results:** 494 tests pass (19 new)
+**Test results:** 507 tests pass, lint clean
