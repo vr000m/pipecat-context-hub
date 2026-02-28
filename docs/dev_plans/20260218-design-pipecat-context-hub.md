@@ -1,7 +1,7 @@
 # Pipecat Context Hub Architecture Plan
 
 ## Header
-- **Status:** Complete (v0)
+- **Status:** Complete (v0.0.4)
 - **Type:** design
 - **Assignee:** vr000m
 - **Priority:** High

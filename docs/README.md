@@ -10,15 +10,17 @@ When your AI coding assistant needs Pipecat context, it calls MCP tools exposed 
 IDE/Agent  ←stdio→  pipecat-context-hub serve  ←→  Local index (~/.pipecat-context-hub/)
 ```
 
-### MCP Tools (v0)
+### MCP Tools
 
 | Tool | Purpose |
 |------|---------|
-| `search_docs` | Search Pipecat documentation by query |
-| `get_doc` | Fetch a specific doc page by ID |
-| `search_examples` | Find code examples by task, capability, or component |
-| `get_example` | Retrieve full example with files and metadata |
+| `search_docs` | Search Pipecat documentation for conceptual questions and guides |
+| `get_doc` | Fetch a specific doc page by chunk ID |
+| `search_examples` | Find working code examples by task, modality, or component |
+| `get_example` | Retrieve full example with source files and metadata |
 | `get_code_snippet` | Get targeted code spans by intent, symbol, or path |
+| `search_api` | Search framework internals — class definitions, method signatures, inheritance |
+| `get_hub_status` | Get index health: last refresh time, record counts, commit SHAs |
 
 All responses include an `EvidenceReport` with `known`/`unknown` items, confidence scores, and suggested follow-up queries.
 
@@ -115,19 +117,21 @@ src/pipecat_context_hub/
 ├── services/
 │   ├── embedding.py                # EmbeddingService + EmbeddingIndexWriter
 │   ├── ingest/
+│   │   ├── ast_extractor.py        # Python AST analysis (classes, methods, imports)
 │   │   ├── docs_crawler.py         # llms-full.txt ingester + markdown chunker
 │   │   ├── github_ingest.py        # Git clone/fetch + code chunking
+│   │   ├── source_ingest.py        # Source code chunking + module metadata
 │   │   └── taxonomy.py             # Automated capability inference
 │   ├── index/
 │   │   ├── vector.py               # ChromaDB vector index
 │   │   ├── fts.py                  # SQLite FTS5 keyword index
 │   │   └── store.py                # Unified IndexStore facade
 │   └── retrieval/
-│       ├── hybrid.py               # HybridRetriever (5 tool methods)
+│       ├── hybrid.py               # HybridRetriever (7 tool methods)
 │       ├── rerank.py               # RRF + code-intent reranking
 │       └── evidence.py             # Citation + evidence assembly
 └── server/
-    ├── main.py                     # MCP server with 5 tools
+    ├── main.py                     # MCP server with 7 tools
     ├── transport.py                # stdio transport
     └── tools/                      # Per-tool handler modules
 ```
