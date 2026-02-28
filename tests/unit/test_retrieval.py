@@ -744,6 +744,10 @@ class TestDecomposeQuery:
         assert decompose_query("event handler configuration") is None
         assert decompose_query("android setup guide") is None
 
+    def test_ampersand_in_name_no_split(self):
+        """Ampersand inside a name like 'AT&T' should not split."""
+        assert decompose_query("AT&T integration guide") is None
+
     def test_mixed_delimiters(self):
         result = decompose_query("TTS + STT, VAD")
         assert result is not None
