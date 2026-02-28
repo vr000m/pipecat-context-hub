@@ -96,6 +96,10 @@ Tool selection guide:
 - Retrieve a specific doc page → get_doc
 - Index health, freshness, version info → get_hub_status
 
+Multi-concept queries: use ` + ` or ` & ` to search for multiple concepts \
+at once (e.g. "idle timeout + function calling + Gemini"). Each concept is \
+searched independently and results are interleaved for balanced coverage.
+
 When suggesting commands for Pipecat projects, always use `uv` as the \
 package manager:
 - Install dependencies: `uv sync` (not `pip install`)
