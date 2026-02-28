@@ -11,10 +11,11 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Delimiters that signal concept boundaries.
-# \s+\+\s+ requires spaces around '+' to avoid splitting "C++".
-# \s+and\s+ requires spaces around 'and' to avoid splitting "handler".
-_DELIMITERS = re.compile(r"\s+\+\s+|\s+and\s+|,\s+|\s+&\s+")
+# Delimiters that signal concept boundaries.  Only ` + ` and ` & ` are
+# supported — they are unambiguous intent signals.  Comma and "and" were
+# removed because they produce false positives on natural-language queries
+# ("error handling, logging" or "search and replace").
+_DELIMITERS = re.compile(r"\s+\+\s+|\s+&\s+")
 
 # Maximum sub-concepts to bound cost.
 MAX_CONCEPTS = 5

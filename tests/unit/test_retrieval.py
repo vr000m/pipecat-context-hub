@@ -703,17 +703,14 @@ class TestDecomposeQuery:
         result = decompose_query("idle timeout + function calling + Gemini")
         assert result == ["idle timeout", "function calling", "Gemini"]
 
-    def test_and_delimiter(self):
-        result = decompose_query("TTS and STT and VAD")
-        assert result == ["TTS", "STT", "VAD"]
-
-    def test_comma_delimiter(self):
-        result = decompose_query("WebSocket transport, Daily transport, HTTP")
-        assert result == ["WebSocket transport", "Daily transport", "HTTP"]
-
     def test_ampersand_delimiter(self):
         result = decompose_query("TTS & STT")
         assert result == ["TTS", "STT"]
+
+    def test_mixed_plus_and_ampersand(self):
+        result = decompose_query("TTS + STT & VAD")
+        assert result is not None
+        assert len(result) == 3
 
     def test_single_concept_returns_none(self):
         assert decompose_query("how to build a voice bot") is None
@@ -739,19 +736,21 @@ class TestDecomposeQuery:
         """'C++' should not cause a split (no spaces around +)."""
         assert decompose_query("C++ integration") is None
 
-    def test_and_in_word_no_split(self):
-        """Words containing 'and' like 'handler' are not split."""
-        assert decompose_query("event handler configuration") is None
-        assert decompose_query("android setup guide") is None
-
     def test_ampersand_in_name_no_split(self):
         """Ampersand inside a name like 'AT&T' should not split."""
         assert decompose_query("AT&T integration guide") is None
 
-    def test_mixed_delimiters(self):
-        result = decompose_query("TTS + STT, VAD")
-        assert result is not None
-        assert len(result) == 3
+    def test_comma_not_a_delimiter(self):
+        """Commas in natural language should not trigger decomposition."""
+        assert decompose_query("error handling, logging, and testing") is None
+        assert decompose_query("WebSocket transport, Daily transport") is None
+
+    def test_and_not_a_delimiter(self):
+        """'and' in natural language should not trigger decomposition."""
+        assert decompose_query("search and replace API") is None
+        assert decompose_query("command and control") is None
+        assert decompose_query("TTS and STT") is None
+        assert decompose_query("drag and drop support") is None
 
 
 # ===========================================================================
@@ -764,18 +763,14 @@ class TestMultiConceptSearch:
 
     async def test_multi_concept_returns_all_concepts(self):
         """Multi-concept query returns results from all concepts."""
-        call_count = 0
-        concept_results = [
-            [_make_result("idle-1", score=0.9, content="idle timeout")],
-            [_make_result("fc-1", score=0.85, content="function calling")],
-            [_make_result("gem-1", score=0.8, content="Gemini service")],
-        ]
+        concept_map = {
+            "idle timeout": [_make_result("idle-1", score=0.9, content="idle timeout")],
+            "function calling": [_make_result("fc-1", score=0.85, content="function calling")],
+            "Gemini": [_make_result("gem-1", score=0.8, content="Gemini service")],
+        }
 
         async def mock_vector(query):
-            nonlocal call_count
-            idx = min(call_count, len(concept_results) - 1)
-            call_count += 1
-            return concept_results[idx]
+            return concept_map.get(query.query_text, [])
 
         mock_reader = _mock_index_reader()
         mock_reader.vector_search = mock_vector
@@ -802,8 +797,10 @@ class TestMultiConceptSearch:
         )
 
         assert len(output.hits) > 0
-        # vector_search called exactly once (not decomposed)
+        # vector_search called exactly once with the full query (not decomposed)
         mock_reader.vector_search.assert_called_once()
+        call_query = mock_reader.vector_search.call_args[0][0]
+        assert call_query.query_text == "getting started with pipecat"
 
     async def test_dedup_across_concepts(self):
         """Same chunk across concepts is deduplicated."""
@@ -811,14 +808,13 @@ class TestMultiConceptSearch:
         r1 = _make_result("idle-1", score=0.7, content="idle only")
         r2 = _make_result("gem-1", score=0.7, content="gemini only")
 
-        call_count = 0
+        concept_map = {
+            "idle timeout": [shared, r1],
+            "Gemini": [shared, r2],
+        }
 
         async def mock_vector(query):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return [shared, r1]
-            return [shared, r2]
+            return concept_map.get(query.query_text, [])
 
         mock_reader = _mock_index_reader()
         mock_reader.vector_search = mock_vector

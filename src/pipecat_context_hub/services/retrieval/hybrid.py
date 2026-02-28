@@ -89,9 +89,9 @@ class HybridRetriever:
     ) -> list[IndexResult]:
         """Run both vector and keyword search, merge with reranking.
 
-        If the query contains multiple concepts (delimited by ``+``,
-        ``and``, ``,``, or ``&``), runs per-concept searches and
-        interleaves results for balanced coverage.
+        If the query contains multiple concepts (delimited by `` + ``
+        or `` & ``), runs per-concept searches and interleaves results
+        for balanced coverage.
         """
         concepts = decompose_query(query_text)
         if concepts is not None:
@@ -151,7 +151,16 @@ class HybridRetriever:
     ) -> list[IndexResult]:
         """Run per-concept searches and interleave for balanced coverage."""
         n = len(concepts)
-        per_concept = max(2, -(-limit // n))  # ceiling division
+
+        # When the requested limit is smaller than the concept count,
+        # per-concept searches would over-fetch.  Fall back to a single
+        # search using the full (joined) query.
+        if limit < n:
+            return await self._single_concept_search(
+                " ".join(concepts), filters, limit
+            )
+
+        per_concept = -(-limit // n)  # ceiling division
 
         logger.debug(
             "Multi-concept search: concepts=%r per_concept=%d limit=%d",
