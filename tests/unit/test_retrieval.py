@@ -118,33 +118,36 @@ class TestReciprocalRankFusion:
     """Tests for reciprocal_rank_fusion()."""
 
     def test_single_list(self):
-        """RRF with a single list produces 1/(k+rank) scores."""
+        """RRF with a single list normalizes to 0–1 (rank 1 → 1.0)."""
         r1 = _make_result("a", score=0.9)
         r2 = _make_result("b", score=0.7)
         scores = reciprocal_rank_fusion([[r1, r2]])
 
-        assert scores["a"] == pytest.approx(1.0 / (DEFAULT_RRF_K + 1))
-        assert scores["b"] == pytest.approx(1.0 / (DEFAULT_RRF_K + 2))
+        # 1 list: max = 1/(k+1).  Rank 1 normalizes to 1.0.
+        assert scores["a"] == pytest.approx(1.0)
+        # Rank 2: (1/(k+2)) / (1/(k+1)) = (k+1)/(k+2)
+        assert scores["b"] == pytest.approx((DEFAULT_RRF_K + 1) / (DEFAULT_RRF_K + 2))
 
     def test_two_lists_overlap(self):
-        """RRF with overlapping results sums scores from both lists."""
+        """RRF with overlapping results sums and normalizes scores."""
         r1 = _make_result("a", score=0.9)
         r2 = _make_result("b", score=0.7)
         r3 = _make_result("a", score=0.8, match_type="keyword")
 
         scores = reciprocal_rank_fusion([[r1, r2], [r3]])
 
-        # "a" appears rank 1 in list 1, rank 1 in list 2
-        expected_a = 1.0 / (DEFAULT_RRF_K + 1) + 1.0 / (DEFAULT_RRF_K + 1)
-        assert scores["a"] == pytest.approx(expected_a)
-        # "b" only in list 1 at rank 2
-        assert scores["b"] == pytest.approx(1.0 / (DEFAULT_RRF_K + 2))
+        # "a" rank 1 in both lists → 2/(k+1) / (2/(k+1)) = 1.0
+        assert scores["a"] == pytest.approx(1.0)
+        # "b" rank 2 in list 1 only → (1/(k+2)) / (2/(k+1)) = (k+1) / (2*(k+2))
+        assert scores["b"] == pytest.approx(
+            (DEFAULT_RRF_K + 1) / (2 * (DEFAULT_RRF_K + 2))
+        )
 
     def test_custom_k(self):
-        """RRF with custom k value."""
+        """RRF with custom k normalizes rank 1 to 1.0."""
         r1 = _make_result("a", score=0.9)
         scores = reciprocal_rank_fusion([[r1]], k=10)
-        assert scores["a"] == pytest.approx(1.0 / (10 + 1))
+        assert scores["a"] == pytest.approx(1.0)
 
     def test_empty_lists(self):
         """RRF with empty lists returns empty dict."""

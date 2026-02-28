@@ -68,6 +68,9 @@ def _record_to_metadata(
     base_classes = record.metadata.get("base_classes")
     if base_classes and isinstance(base_classes, list):
         meta["base_classes"] = json.dumps(base_classes)
+    imports = record.metadata.get("imports")
+    if imports and isinstance(imports, list):
+        meta["imports"] = json.dumps(imports)
     return meta
 
 
@@ -105,6 +108,12 @@ def _metadata_to_record_fields(
         except (json.JSONDecodeError, TypeError):
             # Fallback for legacy comma-separated format
             extra_meta["base_classes"] = base_classes_str.split(",")
+    imports_str = meta.get("imports", "")
+    if imports_str:
+        try:
+            extra_meta["imports"] = json.loads(imports_str)
+        except (json.JSONDecodeError, TypeError):
+            extra_meta["imports"] = []
 
     return ChunkedRecord(
         chunk_id=chunk_id,

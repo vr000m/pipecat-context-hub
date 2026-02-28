@@ -203,6 +203,7 @@ def _build_chunks(
             "language": "python",
             "line_start": 1,
             "line_end": len(source.splitlines()),
+            "imports": [i for i in module_info.imports if "pipecat" in i],
         },
     ))
 

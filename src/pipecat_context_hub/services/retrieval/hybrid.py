@@ -11,6 +11,7 @@ evidence module for citation/report assembly.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -439,11 +440,16 @@ class HybridRetriever:
             citation = build_citation(r)
             base_classes_raw = r.chunk.metadata.get("base_classes", [])
             if isinstance(base_classes_raw, str):
-                import json as _json
                 try:
-                    base_classes_raw = _json.loads(base_classes_raw)
+                    base_classes_raw = json.loads(base_classes_raw)
                 except (ValueError, TypeError):
                     base_classes_raw = base_classes_raw.split(",") if base_classes_raw else []
+            imports_raw = r.chunk.metadata.get("imports", [])
+            if isinstance(imports_raw, str):
+                try:
+                    imports_raw = json.loads(imports_raw)
+                except (ValueError, TypeError):
+                    imports_raw = []
             hits.append(
                 ApiHit(
                     chunk_id=r.chunk.chunk_id,
@@ -455,6 +461,7 @@ class HybridRetriever:
                     snippet=r.chunk.content[:500],
                     method_signature=r.chunk.metadata.get("method_signature") or None,
                     is_dataclass=bool(r.chunk.metadata.get("is_dataclass", False)),
+                    imports=imports_raw,
                     citation=citation,
                     score=r.score,
                 )

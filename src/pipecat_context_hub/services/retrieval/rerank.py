@@ -30,12 +30,18 @@ def reciprocal_rank_fusion(
     ranked_lists: list[list[IndexResult]],
     k: int = DEFAULT_RRF_K,
 ) -> dict[str, float]:
-    """Compute RRF scores across multiple ranked lists.
+    """Compute RRF scores across multiple ranked lists, normalized to 0–1.
 
     For each result appearing across N ranked lists:
-        score = sum(1 / (k + rank_i))  where rank_i is 1-based.
+        raw_score = sum(1 / (k + rank_i))  where rank_i is 1-based.
 
-    Returns a dict mapping chunk_id → RRF score.
+    Scores are normalized by dividing by the theoretical maximum
+    (``num_lists / (k + 1)`` — achieved when a result ranks first in every
+    list).  This maps the output to the 0–1 range so downstream consumers
+    (evidence reports, confidence thresholds) can interpret scores
+    consistently.
+
+    Returns a dict mapping chunk_id → normalized RRF score.
     """
     scores: dict[str, float] = {}
     for ranked_list in ranked_lists:
@@ -51,6 +57,13 @@ def reciprocal_rank_fusion(
                 rrf_score,
                 scores[chunk_id],
             )
+
+    # Normalize to 0–1: divide by theoretical max (rank 1 in every list).
+    num_lists = len(ranked_lists)
+    max_rrf = num_lists / (k + 1) if num_lists > 0 else 1.0
+    if max_rrf > 0:
+        scores = {cid: s / max_rrf for cid, s in scores.items()}
+
     return scores
 
 
@@ -126,6 +139,8 @@ def apply_code_intent_heuristics(
                 score,
             )
 
+        # Clamp to [0, 1] after all adjustments.
+        score = max(0.0, min(1.0, score))
         adjusted.append((score, result))
 
     # Sort descending by adjusted score, stable (preserves order for ties)

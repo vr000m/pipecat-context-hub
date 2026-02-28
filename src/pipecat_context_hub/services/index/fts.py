@@ -38,6 +38,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     tokenize='porter unicode61'
 );
 
+CREATE TABLE IF NOT EXISTS index_metadata (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Triggers to keep FTS in sync with the chunks table.
 CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
     INSERT INTO chunks_fts(rowid, content) VALUES (new.rowid, new.content);
@@ -278,6 +284,53 @@ class FTSIndex:
             metadata=extra_meta,
         )
         return [IndexResult(chunk=record, score=1.0, match_type="keyword")]
+
+    def set_metadata(self, key: str, value: str) -> None:
+        """Upsert a key-value pair in the index_metadata table."""
+        now = datetime.now().astimezone().isoformat()
+        self._conn.execute(
+            """
+            INSERT INTO index_metadata (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        self._conn.commit()
+
+    def get_metadata(self, key: str) -> str | None:
+        """Get a metadata value by key, or None if not found."""
+        cursor = self._conn.execute(
+            "SELECT value FROM index_metadata WHERE key = ?", (key,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def get_all_metadata(self) -> dict[str, str]:
+        """Return all index_metadata as a dict."""
+        cursor = self._conn.execute("SELECT key, value FROM index_metadata")
+        return dict(cursor.fetchall())
+
+    def get_index_stats(self) -> dict[str, Any]:
+        """Return record counts by content_type, total count, and distinct commit SHAs."""
+        cursor = self._conn.execute(
+            "SELECT content_type, COUNT(*) FROM chunks GROUP BY content_type"
+        )
+        counts_by_type: dict[str, int] = dict(cursor.fetchall())
+        total: int = sum(counts_by_type.values())
+
+        cursor = self._conn.execute(
+            "SELECT DISTINCT commit_sha FROM chunks WHERE commit_sha IS NOT NULL"
+        )
+        commit_shas: list[str] = [r[0] for r in cursor.fetchall()]
+
+        return {
+            "counts_by_type": counts_by_type,
+            "total": total,
+            "commit_shas": commit_shas,
+        }
 
     @staticmethod
     def _sanitize_fts_query(query_text: str) -> str:

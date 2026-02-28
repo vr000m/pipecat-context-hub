@@ -401,6 +401,31 @@ class GetCodeSnippetOutput(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class GetHubStatusInput(BaseModel):
+    """Input for the get_hub_status MCP tool (no parameters needed)."""
+
+
+class HubStatusOutput(BaseModel):
+    """Output for the get_hub_status MCP tool."""
+
+    server_version: str = Field(description="Server version string.")
+    last_refresh_at: str | None = Field(
+        default=None, description="ISO timestamp of last successful refresh."
+    )
+    last_refresh_duration_seconds: float | None = Field(
+        default=None, description="Duration of last refresh in seconds."
+    )
+    total_records: int = Field(default=0, description="Total indexed records.")
+    counts_by_type: dict[str, int] = Field(
+        default_factory=dict,
+        description="Record counts by content type, e.g. {'doc': 3520, 'code': 1422, 'source': 5075}.",
+    )
+    commit_shas: list[str] = Field(
+        default_factory=list, description="Distinct git commit SHAs in the index."
+    )
+    index_path: str = Field(default="", description="Path to the index data directory.")
+
+
 class SearchApiInput(BaseModel):
     """Input for the search_api MCP tool."""
 
@@ -427,6 +452,10 @@ class ApiHit(BaseModel):
     snippet: str
     method_signature: str | None = None
     is_dataclass: bool = False
+    imports: list[str] = Field(
+        default_factory=list,
+        description="Pipecat-internal imports in this module.",
+    )
     citation: Citation
     score: float
 

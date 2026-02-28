@@ -7,6 +7,8 @@ to the VectorIndex and FTSIndex backends.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+from typing import Any
 
 from pipecat_context_hub.services.index.fts import FTSIndex
 from pipecat_context_hub.services.index.vector import VectorIndex
@@ -25,9 +27,15 @@ class IndexStore:
 
     def __init__(self, config: StorageConfig) -> None:
         config.data_dir.mkdir(parents=True, exist_ok=True)
+        self._data_dir = config.data_dir
         self._vector = VectorIndex(config.chroma_path)
         self._fts = FTSIndex(config.sqlite_path)
         logger.info("IndexStore initialized with data_dir=%s", config.data_dir)
+
+    @property
+    def data_dir(self) -> Path:
+        """Path to the index data directory."""
+        return self._data_dir
 
     def clear(self) -> None:
         """Drop all records from both indexes for a clean rebuild."""
@@ -68,6 +76,22 @@ class IndexStore:
     async def keyword_search(self, query: IndexQuery) -> list[IndexResult]:
         """Return results ranked by FTS5 keyword relevance."""
         return self._fts.search(query)
+
+    def set_metadata(self, key: str, value: str) -> None:
+        """Store a key-value pair in persistent index metadata."""
+        self._fts.set_metadata(key, value)
+
+    def get_metadata(self, key: str) -> str | None:
+        """Get a metadata value by key, or None if not found."""
+        return self._fts.get_metadata(key)
+
+    def get_all_metadata(self) -> dict[str, str]:
+        """Return all persistent index metadata as a dict."""
+        return self._fts.get_all_metadata()
+
+    def get_index_stats(self) -> dict[str, Any]:
+        """Return index statistics (counts by type, total, commit SHAs)."""
+        return self._fts.get_index_stats()
 
     def close(self) -> None:
         """Close underlying database connections."""
