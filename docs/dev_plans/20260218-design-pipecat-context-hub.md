@@ -858,4 +858,30 @@ in 4 git worktrees) → T8 (serial integration + review fixes)
 | `tests/unit/test_hub_status.py` | Create (15 tests) |
 | `tests/unit/test_server.py` | Edit (tool count/names, conditional registration, restored assertion) |
 
+**Part D: RRF score normalization (0–1)**
+- Raw RRF scores (~0.03 for docs) caused evidence module to always report
+  "low relevance" — thresholds (`HIGH=0.5`, `LOW=0.1`) were calibrated for
+  cosine similarity, not RRF scale
+- `reciprocal_rank_fusion()` now divides by theoretical max
+  (`num_lists / (k + 1)`): rank 1 in both lists → 1.0 (was 0.033)
+- Final scores clamped to [0, 1] after symbol boost / staleness penalty
+- Evidence module thresholds now trigger correctly without code changes
+
+**Part E: Pipecat import persistence**
+- `ast_extractor.py` already extracts `module_info.imports` but
+  `source_ingest.py` never stored them — one-line fix adds filtered
+  pipecat imports to module_overview metadata
+- Imports flattened as JSON string in ChromaDB (same pattern as
+  `base_classes`)
+- New `imports` field on `ApiHit` surfaces imports in `search_api` results
+
+| File | Action |
+|------|--------|
+| `services/retrieval/rerank.py` | Edit (normalize RRF to 0–1, clamp after heuristics) |
+| `services/ingest/source_ingest.py` | Edit (persist pipecat imports in module_overview) |
+| `services/index/vector.py` | Edit (flatten imports for ChromaDB) |
+| `shared/types.py` | Edit (add `imports` field to `ApiHit`) |
+| `services/retrieval/hybrid.py` | Edit (populate imports in search_api hits) |
+| `tests/unit/test_retrieval.py` | Edit (update RRF score expectations) |
+
 **Test results:** 507 tests pass, lint clean
