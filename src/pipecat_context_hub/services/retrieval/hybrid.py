@@ -151,7 +151,7 @@ class HybridRetriever:
     ) -> list[IndexResult]:
         """Run per-concept searches and interleave for balanced coverage."""
         n = len(concepts)
-        per_concept = max(2, limit // n)
+        per_concept = max(2, -(-limit // n))  # ceiling division
 
         logger.debug(
             "Multi-concept search: concepts=%r per_concept=%d limit=%d",
