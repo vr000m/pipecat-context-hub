@@ -1,7 +1,7 @@
 # Pipecat Context Hub Architecture Plan
 
 ## Header
-- **Status:** Complete (v0.0.4)
+- **Status:** In Progress (v0.0.5)
 - **Type:** design
 - **Assignee:** vr000m
 - **Priority:** High
@@ -885,3 +885,37 @@ in 4 git worktrees) → T8 (serial integration + review fixes)
 | `tests/unit/test_retrieval.py` | Edit (update RRF score expectations) |
 
 **Test results:** 507 tests pass, lint clean
+
+## v0.0.5 — Multi-Concept Query Decomposition
+
+**Branch:** `feature/multi-concept-search` | **PR:** #7
+
+**Problem:** Compound queries like "idle timeout + function calling + Gemini"
+return poor results — the single embedding matches no chunk well, and all
+top-N results cluster around whichever concept dominates.
+
+**Solution:** When explicit delimiters (` + ` or ` & `) are detected, split
+the query into sub-concepts, run per-concept searches in parallel, and
+interleave results for balanced coverage. Single-concept queries are unchanged.
+
+### Design Decisions
+
+- **Delimiters:** Only ` + ` and ` & ` — comma and "and" were removed after
+  review because they produce false positives ("error handling, logging",
+  "search and replace")
+- **Parallel execution:** Per-concept searches via `asyncio.gather`
+- **Interleaving:** Round-robin across concepts with deduplication by chunk_id
+- **Limit allocation:** Ceiling division; falls back to single-concept when
+  `limit < n` to avoid over-fetching
+- **Test mocks:** Dispatch by `query.query_text` (not call order) for
+  deterministic `asyncio.gather` behavior
+
+### Files
+
+| File | Action |
+|------|--------|
+| `services/retrieval/decompose.py` | Create (pure function `decompose_query()`) |
+| `services/retrieval/hybrid.py` | Edit (refactor `_hybrid_search` → dispatcher + single/multi) |
+| `tests/unit/test_retrieval.py` | Edit (16 new tests) |
+
+**Test results:** 522 tests pass, lint clean

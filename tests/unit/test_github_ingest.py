@@ -222,6 +222,29 @@ class TestFindExampleDirs:
         result = _find_example_dirs(tmp_path)
         assert result == [tmp_path]
 
+    def test_flat_files_in_examples_dir(self, tmp_path: Path):
+        """Flat .py files directly in examples/ cause examples/ to be returned."""
+        ex = tmp_path / "examples"
+        ex.mkdir(parents=True)
+        (ex / "single_agent.py").write_text("print('agent')")
+        (ex / "two_agents.py").write_text("print('agents')")
+
+        result = _find_example_dirs(tmp_path)
+        assert ex in result
+
+    def test_flat_files_mixed_with_subdirs(self, tmp_path: Path):
+        """Flat .py files in examples/ alongside subdirectory examples."""
+        ex = tmp_path / "examples"
+        ex.mkdir(parents=True)
+        (ex / "standalone.py").write_text("print('standalone')")
+        subdir = ex / "my-bot"
+        subdir.mkdir()
+        (subdir / "bot.py").write_text("print('bot')")
+
+        result = _find_example_dirs(tmp_path)
+        assert subdir in result
+        assert ex in result
+
     def test_skips_pycache(self, tmp_path: Path):
         ex = tmp_path / "examples" / "__pycache__"
         ex.mkdir(parents=True)

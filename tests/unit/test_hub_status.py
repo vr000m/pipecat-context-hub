@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from pipecat_context_hub.server.main import _SERVER_VERSION
 from pipecat_context_hub.services.index.fts import FTSIndex
 from pipecat_context_hub.shared.types import ChunkedRecord, HubStatusOutput
 
@@ -173,7 +174,7 @@ class TestHandleGetHubStatus:
         result_json = await handle_get_hub_status({}, store)
         output = HubStatusOutput.model_validate_json(result_json)
 
-        assert output.server_version == "0.0.4"
+        assert output.server_version == _SERVER_VERSION
         assert output.last_refresh_at is None
         assert output.last_refresh_duration_seconds is None
         assert output.total_records == 0
@@ -199,7 +200,7 @@ class TestHandleGetHubStatus:
         result_json = await handle_get_hub_status({}, store)
         output = HubStatusOutput.model_validate_json(result_json)
 
-        assert output.server_version == "0.0.4"
+        assert output.server_version == _SERVER_VERSION
         assert output.last_refresh_at == "2026-02-26T10:00:00+00:00"
         assert output.last_refresh_duration_seconds == 42.5
         assert output.total_records == 10017

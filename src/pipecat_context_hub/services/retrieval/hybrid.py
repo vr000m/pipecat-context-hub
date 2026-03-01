@@ -24,6 +24,7 @@ from pipecat_context_hub.services.retrieval.evidence import (
     build_citation,
     build_single_item_evidence,
 )
+from pipecat_context_hub.services.retrieval.decompose import decompose_query
 from pipecat_context_hub.services.retrieval.rerank import rerank
 from pipecat_context_hub.shared.interfaces import IndexReader
 from pipecat_context_hub.shared.types import (
@@ -88,10 +89,22 @@ class HybridRetriever:
     ) -> list[IndexResult]:
         """Run both vector and keyword search, merge with reranking.
 
-        The limit is applied to each individual search path. After RRF
-        merge, the combined results are truncated to the requested limit.
+        If the query contains multiple concepts (delimited by `` + ``
+        or `` & ``), runs per-concept searches and interleaves results
+        for balanced coverage.
         """
-        # Compute query embedding for vector search if embedding service available
+        concepts = decompose_query(query_text)
+        if concepts is not None:
+            return await self._multi_concept_search(concepts, filters, limit)
+        return await self._single_concept_search(query_text, filters, limit)
+
+    async def _single_concept_search(
+        self,
+        query_text: str,
+        filters: dict[str, Any],
+        limit: int,
+    ) -> list[IndexResult]:
+        """Run vector + keyword search for a single query, merge with RRF."""
         query_embedding: list[float] | None = None
         if self._embedding is not None:
             query_embedding = await asyncio.to_thread(
@@ -105,7 +118,7 @@ class HybridRetriever:
             limit=limit,
         )
 
-        logger.debug("Hybrid search: query=%r filters=%r limit=%d", query_text, filters, limit)
+        logger.debug("Single-concept search: query=%r filters=%r limit=%d", query_text, filters, limit)
 
         vector_results, keyword_results = await asyncio.gather(
             self._index.vector_search(query),
@@ -129,6 +142,53 @@ class HybridRetriever:
         )
 
         return reranked[:limit]
+
+    async def _multi_concept_search(
+        self,
+        concepts: list[str],
+        filters: dict[str, Any],
+        limit: int,
+    ) -> list[IndexResult]:
+        """Run per-concept searches and interleave for balanced coverage."""
+        n = len(concepts)
+
+        # When the requested limit is smaller than the concept count,
+        # per-concept searches would over-fetch.  Fall back to a single
+        # search using the full (joined) query.
+        if limit < n:
+            return await self._single_concept_search(
+                " ".join(concepts), filters, limit
+            )
+
+        per_concept = -(-limit // n)  # ceiling division
+
+        logger.debug(
+            "Multi-concept search: concepts=%r per_concept=%d limit=%d",
+            concepts,
+            per_concept,
+            limit,
+        )
+
+        concept_results = await asyncio.gather(
+            *(self._single_concept_search(c, filters, per_concept) for c in concepts)
+        )
+
+        # Round-robin interleave with deduplication
+        merged: list[IndexResult] = []
+        seen_ids: set[str] = set()
+        max_len = max((len(r) for r in concept_results), default=0)
+
+        for i in range(max_len):
+            for results in concept_results:
+                if i < len(results):
+                    cid = results[i].chunk.chunk_id
+                    if cid not in seen_ids:
+                        seen_ids.add(cid)
+                        merged.append(results[i])
+                        if len(merged) >= limit:
+                            return merged
+
+        return merged[:limit]
 
     # -----------------------------------------------------------------
     # search_docs

@@ -238,9 +238,21 @@ def _find_example_dirs(repo_root: Path) -> list[Path]:
 
 
 def _discover_under_examples(examples_dir: Path) -> list[Path]:
-    """Discover example dirs under an ``examples/`` directory."""
+    """Discover example dirs under an ``examples/`` directory.
+
+    Handles three layouts:
+    1. Subdirectories with code files (e.g. ``examples/my-bot/bot.py``)
+    2. Category dirs (e.g. ``examples/foundational/07-interruptible/``)
+    3. Flat code files directly in ``examples/`` (e.g. ``examples/single_agent.py``)
+       — returns ``examples/`` itself so the files are indexed.
+    """
     result: list[Path] = []
+    has_flat_code = False
+
     for child in sorted(examples_dir.iterdir()):
+        if child.is_file() and child.suffix in _CODE_EXTENSIONS:
+            has_flat_code = True
+            continue
         if child.name in _SKIP_DIRS or not child.is_dir():
             continue
         # Check if this dir directly contains code files.
@@ -254,6 +266,11 @@ def _discover_under_examples(examples_dir: Path) -> list[Path]:
             for grandchild in sorted(child.iterdir()):
                 if grandchild.is_dir() and grandchild.name not in _SKIP_DIRS:
                     result.append(grandchild)
+
+    # Flat code files directly in examples/ — treat the dir itself as an example.
+    if has_flat_code:
+        result.append(examples_dir)
+
     return result
 
 
@@ -543,8 +560,17 @@ class GitHubRepoIngester:
             # dirs (tests/, docs/, .github/, …) to avoid polluting example
             # search.  Only the first path component is checked so nested
             # modules like src/pkg/config/ are still indexed.
-            root_skip = _ROOT_FALLBACK_SKIP_ROOT_DIRS if (is_root_fallback and ex_dir == repo_path) else frozenset()
-            code_files = _iter_code_files(ex_dir, skip_root_dirs=root_skip)
+            #
+            # When examples/ itself is in the list (flat-file layout),
+            # only index direct children to avoid re-processing subdirectory
+            # examples that are already handled as separate entries.
+            examples_subdir = repo_path / "examples"
+            if ex_dir == examples_subdir:
+                code_files = _iter_root_level_code_files(ex_dir)
+            elif is_root_fallback and ex_dir == repo_path:
+                code_files = _iter_code_files(ex_dir, skip_root_dirs=_ROOT_FALLBACK_SKIP_ROOT_DIRS)
+            else:
+                code_files = _iter_code_files(ex_dir)
             for code_file in code_files:
                 try:
                     content = code_file.read_text(encoding="utf-8", errors="replace")

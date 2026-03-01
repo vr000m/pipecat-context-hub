@@ -63,7 +63,11 @@ Ingestion:
     key_files, execution_mode                 line_start, line_end
 
 Retrieval:
-  MCP Tool Call → HybridRetriever → vector_search + keyword_search
+  MCP Tool Call → HybridRetriever → decompose_query (split on + / &)
+                    ↓                     ↓
+              single-concept         multi-concept (parallel per-concept)
+                    ↓                     ↓
+              vector + keyword      round-robin interleave + dedup
                     ↓                     ↓
                   rerank (RRF)      evidence assembly
                     ↓
@@ -127,6 +131,7 @@ src/pipecat_context_hub/
 │   │   ├── fts.py                  # SQLite FTS5 keyword index
 │   │   └── store.py                # Unified IndexStore facade
 │   └── retrieval/
+│       ├── decompose.py            # Multi-concept query decomposition
 │       ├── hybrid.py               # HybridRetriever (7 tool methods)
 │       ├── rerank.py               # RRF + code-intent reranking
 │       └── evidence.py             # Citation + evidence assembly

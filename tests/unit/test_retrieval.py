@@ -24,6 +24,10 @@ from pipecat_context_hub.services.retrieval.evidence import (
     build_single_item_evidence,
     build_unknown_items,
 )
+from pipecat_context_hub.services.retrieval.decompose import (
+    MAX_CONCEPTS,
+    decompose_query,
+)
 from pipecat_context_hub.services.retrieval.hybrid import HybridRetriever
 from pipecat_context_hub.services.retrieval.rerank import (
     DEFAULT_RRF_K,
@@ -685,3 +689,148 @@ class TestHybridRetrieverProtocol:
         assert retriever._rrf_k == 30
         assert retriever._vector_weight == 0.7
         assert retriever._keyword_weight == 0.3
+
+
+# ===========================================================================
+# Decompose module tests
+# ===========================================================================
+
+
+class TestDecomposeQuery:
+    """Tests for decompose_query()."""
+
+    def test_plus_delimiter(self):
+        result = decompose_query("idle timeout + function calling + Gemini")
+        assert result == ["idle timeout", "function calling", "Gemini"]
+
+    def test_ampersand_delimiter(self):
+        result = decompose_query("TTS & STT")
+        assert result == ["TTS", "STT"]
+
+    def test_mixed_plus_and_ampersand(self):
+        result = decompose_query("TTS + STT & VAD")
+        assert result is not None
+        assert len(result) == 3
+
+    def test_single_concept_returns_none(self):
+        assert decompose_query("how to build a voice bot") is None
+
+    def test_empty_query_returns_none(self):
+        assert decompose_query("") is None
+
+    def test_max_concepts_capped(self):
+        query = " + ".join(f"concept{i}" for i in range(10))
+        result = decompose_query(query)
+        assert result is not None
+        assert len(result) == MAX_CONCEPTS
+
+    def test_empty_fragments_filtered(self):
+        """Empty fragments from leading delimiters are dropped."""
+        result = decompose_query(" + TTS + STT")
+        assert result == ["TTS", "STT"]
+
+    def test_single_letter_concepts_preserved(self):
+        """Single-letter concepts like 'C' and 'R' are valid search terms."""
+        assert decompose_query("C + concurrency") == ["C", "concurrency"]
+        assert decompose_query("R + metrics") == ["R", "metrics"]
+
+    def test_no_false_positive_natural_language(self):
+        assert decompose_query("how to use idle timeout with Gemini") is None
+
+    def test_no_split_on_plus_in_code(self):
+        """'C++' should not cause a split (no spaces around +)."""
+        assert decompose_query("C++ integration") is None
+
+    def test_ampersand_in_name_no_split(self):
+        """Ampersand inside a name like 'AT&T' should not split."""
+        assert decompose_query("AT&T integration guide") is None
+
+    def test_comma_not_a_delimiter(self):
+        """Commas in natural language should not trigger decomposition."""
+        assert decompose_query("error handling, logging, and testing") is None
+        assert decompose_query("WebSocket transport, Daily transport") is None
+
+    def test_and_not_a_delimiter(self):
+        """'and' in natural language should not trigger decomposition."""
+        assert decompose_query("search and replace API") is None
+        assert decompose_query("command and control") is None
+        assert decompose_query("TTS and STT") is None
+        assert decompose_query("drag and drop support") is None
+
+
+# ===========================================================================
+# Multi-concept search tests
+# ===========================================================================
+
+
+class TestMultiConceptSearch:
+    """Tests for HybridRetriever multi-concept decomposition."""
+
+    async def test_multi_concept_returns_all_concepts(self):
+        """Multi-concept query returns results from all concepts."""
+        concept_map = {
+            "idle timeout": [_make_result("idle-1", score=0.9, content="idle timeout")],
+            "function calling": [_make_result("fc-1", score=0.85, content="function calling")],
+            "Gemini": [_make_result("gem-1", score=0.8, content="Gemini service")],
+        }
+
+        async def mock_vector(query):
+            return concept_map.get(query.query_text, [])
+
+        mock_reader = _mock_index_reader()
+        mock_reader.vector_search = mock_vector
+        mock_reader.keyword_search = AsyncMock(return_value=[])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.search_docs(
+            SearchDocsInput(query="idle timeout + function calling + Gemini", limit=9)
+        )
+
+        ids = [h.doc_id for h in output.hits]
+        assert "idle-1" in ids
+        assert "fc-1" in ids
+        assert "gem-1" in ids
+
+    async def test_single_concept_unchanged(self):
+        """Single-concept query uses the original path (no decomposition)."""
+        r1 = _make_result("doc-1", score=0.8, content="Getting started")
+        mock_reader = _mock_index_reader(vector_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.search_docs(
+            SearchDocsInput(query="getting started with pipecat")
+        )
+
+        assert len(output.hits) > 0
+        # vector_search called exactly once with the full query (not decomposed)
+        mock_reader.vector_search.assert_called_once()
+        call_query = mock_reader.vector_search.call_args[0][0]
+        assert call_query.query_text == "getting started with pipecat"
+
+    async def test_dedup_across_concepts(self):
+        """Same chunk across concepts is deduplicated."""
+        shared = _make_result("shared-1", score=0.9, content="covers both")
+        r1 = _make_result("idle-1", score=0.7, content="idle only")
+        r2 = _make_result("gem-1", score=0.7, content="gemini only")
+
+        concept_map = {
+            "idle timeout": [shared, r1],
+            "Gemini": [shared, r2],
+        }
+
+        async def mock_vector(query):
+            return concept_map.get(query.query_text, [])
+
+        mock_reader = _mock_index_reader()
+        mock_reader.vector_search = mock_vector
+        mock_reader.keyword_search = AsyncMock(return_value=[])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.search_docs(
+            SearchDocsInput(query="idle timeout + Gemini", limit=10)
+        )
+
+        ids = [h.doc_id for h in output.hits]
+        assert ids.count("shared-1") == 1
+        assert "idle-1" in ids
+        assert "gem-1" in ids
