@@ -36,7 +36,8 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
     (
         "search_docs",
         "Search Pipecat documentation for conceptual questions, guides, configuration, and API "
-        "references. Use for 'how do I...?' questions. Returns ranked doc hits with evidence.",
+        "references. Use for 'how do I...?' questions. Returns ranked doc hits with evidence. "
+        "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'TTS + STT').",
         SearchDocsInput.model_json_schema(),
     ),
     (
@@ -49,7 +50,8 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "search_examples",
         "Find working Pipecat code examples by task, modality, or component. "
         "Use when the user needs runnable code patterns. "
-        "Filter by repo, capability tags, or foundational class.",
+        "Filter by repo, capability tags, or foundational class. "
+        "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'idle timeout + function calling').",
         SearchExamplesInput.model_json_schema(),
     ),
     (
@@ -61,14 +63,16 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
     (
         "get_code_snippet",
         "Get a targeted code snippet by symbol name, intent, or file path + line range. "
-        "Use for extracting specific reusable code fragments.",
+        "Use for extracting specific reusable code fragments. "
+        "For multiple topics, use ` + ` or ` & ` delimiters in the intent field.",
         GetCodeSnippetInput.model_json_schema(),
     ),
     (
         "search_api",
         "Search Pipecat framework internals — class definitions, method signatures, constructors, "
         "base classes, and frame types. Use when you need implementation details, type information, "
-        "or inheritance hierarchies.",
+        "or inheritance hierarchies. "
+        "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'BaseTransport + WebSocketTransport').",
         SearchApiInput.model_json_schema(),
     ),
 ]
