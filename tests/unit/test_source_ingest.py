@@ -19,6 +19,8 @@ from pipecat_context_hub.services.ingest.source_ingest import (
 )
 from pipecat_context_hub.shared.types import ChunkedRecord
 
+_TEST_REPO_SLUG = "pipecat-ai/pipecat"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -154,7 +156,7 @@ class TestMakeSourceUrl:
 
     def test_url_with_line_range(self):
         """URL includes line range fragment."""
-        url = _make_source_url("pipecat/frames/base.py", "abc123", 10, 50)
+        url = _make_source_url(_TEST_REPO_SLUG, "pipecat/frames/base.py", "abc123", 10, 50)
         assert url == (
             "https://github.com/pipecat-ai/pipecat/blob/abc123"
             "/src/pipecat/frames/base.py#L10-L50"
@@ -162,7 +164,7 @@ class TestMakeSourceUrl:
 
     def test_url_without_line_range(self):
         """URL without line range when start/end are 0."""
-        url = _make_source_url("pipecat/frames/base.py", "abc123", 0, 0)
+        url = _make_source_url(_TEST_REPO_SLUG, "pipecat/frames/base.py", "abc123", 0, 0)
         assert url == (
             "https://github.com/pipecat-ai/pipecat/blob/abc123"
             "/src/pipecat/frames/base.py"
@@ -215,6 +217,7 @@ class TestBuildChunks:
             rel_path="pipecat/processors/my.py",
             commit_sha="deadbeef",
             now=datetime(2026, 2, 21, tzinfo=timezone.utc),
+            repo_slug=_TEST_REPO_SLUG,
         )
 
     def test_module_overview_is_first(self):
@@ -309,6 +312,7 @@ class TestBuildChunks:
             rel_path="pipecat\\services\\tts.py",  # Windows-style
             commit_sha="abc",
             now=datetime(2026, 2, 21, tzinfo=timezone.utc),
+            repo_slug=_TEST_REPO_SLUG,
         )
         # Source URLs should still work (backslashes are fine in URL path)
         # but module_path is derived from module_info, not rel_path, so it
@@ -375,17 +379,16 @@ class TestSourceIngester:
         config.storage.data_dir = tmp_path
         return config
 
-    async def test_ingest_missing_dir(self, tmp_path: Path):
-        """Returns error when pipecat source directory is not found."""
+    async def test_ingest_missing_src_dir(self, tmp_path: Path):
+        """Returns 0 records when repo has no src/ directory."""
         config = self._make_config(tmp_path)
         writer = _make_mock_writer()
-        ingester = SourceIngester(config, writer)
+        ingester = SourceIngester(config, writer, "pipecat-ai/pipecat")
 
         result = await ingester.ingest()
 
-        assert result.source == "pipecat-source"
-        assert len(result.errors) == 1
-        assert "not found" in result.errors[0]
+        assert result.source == "source:pipecat-ai/pipecat"
+        assert result.errors == []
         assert result.records_upserted == 0
 
     async def test_ingest_with_mock_files(self, tmp_path: Path):
@@ -424,11 +427,11 @@ class TestSourceIngester:
 
         config = self._make_config(tmp_path)
         writer = _make_mock_writer()
-        ingester = SourceIngester(config, writer)
+        ingester = SourceIngester(config, writer, "pipecat-ai/pipecat")
 
         result = await ingester.ingest()
 
-        assert result.source == "pipecat-source"
+        assert result.source == "source:pipecat-ai/pipecat"
         assert result.errors == []
         assert result.records_upserted > 0
 
@@ -470,7 +473,7 @@ class TestSourceIngester:
 
         config = self._make_config(tmp_path)
         writer = _make_mock_writer()
-        ingester = SourceIngester(config, writer)
+        ingester = SourceIngester(config, writer, "pipecat-ai/pipecat")
 
         result = await ingester.ingest()
 
@@ -498,7 +501,7 @@ class TestSourceIngester:
 
         config = self._make_config(tmp_path)
         writer = _make_mock_writer()
-        ingester = SourceIngester(config, writer)
+        ingester = SourceIngester(config, writer, "pipecat-ai/pipecat")
 
         result = await ingester.ingest()
 
@@ -524,7 +527,7 @@ class TestSourceIngester:
         config = self._make_config(tmp_path)
         writer = _make_mock_writer()
         writer.upsert = AsyncMock(side_effect=RuntimeError("db error"))
-        ingester = SourceIngester(config, writer)
+        ingester = SourceIngester(config, writer, "pipecat-ai/pipecat")
 
         result = await ingester.ingest()
 
@@ -547,7 +550,7 @@ class TestSourceIngester:
 
         config = self._make_config(tmp_path)
         writer = _make_mock_writer()
-        ingester = SourceIngester(config, writer)
+        ingester = SourceIngester(config, writer, "pipecat-ai/pipecat")
 
         await ingester.ingest()
         await ingester.ingest()
@@ -574,7 +577,7 @@ class TestSourceIngester:
 
         config = self._make_config(tmp_path)
         writer = _make_mock_writer()
-        ingester = SourceIngester(config, writer)
+        ingester = SourceIngester(config, writer, "pipecat-ai/pipecat")
 
         result = await ingester.ingest()
 
@@ -583,3 +586,69 @@ class TestSourceIngester:
         module_paths = {rec.metadata["module_path"] for rec in records}
         # pipecat/frames/__init__.py -> module_path "pipecat.frames" (not "pipecat.frames.__init__")
         assert "pipecat.frames" in module_paths
+
+    async def test_ingest_extra_repo(self, tmp_path: Path):
+        """SourceIngester processes a non-pipecat repo with src/ layout."""
+        clone_dir = tmp_path / "repos" / "org_extra-repo"
+        src_dir = clone_dir / "src" / "my_pkg"
+        src_dir.mkdir(parents=True)
+
+        (src_dir / "__init__.py").write_text('"""My package."""\n')
+        (src_dir / "agent.py").write_text(
+            "class BaseAgent:\n"
+            '    """Base agent class."""\n\n'
+            "    def __init__(self, name: str):\n"
+            "        self.name = name\n"
+            "        self.state = {}\n"
+            "        self.running = False\n\n"
+            "    def run(self):\n"
+            '        """Run the agent."""\n'
+            "        self.running = True\n"
+            "        return self.state\n"
+        )
+
+        _create_git_repo(clone_dir, {
+            "src/my_pkg/__init__.py": '"""My package."""\n',
+            "src/my_pkg/agent.py": (src_dir / "agent.py").read_text(),
+        })
+
+        config = self._make_config(tmp_path)
+        writer = _make_mock_writer()
+        ingester = SourceIngester(config, writer, "org/extra-repo")
+
+        result = await ingester.ingest()
+
+        assert result.source == "source:org/extra-repo"
+        assert result.errors == []
+        assert result.records_upserted > 0
+
+        records: list[ChunkedRecord] = writer.upsert.call_args[0][0]
+        for rec in records:
+            assert rec.content_type == "source"
+            assert rec.repo == "org/extra-repo"
+
+        chunk_types = {rec.metadata["chunk_type"] for rec in records}
+        assert "module_overview" in chunk_types
+        assert "class_overview" in chunk_types
+
+        for rec in records:
+            assert rec.source_url.startswith("https://github.com/org/extra-repo/blob/")
+
+    async def test_repo_without_src_dir(self, tmp_path: Path):
+        """Repo without src/ directory returns 0 records, no errors."""
+        clone_dir = tmp_path / "repos" / "org_no-src-repo"
+        clone_dir.mkdir(parents=True)
+        (clone_dir / "README.md").write_text("# No src layout\n")
+
+        _create_git_repo(clone_dir, {"README.md": "# No src layout\n"})
+
+        config = self._make_config(tmp_path)
+        writer = _make_mock_writer()
+        ingester = SourceIngester(config, writer, "org/no-src-repo")
+
+        result = await ingester.ingest()
+
+        assert result.source == "source:org/no-src-repo"
+        assert result.errors == []
+        assert result.records_upserted == 0
+        writer.upsert.assert_not_called()

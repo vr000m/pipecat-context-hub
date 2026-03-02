@@ -1,7 +1,7 @@
 # Pipecat Context Hub Architecture Plan
 
 ## Header
-- **Status:** Complete (v0.0.5)
+- **Status:** In Progress (v0.0.6)
 - **Type:** design
 - **Assignee:** vr000m
 - **Priority:** High
@@ -919,3 +919,59 @@ interleave results for balanced coverage. Single-concept queries are unchanged.
 | `tests/unit/test_retrieval.py` | Edit (16 new tests) |
 
 **Test results:** 522 tests pass, lint clean
+
+## v0.0.6 — Multi-Repo Source Ingestion + `get_code_snippet` Retrieval Fix
+
+**Branch:** `feature/multi-repo-source-ingest`
+
+### Part 1: Multi-Repo Source Ingestion ✅
+
+**Problem:** `SourceIngester` only indexes `pipecat-ai/pipecat` — the repo
+slug, clone directory, and `src/` path are all hardcoded. Other repos with
+`src/` layouts (e.g. `pipecat-ai/pipecat-agents`, `pipecat-ai/gradient-bang`,
+`vr000m/pipecat-mcp-server`) are cloned by `GitHubRepoIngester` but their
+source code never gets AST-indexed. `search_api("BaseAgent")` returns nothing
+despite `pipecat-agents` being cloned.
+
+**Solution:** Parameterize `SourceIngester` to accept a `repo_slug`, auto-
+discover `src/` packages in each cloned repo, and loop over all
+`effective_repos` in the CLI.
+
+#### Design Decisions
+
+- **Constructor takes `repo_slug`:** Replaces hardcoded `_REPO_SLUG` constant
+- **Auto-discovery:** Finds package dirs under `src/` (dirs with `__init__.py`)
+- **Silent skip:** Repos without `src/` return 0 records with no error — normal
+  for example-only repos
+- **Per-repo logging:** Only logs repos that produce records; silent otherwise
+- **Source label:** `IngestResult.source` now includes repo slug
+  (`"source:pipecat-ai/pipecat"`) for clearer diagnostics
+
+#### Files
+
+| File | Action |
+|------|--------|
+| `services/ingest/source_ingest.py` | Edit (parameterize repo slug, auto-discover src/) |
+| `cli.py` | Edit (loop over `effective_repos`) |
+| `tests/unit/test_source_ingest.py` | Edit (update constructor calls, +2 new tests) |
+
+**Test results:** 527 tests pass, lint clean
+
+### Part 2: `get_code_snippet` Retrieval Fix (in progress)
+
+**Problem:** `get_code_snippet(symbol="MLXModel")` returns GLSL noise utility
+code instead of the Python enum. Root causes:
+
+1. **Wrong content_type filter:** `get_code_snippet` filters by
+   `content_type="code"` (example code), but framework classes like `MLXModel`
+   are in `content_type="source"` records from `SourceIngester`.
+2. **`symbol` filter silently dropped:** The retriever adds
+   `filters["symbol"]` but neither vector nor FTS backends handle it — search
+   degrades to pure embedding similarity.
+3. **No `symbol` metadata stored:** Even if the filter worked, ingestion never
+   extracts a `symbol` field. Source records store `class_name`,
+   `method_name`, `module_path` — but `symbol` isn't mapped to these.
+4. **`search_api` results not usable in `get_code_snippet`:** No chunk-ID
+   lookup, and content_type mismatch blocks cross-tool workflows.
+
+**Solution:** TBD — planning next.

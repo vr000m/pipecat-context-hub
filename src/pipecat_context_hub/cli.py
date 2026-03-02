@@ -169,17 +169,20 @@ def refresh(ctx: click.Context) -> None:
             len(github_result.errors),
         )
 
-        # 3. Ingest pipecat source API — clear stale source records first
+        # 3. Ingest source API from all repos — clear stale source records first
         await index_store.delete_by_content_type("source")
-        source_ingester = SourceIngester(config, writer)
-        source_result = await source_ingester.ingest()
-        total_upserted += source_result.records_upserted
-        all_errors.extend(source_result.errors)
-        logger.info(
-            "Source ingest: upserted=%d errors=%d",
-            source_result.records_upserted,
-            len(source_result.errors),
-        )
+        for repo_slug in config.sources.effective_repos:
+            source_ingester = SourceIngester(config, writer, repo_slug)
+            source_result = await source_ingester.ingest()
+            total_upserted += source_result.records_upserted
+            all_errors.extend(source_result.errors)
+            if source_result.records_upserted > 0:
+                logger.info(
+                    "Source ingest (%s): upserted=%d errors=%d",
+                    repo_slug,
+                    source_result.records_upserted,
+                    len(source_result.errors),
+                )
 
     asyncio.run(_run_refresh())
 

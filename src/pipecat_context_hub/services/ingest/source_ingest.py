@@ -40,71 +40,82 @@ _SKIP_DIRS: frozenset[str] = frozenset({
 # Minimum body lines for a method/function to get its own chunk.
 _MIN_METHOD_LINES = 3
 
-_REPO_SLUG = "pipecat-ai/pipecat"
-
-
 class SourceIngester:
-    """Ingests pipecat framework source as API reference chunks."""
+    """Ingests source code from a single repository as API reference chunks."""
 
-    def __init__(self, config: HubConfig, writer: IndexWriter) -> None:
+    def __init__(self, config: HubConfig, writer: IndexWriter, repo_slug: str) -> None:
         self._repos_dir = config.storage.data_dir / "repos"
         self._writer = writer
+        self._repo_slug = repo_slug
 
     async def ingest(self) -> IngestResult:
-        """Extract API metadata from pipecat source and index it."""
+        """Extract API metadata from repo source and index it."""
         start = time.monotonic()
         errors: list[str] = []
         records: list[ChunkedRecord] = []
 
-        # 1. Locate the pipecat clone
-        clone_dir = self._repos_dir / "pipecat-ai_pipecat"
-        src_dir = clone_dir / "src" / "pipecat"
+        # 1. Locate the repo clone
+        clone_dir = self._repos_dir / self._repo_slug.replace("/", "_")
+        src_dir = clone_dir / "src"
         if not src_dir.is_dir():
-            msg = f"Pipecat source not found at {src_dir}"
-            logger.error(msg)
-            return IngestResult(source="pipecat-source", errors=[msg])
+            return IngestResult(source=f"source:{self._repo_slug}")
 
-        # 2. Get commit SHA
+        # 2. Discover Python packages under src/
+        pkg_dirs = sorted(
+            d for d in src_dir.iterdir()
+            if d.is_dir() and (d / "__init__.py").is_file()
+        )
+        if not pkg_dirs:
+            return IngestResult(source=f"source:{self._repo_slug}")
+
+        # 3. Get commit SHA
         commit_sha = _get_commit_sha(clone_dir)
-
-        # 3. Walk src/pipecat/ recursively
-        py_files = _find_python_files(src_dir)
-        logger.info("Found %d Python files in %s", len(py_files), src_dir)
 
         now = datetime.now(tz=timezone.utc)
 
-        for py_file in py_files:
-            try:
-                source = py_file.read_text(encoding="utf-8", errors="replace")
-            except Exception as exc:
-                errors.append(f"Error reading {py_file}: {exc}")
-                continue
-
-            rel_path = py_file.relative_to(clone_dir / "src").as_posix()
-            module_path = rel_path.replace("/", ".").removesuffix(".py")
-            # Handle __init__.py: module path is the parent package
-            if module_path.endswith(".__init__"):
-                module_path = module_path.removesuffix(".__init__")
-
-            try:
-                module_info = extract_module_info(source, module_path)
-            except SyntaxError as exc:
-                errors.append(f"SyntaxError in {rel_path}: {exc}")
-                continue
-            except Exception as exc:
-                errors.append(f"AST error in {rel_path}: {exc}")
-                continue
-
-            file_records = _build_chunks(
-                module_info=module_info,
-                source=source,
-                rel_path=rel_path,
-                commit_sha=commit_sha,
-                now=now,
+        # 4. Walk each package directory
+        total_files = 0
+        for pkg_dir in pkg_dirs:
+            py_files = _find_python_files(pkg_dir)
+            total_files += len(py_files)
+            logger.info(
+                "Found %d Python files in %s (%s)",
+                len(py_files), pkg_dir.name, self._repo_slug,
             )
-            records.extend(file_records)
 
-        # 4. Batch upsert
+            for py_file in py_files:
+                try:
+                    source = py_file.read_text(encoding="utf-8", errors="replace")
+                except Exception as exc:
+                    errors.append(f"Error reading {py_file}: {exc}")
+                    continue
+
+                rel_path = py_file.relative_to(src_dir).as_posix()
+                module_path = rel_path.replace("/", ".").removesuffix(".py")
+                # Handle __init__.py: module path is the parent package
+                if module_path.endswith(".__init__"):
+                    module_path = module_path.removesuffix(".__init__")
+
+                try:
+                    module_info = extract_module_info(source, module_path)
+                except SyntaxError as exc:
+                    errors.append(f"SyntaxError in {rel_path}: {exc}")
+                    continue
+                except Exception as exc:
+                    errors.append(f"AST error in {rel_path}: {exc}")
+                    continue
+
+                file_records = _build_chunks(
+                    module_info=module_info,
+                    source=source,
+                    rel_path=rel_path,
+                    commit_sha=commit_sha,
+                    now=now,
+                    repo_slug=self._repo_slug,
+                )
+                records.extend(file_records)
+
+        # 5. Batch upsert
         upserted = 0
         if records:
             try:
@@ -114,11 +125,11 @@ class SourceIngester:
 
         duration = round(time.monotonic() - start, 3)
         logger.info(
-            "Source ingest: files=%d chunks=%d upserted=%d errors=%d duration=%.1fs",
-            len(py_files), len(records), upserted, len(errors), duration,
+            "Source ingest (%s): files=%d chunks=%d upserted=%d errors=%d duration=%.1fs",
+            self._repo_slug, total_files, len(records), upserted, len(errors), duration,
         )
         return IngestResult(
-            source="pipecat-source",
+            source=f"source:{self._repo_slug}",
             records_upserted=upserted,
             errors=errors,
             duration_seconds=duration,
@@ -160,9 +171,9 @@ def _make_chunk_id(
     return hashlib.sha256(key.encode()).hexdigest()[:24]
 
 
-def _make_source_url(rel_path: str, commit_sha: str, line_start: int, line_end: int) -> str:
+def _make_source_url(repo_slug: str, rel_path: str, commit_sha: str, line_start: int, line_end: int) -> str:
     """Build GitHub source URL with line range."""
-    base = f"https://github.com/{_REPO_SLUG}/blob/{commit_sha}/src/{rel_path}"
+    base = f"https://github.com/{repo_slug}/blob/{commit_sha}/src/{rel_path}"
     if line_start and line_end:
         return f"{base}#L{line_start}-L{line_end}"
     return base
@@ -175,6 +186,7 @@ def _build_chunks(
     rel_path: str,
     commit_sha: str,
     now: datetime,
+    repo_slug: str,
 ) -> list[ChunkedRecord]:
     """Build ChunkedRecord list from extracted module info."""
     records: list[ChunkedRecord] = []
@@ -186,8 +198,8 @@ def _build_chunks(
         chunk_id=_make_chunk_id(mp, "module_overview", "", "", commit_sha, line_start=1),
         content=module_content,
         content_type="source",
-        source_url=_make_source_url(rel_path, commit_sha, 1, len(source.splitlines())),
-        repo=_REPO_SLUG,
+        source_url=_make_source_url(repo_slug, rel_path, commit_sha, 1, len(source.splitlines())),
+        repo=repo_slug,
         path=rel_path,
         commit_sha=commit_sha,
         indexed_at=now,
@@ -215,8 +227,8 @@ def _build_chunks(
             chunk_id=_make_chunk_id(mp, "class_overview", cls.name, "", commit_sha, line_start=cls.line_start),
             content=class_content,
             content_type="source",
-            source_url=_make_source_url(rel_path, commit_sha, cls.line_start, cls.line_end),
-            repo=_REPO_SLUG,
+            source_url=_make_source_url(repo_slug, rel_path, commit_sha, cls.line_start, cls.line_end),
+            repo=repo_slug,
             path=rel_path,
             commit_sha=commit_sha,
             indexed_at=now,
@@ -247,9 +259,9 @@ def _build_chunks(
                 content=method_content,
                 content_type="source",
                 source_url=_make_source_url(
-                    rel_path, commit_sha, method.line_start, method.line_end
+                    repo_slug, rel_path, commit_sha, method.line_start, method.line_end
                 ),
-                repo=_REPO_SLUG,
+                repo=repo_slug,
                 path=rel_path,
                 commit_sha=commit_sha,
                 indexed_at=now,
@@ -280,8 +292,8 @@ def _build_chunks(
             chunk_id=_make_chunk_id(mp, "function", "", func.name, commit_sha, line_start=func.line_start),
             content=func_content,
             content_type="source",
-            source_url=_make_source_url(rel_path, commit_sha, func.line_start, func.line_end),
-            repo=_REPO_SLUG,
+            source_url=_make_source_url(repo_slug, rel_path, commit_sha, func.line_start, func.line_end),
+            repo=repo_slug,
             path=rel_path,
             commit_sha=commit_sha,
             indexed_at=now,
