@@ -11,7 +11,7 @@ import pytest
 
 from pipecat_context_hub.services.index.fts import FTSIndex
 from pipecat_context_hub.services.index.store import IndexStore
-from pipecat_context_hub.services.index.vector import VectorIndex
+from pipecat_context_hub.services.index.vector import VectorIndex, _CHROMA_BATCH_SIZE
 from pipecat_context_hub.shared.config import StorageConfig
 from pipecat_context_hub.shared.types import ChunkedRecord, IndexQuery, IndexResult
 
@@ -285,6 +285,106 @@ class TestVectorIndex:
         )
         results = idx2.search(query)
         assert len(results) == 2
+
+
+# ---------------------------------------------------------------------------
+# ChromaDB batch stress tests
+# ---------------------------------------------------------------------------
+
+
+class TestVectorIndexBatchStress:
+    """Stress tests for ChromaDB batch operations above _CHROMA_BATCH_SIZE.
+
+    These verify that upsert, delete_by_content_type, and delete_by_source
+    work correctly when record counts exceed ChromaDB's per-call limit.
+    """
+
+    # Just over the batch size to trigger multi-batch code paths.
+    OVER_LIMIT = _CHROMA_BATCH_SIZE + 100
+
+    @pytest.fixture()
+    def vector_index(self, tmp_path: Path) -> VectorIndex:
+        return VectorIndex(tmp_path / "chroma")
+
+    @pytest.mark.benchmark
+    def test_upsert_above_batch_size(self, vector_index: VectorIndex):
+        """Upsert more records than _CHROMA_BATCH_SIZE without error."""
+        records = _make_records(self.OVER_LIMIT)
+        count = vector_index.upsert(records)
+        assert count == self.OVER_LIMIT
+        assert vector_index._collection.count() == self.OVER_LIMIT
+
+    @pytest.mark.benchmark
+    def test_delete_by_content_type_above_batch_size(self, vector_index: VectorIndex):
+        """Delete more records than _CHROMA_BATCH_SIZE by content_type."""
+        records = [
+            _make_record(
+                chunk_id=f"doc-{i}",
+                content=f"doc content {i}",
+                content_type="doc",
+                embedding=_random_embedding(i),
+            )
+            for i in range(self.OVER_LIMIT)
+        ]
+        # Add a few code records that should survive the delete
+        survivors = [
+            _make_record(
+                chunk_id=f"code-{i}",
+                content=f"code content {i}",
+                content_type="code",
+                embedding=_random_embedding(self.OVER_LIMIT + i),
+            )
+            for i in range(3)
+        ]
+        vector_index.upsert(records + survivors)
+        assert vector_index._collection.count() == self.OVER_LIMIT + 3
+
+        deleted = vector_index.delete_by_content_type("doc")
+        assert deleted == self.OVER_LIMIT
+        assert vector_index._collection.count() == 3
+
+    @pytest.mark.benchmark
+    def test_delete_by_source_above_batch_size(self, vector_index: VectorIndex):
+        """Delete more records than _CHROMA_BATCH_SIZE by source URL."""
+        source_url = "https://example.com/big-source"
+        records = [
+            _make_record(
+                chunk_id=f"src-{i}",
+                content=f"source content {i}",
+                source_url=source_url,
+                embedding=_random_embedding(i),
+            )
+            for i in range(self.OVER_LIMIT)
+        ]
+        other = _make_record(
+            chunk_id="other-1",
+            content="other content",
+            source_url="https://example.com/other",
+            embedding=_random_embedding(self.OVER_LIMIT + 1),
+        )
+        vector_index.upsert(records + [other])
+        assert vector_index._collection.count() == self.OVER_LIMIT + 1
+
+        deleted = vector_index.delete_by_source(source_url)
+        assert deleted == self.OVER_LIMIT
+        assert vector_index._collection.count() == 1
+
+    @pytest.mark.benchmark
+    def test_upsert_then_search_above_batch_size(self, vector_index: VectorIndex):
+        """Records upserted in multiple batches are all searchable."""
+        records = _make_records(self.OVER_LIMIT)
+        vector_index.upsert(records)
+
+        # Search for a record from the second batch
+        target_idx = _CHROMA_BATCH_SIZE + 50
+        query = IndexQuery(
+            query_text="test",
+            query_embedding=records[target_idx].embedding,
+            limit=1,
+        )
+        results = vector_index.search(query)
+        assert len(results) == 1
+        assert results[0].chunk.chunk_id == f"chunk-{target_idx}"
 
 
 # ---------------------------------------------------------------------------
