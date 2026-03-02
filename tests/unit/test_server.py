@@ -239,6 +239,27 @@ class TestCLI:
 # ---------------------------------------------------------------------------
 
 
+class TestVersionConsistency:
+    """Ensure pyproject.toml version and _SERVER_VERSION stay in sync."""
+
+    def test_server_version_matches_pyproject(self):
+        """_SERVER_VERSION in server/main.py must match pyproject.toml [project].version."""
+        import tomllib
+        from pathlib import Path
+
+        pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        with pyproject_path.open("rb") as f:
+            pyproject_version = tomllib.load(f)["project"]["version"]
+
+        from pipecat_context_hub.server.main import _SERVER_VERSION
+
+        assert _SERVER_VERSION == pyproject_version, (
+            f"Version mismatch: _SERVER_VERSION={_SERVER_VERSION!r} "
+            f"but pyproject.toml version={pyproject_version!r}. "
+            f"Both must be updated together on each release."
+        )
+
+
 class TestEntryPoint:
     def test_main_module_has_main(self):
         """Verify __main__ module exists and references cli.main."""

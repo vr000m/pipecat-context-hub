@@ -31,6 +31,15 @@ search_api("BaseTransport + WebSocketTransport")
 
 Each concept is searched independently and results are interleaved for balanced coverage. Do NOT stuff multiple concepts into a single natural-language query — that clusters results around whichever concept dominates the embedding.
 
+## Versioning
+
+The version lives in **two places** — both must be updated together on every release:
+
+1. `pyproject.toml` → `[project].version`
+2. `src/pipecat_context_hub/server/main.py` → `_SERVER_VERSION`
+
+A test (`tests/unit/test_server.py::TestVersionConsistency`) enforces they match.
+
 ## Project Layout
 
 ```
