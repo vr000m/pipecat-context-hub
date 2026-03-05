@@ -161,7 +161,8 @@ class TestRefreshCommand:
         # With --force, docs should be re-ingested despite matching hash
         mock_crawler.ingest.assert_called_once()
         # With --force, repos should be re-ingested despite matching SHA
-        mock_github.ingest.assert_called_once()
+        # Ingest is called once per changed repo (2 default repos)
+        assert mock_github.ingest.call_count == 2
 
     @patch("pipecat_context_hub.services.index.store.IndexStore")
     @patch("pipecat_context_hub.services.embedding.EmbeddingService")
@@ -233,5 +234,86 @@ class TestRefreshCommand:
         assert result.exit_code == 0
         # Different hash → docs re-ingested
         mock_crawler.ingest.assert_called_once()
-        # Different SHA → repo re-ingested
-        mock_github.ingest.assert_called_once()
+        # Different SHA → repos re-ingested (once per changed repo)
+        assert mock_github.ingest.call_count == 2
+
+    @patch("pipecat_context_hub.services.index.store.IndexStore")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingService")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
+    @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
+    def test_docs_hash_not_stored_on_ingest_error(
+        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        mock_eiw_cls, mock_es_cls, mock_is_cls,
+        tmp_path, monkeypatch,
+    ):
+        """Docs content hash is not cached when ingest returns errors."""
+        mock_store, mock_crawler, mock_github, mock_source = self._make_mocks()
+        mock_is_cls.return_value = mock_store
+        mock_dc_cls.return_value = mock_crawler
+        mock_gh_cls.return_value = mock_github
+        mock_si_cls.return_value = mock_source
+
+        # Docs ingest returns errors (e.g. upsert failure)
+        mock_crawler.ingest = AsyncMock(
+            return_value=MagicMock(records_upserted=0, errors=["Upsert failed"]),
+        )
+        # Repos unchanged so they don't interfere
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
+            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
+            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
+        }.get(key))
+
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(main, ["refresh"])
+
+        assert result.exit_code == 0
+        # docs:content_hash should NOT have been stored
+        set_calls = {
+            call.args[0] for call in mock_store.set_metadata.call_args_list
+        }
+        assert "docs:content_hash" not in set_calls
+
+    @patch("pipecat_context_hub.services.index.store.IndexStore")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingService")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
+    @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
+    def test_repo_sha_not_stored_on_ingest_error(
+        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        mock_eiw_cls, mock_es_cls, mock_is_cls,
+        tmp_path, monkeypatch,
+    ):
+        """Repo commit SHA is not cached when code/source ingest has errors."""
+        mock_store, mock_crawler, mock_github, mock_source = self._make_mocks()
+        mock_is_cls.return_value = mock_store
+        mock_dc_cls.return_value = mock_crawler
+        mock_gh_cls.return_value = mock_github
+        mock_si_cls.return_value = mock_source
+
+        # GitHub ingest returns errors for any repo
+        mock_github.ingest = AsyncMock(
+            return_value=MagicMock(records_upserted=0, errors=["clone failed"]),
+        )
+        # Docs unchanged
+        import hashlib
+        content = "# Page\nSource: https://example.com\nContent here"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
+            "docs:content_hash": content_hash,
+        }.get(key))
+
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(main, ["refresh"])
+
+        assert result.exit_code == 0
+        # repo:*:commit_sha should NOT have been stored for changed repos with errors
+        set_calls = {
+            call.args[0] for call in mock_store.set_metadata.call_args_list
+        }
+        assert "repo:pipecat-ai/pipecat:commit_sha" not in set_calls
+        assert "repo:pipecat-ai/pipecat-examples:commit_sha" not in set_calls

@@ -160,7 +160,8 @@ def refresh(ctx: click.Context, force: bool) -> None:
                     docs_result.records_upserted,
                     len(docs_result.errors),
                 )
-                index_store.set_metadata("docs:content_hash", content_hash)
+                if not docs_result.errors:
+                    index_store.set_metadata("docs:content_hash", content_hash)
         await crawler.close()
 
         # ----- 2. Repos (code + source) -----
@@ -196,31 +197,40 @@ def refresh(ctx: click.Context, force: bool) -> None:
             logger.info("Deleted stale records for %s", repo_slug)
 
         ingested_repos: set[str] = set()
-        if changed_repos:
-            github_result = await github.ingest(
-                repos=changed_repos, prefetched=prefetched,
+        for repo_slug in changed_repos:
+            repo_has_errors = False
+
+            # Code ingest (per-repo for error tracking)
+            code_result = await github.ingest(
+                repos=[repo_slug], prefetched=prefetched,
             )
-            total_upserted += github_result.records_upserted
-            all_errors.extend(github_result.errors)
+            total_upserted += code_result.records_upserted
+            all_errors.extend(code_result.errors)
+            if code_result.errors:
+                repo_has_errors = True
             logger.info(
-                "GitHub ingest: upserted=%d errors=%d repos=%s",
-                github_result.records_upserted,
-                len(github_result.errors),
-                changed_repos,
+                "GitHub ingest (%s): upserted=%d errors=%d",
+                repo_slug,
+                code_result.records_upserted,
+                len(code_result.errors),
             )
 
-            for repo_slug in changed_repos:
-                source_ingester = SourceIngester(config, writer, repo_slug)
-                source_result = await source_ingester.ingest()
-                total_upserted += source_result.records_upserted
-                all_errors.extend(source_result.errors)
-                if source_result.records_upserted > 0:
-                    logger.info(
-                        "Source ingest (%s): upserted=%d errors=%d",
-                        repo_slug,
-                        source_result.records_upserted,
-                        len(source_result.errors),
-                    )
+            # Source ingest
+            source_ingester = SourceIngester(config, writer, repo_slug)
+            source_result = await source_ingester.ingest()
+            total_upserted += source_result.records_upserted
+            all_errors.extend(source_result.errors)
+            if source_result.errors:
+                repo_has_errors = True
+            if source_result.records_upserted > 0:
+                logger.info(
+                    "Source ingest (%s): upserted=%d errors=%d",
+                    repo_slug,
+                    source_result.records_upserted,
+                    len(source_result.errors),
+                )
+
+            if not repo_has_errors:
                 ingested_repos.add(repo_slug)
 
         # Store SHAs: unchanged repos (handles first-run) + successfully ingested repos
