@@ -920,9 +920,9 @@ interleave results for balanced coverage. Single-concept queries are unchanged.
 
 **Test results:** 522 tests pass, lint clean
 
-## v0.0.6 — Multi-Repo Source Ingestion + `get_code_snippet` Retrieval Fix
+## v0.0.6 — Multi-Repo Source Ingestion + `get_code_snippet` Retrieval Fix ✅
 
-**Branch:** `feature/multi-repo-source-ingest`
+**Released:** 2026-03-03 | **PRs:** #8, #9, #10
 
 ### Part 1: Multi-Repo Source Ingestion ✅
 
@@ -993,3 +993,27 @@ the symbol name as query text provides sufficient embedding + keyword signal.
 | `tests/unit/test_retrieval.py` | Edit (update symbol test, +4 new tests) |
 
 **Test results:** 530 tests pass, lint clean
+
+### Part 3: ChromaDB Batch Operations Fix ✅
+
+**Problem:** Multi-repo ingestion pushed source record count to 6,185, exceeding
+ChromaDB's ~5,461 per-call limit with `BatchSizeExceededError`.
+
+**Solution:** All vector index operations (`upsert`, `delete_by_content_type`,
+`delete_by_source`) now batch in chunks of `_CHROMA_BATCH_SIZE = 5000`.
+
+### Part 4: Review Fixes ✅
+
+Four findings from Codex review, all fixed:
+- **P1:** Slug sanitization mismatch — `_sanitize_slug()` now uses same `re.sub` regex as `GitHubRepoIngester`
+- **P1:** `path+line_start` snippet mode restored `content_type="code"` scope
+- **P2:** `_make_chunk_id` now includes `repo_slug` — prevents cross-repo overwrites
+- **P2:** Import metadata filter removed hardcoded `"pipecat"` substring
+
+### Part 5: Version Consistency + Stress Tests ✅
+
+- Added `TestVersionConsistency` — asserts `pyproject.toml` version matches `_SERVER_VERSION` using `tomllib`
+- Added `TestVectorIndexBatchStress` — 4 stress tests with 5,100 records above batch limit
+- Documented versioning convention in `CLAUDE.md`
+
+**Final test results:** 541 tests (526 core + 15 benchmarks), lint clean
