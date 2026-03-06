@@ -102,6 +102,8 @@ class TestRefreshCommand:
         mock_index_store = MagicMock()
         mock_index_store.get_metadata = MagicMock(return_value=None)
         mock_index_store.set_metadata = MagicMock()
+        mock_index_store.delete_metadata = MagicMock()
+        mock_index_store.get_all_metadata = MagicMock(return_value={})
         mock_index_store.delete_by_content_type = AsyncMock(return_value=0)
         mock_index_store.delete_by_repo = AsyncMock(return_value=0)
         mock_index_store.get_index_stats = MagicMock(return_value={
@@ -317,3 +319,96 @@ class TestRefreshCommand:
         }
         assert "repo:pipecat-ai/pipecat:commit_sha" not in set_calls
         assert "repo:pipecat-ai/pipecat-examples:commit_sha" not in set_calls
+        # Failed repos should have their cached SHA deleted (P1)
+        delete_calls = {
+            call.args[0] for call in mock_store.delete_metadata.call_args_list
+        }
+        assert "repo:pipecat-ai/pipecat:commit_sha" in delete_calls
+        assert "repo:pipecat-ai/pipecat-examples:commit_sha" in delete_calls
+
+    @patch("pipecat_context_hub.services.index.store.IndexStore")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingService")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
+    @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
+    def test_force_failed_repo_invalidates_cached_sha(
+        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        mock_eiw_cls, mock_es_cls, mock_is_cls,
+        tmp_path, monkeypatch,
+    ):
+        """--force with ingest failure deletes cached SHA so next refresh retries."""
+        mock_store, mock_crawler, mock_github, mock_source = self._make_mocks()
+        mock_is_cls.return_value = mock_store
+        mock_dc_cls.return_value = mock_crawler
+        mock_gh_cls.return_value = mock_github
+        mock_si_cls.return_value = mock_source
+
+        # GitHub ingest fails
+        mock_github.ingest = AsyncMock(
+            return_value=MagicMock(records_upserted=0, errors=["transient error"]),
+        )
+        # SHA matches (would skip without --force), but --force overrides
+        import hashlib
+        content = "# Page\nSource: https://example.com\nContent here"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
+            "docs:content_hash": content_hash,
+            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
+            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
+        }.get(key))
+
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(main, ["refresh", "--force"])
+
+        assert result.exit_code == 0
+        # Failed repos should have cached SHA deleted, not preserved
+        delete_calls = {
+            call.args[0] for call in mock_store.delete_metadata.call_args_list
+        }
+        assert "repo:pipecat-ai/pipecat:commit_sha" in delete_calls
+        assert "repo:pipecat-ai/pipecat-examples:commit_sha" in delete_calls
+
+    @patch("pipecat_context_hub.services.index.store.IndexStore")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingService")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
+    @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
+    def test_removed_repo_cleaned_up(
+        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        mock_eiw_cls, mock_es_cls, mock_is_cls,
+        tmp_path, monkeypatch,
+    ):
+        """Repos no longer in effective_repos have their data and SHA cleaned up."""
+        mock_store, mock_crawler, mock_github, mock_source = self._make_mocks()
+        mock_is_cls.return_value = mock_store
+        mock_dc_cls.return_value = mock_crawler
+        mock_gh_cls.return_value = mock_github
+        mock_si_cls.return_value = mock_source
+
+        # Simulate a previously-indexed repo that is no longer configured
+        import hashlib
+        content = "# Page\nSource: https://example.com\nContent here"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        mock_store.get_all_metadata = MagicMock(return_value={
+            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
+            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
+            "repo:old-org/removed-repo:commit_sha": "def456",
+        })
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
+            "docs:content_hash": content_hash,
+            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
+            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
+            "repo:old-org/removed-repo:commit_sha": "def456",
+        }.get(key))
+
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(main, ["refresh"])
+
+        assert result.exit_code == 0
+        # The removed repo should be cleaned up
+        mock_store.delete_by_repo.assert_any_call("old-org/removed-repo")
+        mock_store.delete_metadata.assert_any_call("repo:old-org/removed-repo:commit_sha")

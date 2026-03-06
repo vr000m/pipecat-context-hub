@@ -327,6 +327,11 @@ class FTSIndex:
         row = cursor.fetchone()
         return row[0] if row else None
 
+    def delete_metadata(self, key: str) -> None:
+        """Remove a metadata key if it exists."""
+        self._conn.execute("DELETE FROM index_metadata WHERE key = ?", (key,))
+        self._conn.commit()
+
     def get_all_metadata(self) -> dict[str, str]:
         """Return all index_metadata as a dict."""
         cursor = self._conn.execute("SELECT key, value FROM index_metadata")

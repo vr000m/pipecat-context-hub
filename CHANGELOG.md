@@ -21,6 +21,10 @@ This project uses [Semantic Versioning](https://semver.org/).
   `class_name` filter, then `method_name` filter, then semantic fallback —
   gives precise class/method matches before falling back to hybrid search
 - `method_name` filter support in `VectorIndex._build_where_clause`
+- `delete_metadata()` on `FTSIndex` and `IndexStore` for removing stale
+  metadata keys (e.g. cached SHAs for removed repos)
+- **Removed-repo cleanup**: `refresh` detects repos no longer in
+  `effective_repos` and deletes their stale index data and metadata
 
 ### Changed
 
@@ -39,6 +43,8 @@ This project uses [Semantic Versioning](https://semver.org/).
   failed repos on the next run
 - FTS `delete_by_repo` wrapped in error guard with divergence logging, matching
   the `delete_by_content_type` pattern in `IndexStore`
+- Cached repo SHA invalidated when `--force` ingest fails — prevents the next
+  non-force refresh from skipping a repo left empty by a transient failure
 
 ## [0.0.4] - 2026-02-26
 

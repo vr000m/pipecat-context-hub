@@ -170,6 +170,18 @@ def refresh(ctx: click.Context, force: bool) -> None:
         repo_shas: dict[str, str] = {}
         prefetched: dict[str, tuple[Path, str]] = {}
 
+        # Clean up repos removed from configuration (P2: stale data from
+        # repos no longer in effective_repos would persist indefinitely).
+        configured = set(config.sources.effective_repos)
+        all_meta = index_store.get_all_metadata()
+        for meta_key in all_meta:
+            if meta_key.startswith("repo:") and meta_key.endswith(":commit_sha"):
+                slug = meta_key[len("repo:"):-len(":commit_sha")]
+                if slug not in configured:
+                    logger.info("Repo %s no longer configured, cleaning up", slug)
+                    await index_store.delete_by_repo(slug)
+                    index_store.delete_metadata(meta_key)
+
         for repo_slug in config.sources.effective_repos:
             try:
                 repo_path, commit_sha = await asyncio.to_thread(
@@ -233,10 +245,15 @@ def refresh(ctx: click.Context, force: bool) -> None:
             if not repo_has_errors:
                 ingested_repos.add(repo_slug)
 
-        # Store SHAs: unchanged repos (handles first-run) + successfully ingested repos
+        # Store SHAs: unchanged repos (handles first-run) + successfully ingested repos.
+        # For failed repos: delete the cached SHA so the next non-force refresh
+        # retries them (P1: --force deletes records before ingest, so a failure
+        # leaves the repo empty; keeping the old SHA would skip it next time).
         for repo_slug, sha in repo_shas.items():
             if repo_slug not in changed_repos or repo_slug in ingested_repos:
                 index_store.set_metadata(f"repo:{repo_slug}:commit_sha", sha)
+            else:
+                index_store.delete_metadata(f"repo:{repo_slug}:commit_sha")
 
     asyncio.run(_run_refresh())
 

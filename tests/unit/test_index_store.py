@@ -636,6 +636,17 @@ class TestFTSIndex:
         results = fts_index.search(query)
         assert len(results) == 2
 
+    def test_delete_metadata(self, fts_index: FTSIndex):
+        fts_index.set_metadata("repo:org/repo:commit_sha", "abc123")
+        assert fts_index.get_metadata("repo:org/repo:commit_sha") == "abc123"
+
+        fts_index.delete_metadata("repo:org/repo:commit_sha")
+        assert fts_index.get_metadata("repo:org/repo:commit_sha") is None
+
+    def test_delete_metadata_nonexistent(self, fts_index: FTSIndex):
+        """Deleting a nonexistent key should not raise."""
+        fts_index.delete_metadata("nonexistent:key")
+
 
 # ---------------------------------------------------------------------------
 # Unified IndexStore tests

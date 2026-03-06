@@ -100,6 +100,10 @@ class IndexStore:
         """Get a metadata value by key, or None if not found."""
         return self._fts.get_metadata(key)
 
+    def delete_metadata(self, key: str) -> None:
+        """Remove a metadata key if it exists."""
+        self._fts.delete_metadata(key)
+
     def get_all_metadata(self) -> dict[str, str]:
         """Return all persistent index metadata as a dict."""
         return self._fts.get_all_metadata()
