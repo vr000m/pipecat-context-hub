@@ -902,6 +902,37 @@ class TestSymbolFilterCascade:
         )
 
 
+    async def test_symbol_with_content_type_override(self):
+        """content_type override is respected in symbol mode."""
+        call_filters: list[dict[str, Any]] = []
+
+        async def mock_vector(query):
+            call_filters.append(dict(query.filters))
+            return []
+
+        mock_reader = _mock_index_reader()
+        mock_reader.vector_search = mock_vector
+        mock_reader.keyword_search = AsyncMock(return_value=[])
+        retriever = HybridRetriever(mock_reader)
+
+        await retriever.get_code_snippet(
+            GetCodeSnippetInput(symbol="MyClass", content_type="code")
+        )
+
+        # All cascade steps should use content_type="code" instead of default "source"
+        assert all(f.get("content_type") == "code" for f in call_filters)
+
+    def test_module_rejected_in_intent_mode(self):
+        """module filter raises ValueError when used with intent mode."""
+        with pytest.raises(ValueError, match="symbol mode"):
+            GetCodeSnippetInput(intent="how to do X", module="pipecat.runner")
+
+    def test_class_name_rejected_in_intent_mode(self):
+        """class_name filter raises ValueError when used with intent mode."""
+        with pytest.raises(ValueError, match="symbol mode"):
+            GetCodeSnippetInput(intent="how to do X", class_name="SomeClass")
+
+
 class TestHybridRetrieverProtocol:
     """Verify HybridRetriever satisfies the Retriever protocol."""
 

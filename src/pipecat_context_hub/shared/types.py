@@ -341,10 +341,12 @@ class GetCodeSnippetInput(BaseModel):
     line_end: int | None = None
     module: str | None = Field(
         default=None,
+        max_length=256,
         description="Filter by module path prefix, e.g. 'pipecat.runner.daily'. Symbol mode only.",
     )
     class_name: str | None = Field(
         default=None,
+        max_length=256,
         description="Filter by class name, e.g. 'DailyTransport'. Symbol mode only.",
     )
     content_type: Literal["code", "source"] | None = Field(
@@ -377,6 +379,10 @@ class GetCodeSnippetInput(BaseModel):
             )
         if sum(modes) > 1:
             raise ValueError("Only one lookup mode may be set at a time.")
+        if not has_symbol and (self.module or self.class_name):
+            raise ValueError(
+                "`module` and `class_name` filters are only supported in symbol mode."
+            )
         return self
 
 
