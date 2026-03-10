@@ -16,6 +16,7 @@ import pytest
 from pydantic import ValidationError
 
 from pipecat_context_hub.shared.types import (
+    ApiHit,
     Citation,
     CodeSnippet,
     DocHit,
@@ -26,6 +27,7 @@ from pipecat_context_hub.shared.types import (
     GetDocOutput,
     GetExampleOutput,
     KnownItem,
+    SearchApiOutput,
     SearchDocsOutput,
     SearchExamplesOutput,
     TaxonomyEntry,
@@ -35,6 +37,7 @@ from pipecat_context_hub.server.tools.get_doc import handle_get_doc
 from pipecat_context_hub.server.tools.search_examples import handle_search_examples
 from pipecat_context_hub.server.tools.get_example import handle_get_example
 from pipecat_context_hub.server.tools.get_code_snippet import handle_get_code_snippet
+from pipecat_context_hub.server.tools.search_api import handle_search_api
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +140,23 @@ def mock_retriever():
         ],
         citation=_make_citation(),
         detected_symbols=["main"],
+        evidence=_make_evidence(),
+    )
+
+    # search_api
+    retriever.search_api.return_value = SearchApiOutput(
+        hits=[
+            ApiHit(
+                chunk_id="api-001",
+                module_path="pipecat.services.tts",
+                class_name="TTSService",
+                method_name=None,
+                chunk_type="class_overview",
+                snippet="class TTSService(BaseService): ...",
+                citation=_make_citation(),
+                score=0.95,
+            )
+        ],
         evidence=_make_evidence(),
     )
 
@@ -348,3 +368,42 @@ class TestGetCodeSnippet:
             await handle_get_code_snippet(
                 {"intent": "test", "max_lines": 501}, mock_retriever
             )
+
+
+# ---------------------------------------------------------------------------
+# search_api tests
+# ---------------------------------------------------------------------------
+
+
+class TestSearchApi:
+    async def test_valid_input_returns_output(self, mock_retriever):
+        result = await handle_search_api({"query": "TTSService"}, mock_retriever)
+        parsed = SearchApiOutput.model_validate_json(result)
+        assert len(parsed.hits) == 1
+        assert parsed.hits[0].chunk_id == "api-001"
+        assert parsed.evidence.confidence == 0.9
+
+    async def test_with_filters(self, mock_retriever):
+        result = await handle_search_api(
+            {
+                "query": "TTSService",
+                "module": "pipecat.services",
+                "chunk_type": "class_overview",
+            },
+            mock_retriever,
+        )
+        parsed = SearchApiOutput.model_validate_json(result)
+        assert len(parsed.hits) == 1
+        call_args = mock_retriever.search_api.call_args[0][0]
+        assert call_args.module == "pipecat.services"
+        assert call_args.chunk_type == "class_overview"
+
+    async def test_invalid_chunk_type_raises(self, mock_retriever):
+        with pytest.raises(ValidationError):
+            await handle_search_api(
+                {"query": "test", "chunk_type": "invalid_type"}, mock_retriever
+            )
+
+    async def test_missing_query_raises(self, mock_retriever):
+        with pytest.raises(ValidationError):
+            await handle_search_api({}, mock_retriever)

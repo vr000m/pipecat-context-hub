@@ -584,6 +584,49 @@ class TestHybridRetrieverGetExample:
         assert output.evidence.confidence == 0.0
 
 
+    async def test_include_readme_false_suppresses_readme(self):
+        """include_readme=False returns None for readme_content."""
+        r1 = _make_result(
+            "ex-readme",
+            content="async def main(): pass",
+            content_type="code",
+            metadata={
+                "key_files": ["main.py"],
+                "readme_content": "# Example README\nThis is a test.",
+                "language": "python",
+            },
+        )
+        mock_reader = _mock_index_reader(keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_example(
+            GetExampleInput(example_id="ex-readme", include_readme=False)
+        )
+
+        assert output.metadata.readme_content is None
+
+    async def test_include_readme_true_returns_content(self):
+        """include_readme=True returns stored readme_content."""
+        r1 = _make_result(
+            "ex-readme",
+            content="async def main(): pass",
+            content_type="code",
+            metadata={
+                "key_files": ["main.py"],
+                "readme_content": "# Example README",
+                "language": "python",
+            },
+        )
+        mock_reader = _mock_index_reader(keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_example(
+            GetExampleInput(example_id="ex-readme", include_readme=True)
+        )
+
+        assert output.metadata.readme_content == "# Example README"
+
+
 class TestHybridRetrieverGetCodeSnippet:
     """Tests for HybridRetriever.get_code_snippet()."""
 

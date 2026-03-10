@@ -430,6 +430,7 @@ class HybridRetriever:
             cascade_steps.append({"method_name": input.symbol})
             cascade_steps.append({})
 
+            cascade_filters: dict[str, Any] = base_filters
             for extra_filter in cascade_steps:
                 cascade_filters = {**base_filters, **extra_filter}
                 results = await self._hybrid_search(

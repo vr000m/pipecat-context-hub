@@ -7,9 +7,9 @@ are defined here so parallel agents can code against stable types.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +265,9 @@ class SearchExamplesInput(BaseModel):
     query: str = Field(max_length=1000)
     repo: str | None = Field(default=None, max_length=256)
     language: str | None = Field(default=None, max_length=64)
-    tags: list[str] | None = Field(default=None, max_length=20)
+    tags: list[Annotated[str, StringConstraints(max_length=64)]] | None = Field(
+        default=None, max_length=20,
+    )
     foundational_class: str | None = Field(default=None, max_length=256)
     execution_mode: str | None = Field(default=None, max_length=64)
     limit: int = Field(default=10, ge=1, le=50)

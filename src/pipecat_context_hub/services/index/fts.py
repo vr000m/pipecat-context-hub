@@ -368,6 +368,11 @@ class FTSIndex:
         return " ".join(f'"{token}"' for token in tokens if token.strip())
 
     @staticmethod
+    def _escape_like(value: str) -> str:
+        """Escape LIKE metacharacters so they match literally."""
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    @staticmethod
     def _build_filter_sql(
         filters: dict[str, Any],
     ) -> tuple[list[str], list[Any]]:
@@ -375,6 +380,7 @@ class FTSIndex:
 
         Returns (clause_list, param_list) to be appended to the WHERE.
         """
+        esc = FTSIndex._escape_like
         clauses: list[str] = []
         params: list[Any] = []
 
@@ -385,34 +391,34 @@ class FTSIndex:
             clauses.append("c.content_type = ?")
             params.append(filters["content_type"])
         if "path" in filters:
-            clauses.append("c.path LIKE ?")
-            params.append(f"{filters['path']}%")
+            clauses.append("c.path LIKE ? ESCAPE '\\'")
+            params.append(f"{esc(filters['path'])}%")
         if "capability_tags" in filters:
             tags = filters["capability_tags"]
             if isinstance(tags, list):
                 for tag in tags:
-                    clauses.append("c.metadata_json LIKE ?")
-                    params.append(f"%{tag}%")
+                    clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+                    params.append(f"%{esc(tag)}%")
             else:
-                clauses.append("c.metadata_json LIKE ?")
-                params.append(f"%{tags}%")
+                clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+                params.append(f"%{esc(tags)}%")
         # Metadata JSON filters for fields stored in the JSON blob
         for key in ("foundational_class", "language", "execution_mode"):
             if key in filters:
-                clauses.append("c.metadata_json LIKE ?")
-                params.append(f'%"{key}": "{filters[key]}"%')
+                clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+                params.append(f'%"{key}": "{esc(filters[key])}"%')
         # Source API metadata filters (exact match)
         for key in ("class_name", "chunk_type", "method_name"):
             if key in filters:
-                clauses.append("c.metadata_json LIKE ?")
-                params.append(f'%"{key}": "{filters[key]}"%')
+                clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+                params.append(f'%"{key}": "{esc(filters[key])}"%')
         # module_path is a prefix filter (e.g. "pipecat.services" matches "pipecat.services.tts")
         if "module_path" in filters:
-            clauses.append("c.metadata_json LIKE ?")
-            params.append(f'%"module_path": "{filters["module_path"]}%')
+            clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+            params.append(f'%"module_path": "{esc(filters["module_path"])}%')
         if "is_dataclass" in filters:
             val = "true" if filters["is_dataclass"] else "false"
-            clauses.append("c.metadata_json LIKE ?")
+            clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
             params.append(f'%"is_dataclass": {val}%')
 
         return clauses, params
