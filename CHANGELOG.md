@@ -75,6 +75,77 @@ This project uses [Semantic Versioning](https://semver.org/).
 - Dead `path` field from `GetExampleInput` (was declared but never read)
 - Dead `framework` and `example_ids` fields from `GetCodeSnippetInput`
 
+## [0.0.6] - 2026-03-06
+
+### Added
+
+- **Multi-repo source indexing**: `SourceIngester` parameterized by repo slug —
+  all repos with `src/` layouts now get AST-indexed, not just `pipecat-ai/pipecat`
+- **Flat example file indexing**: repos with `.py` files directly in `examples/`
+  (no subdirectories) are now discovered and indexed
+
+### Changed
+
+- `get_code_snippet` symbol lookups now search `content_type="source"` (framework
+  API definitions) instead of `content_type="code"` (examples) — fixes symbol
+  queries like `symbol="MLXModel"` returning irrelevant example code
+- ChromaDB upsert, delete_by_content_type, and delete_by_source operations batched
+  in chunks of 5,000 to avoid `BatchSizeExceededError` with large record counts
+- Multi-concept query guidance added to tool descriptions and CLAUDE.md
+- `_SERVER_VERSION` constant used in hub status test assertions (no more hardcoded
+  version strings)
+
+### Fixed
+
+- Slug sanitization in source ingester matches `GitHubRepoIngester` — prevents
+  silent skips for slugs with dots or special characters
+- `content_type="code"` filter restored on path+line_start snippet mode —
+  prevents returning source records when paths overlap
+- Repo slug included in source chunk IDs — prevents cross-repo overwrites when
+  repos share module names (forks)
+- Import filter no longer hardcoded to "pipecat" — non-pipecat repos retain
+  full API context
+- Single-letter concepts (e.g. "C + concurrency") now decompose correctly
+  (`MIN_CONCEPT_LENGTH` lowered from 2 to 1)
+
+## [0.0.5] - 2026-02-28
+
+### Added
+
+- **Multi-concept query decomposition**: compound queries like
+  "idle timeout + function calling + Gemini" now decompose into sub-concepts,
+  run per-concept searches in parallel, and interleave results for balanced
+  coverage. Use ` + ` or ` & ` as delimiters
+- **RRF score normalization**: scores now divided by theoretical maximum so
+  top results score ~1.0 instead of ~0.03 — evidence thresholds trigger
+  correctly and confidence reports are meaningful
+- **`imports` field on `ApiHit`**: `search_api` results include pipecat-internal
+  imports for each module, enabling "what uses this class?" discovery
+- `IndexStore.data_dir` property for clean index path access
+
+### Changed
+
+- `get_hub_status` only registered when `index_store` is provided — prevents
+  broken MCP contract for old call sites
+- `last_refresh_at` only written on fully successful refreshes (0 errors) —
+  failed refreshes record `last_refresh_errored_at` instead
+- Final reranked scores clamped to [0, 1] after heuristic adjustments
+- Server instructions expanded with multi-concept query guidance
+- License changed from MIT to BSD-2-Clause
+
+### Fixed
+
+- Multi-concept decomposition restricted to ` + ` and ` & ` delimiters only —
+  comma and "and" caused false positives on natural language queries
+- Ampersand delimiter requires surrounding spaces (`\s+&\s+`) — prevents
+  splitting names like "AT&T"
+- Ceiling division for per-concept candidate allocation — fixes under-allocation
+  when limit isn't evenly divisible by concept count
+- Round-trip imports in vector metadata reconstruction — `search_api` results
+  from vector path no longer return empty imports
+- `import json` moved to module level in `hybrid.py` — fixes potential
+  `NameError` in conditional branch
+
 ## [0.0.4] - 2026-02-26
 
 ### Added
