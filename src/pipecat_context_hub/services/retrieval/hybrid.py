@@ -421,13 +421,16 @@ class HybridRetriever:
             # Filter cascade: class_name → method_name → unstructured fallback.
             # Tries exact metadata filters first for precise symbol matches,
             # then relaxes progressively.  When the caller already supplied
-            # class_name, skip the first cascade step (it would be redundant).
+            # class_name, skip the first cascade step (it would be redundant)
+            # and the caller's class_name carries through all subsequent steps
+            # (scoping method and unstructured searches to that class).
             cascade_steps: list[dict[str, str]] = []
             if input.class_name is None:
                 cascade_steps.append({"class_name": input.symbol})
             cascade_steps.append({"method_name": input.symbol})
             cascade_steps.append({})
 
+            cascade_filters = base_filters
             for extra_filter in cascade_steps:
                 cascade_filters = {**base_filters, **extra_filter}
                 results = await self._hybrid_search(
@@ -444,7 +447,7 @@ class HybridRetriever:
                 filters["path"] = input.path
         elif input.path is not None and input.line_start is not None:
             query_text = input.path
-            filters["content_type"] = "code"
+            filters["content_type"] = input.content_type or "code"
             filters["path"] = input.path
             # line_start/line_end are applied as post-filters below, not
             # passed to index backends which don't support numeric ranges.

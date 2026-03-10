@@ -829,6 +829,79 @@ class TestSymbolFilterCascade:
         )
 
 
+    async def test_symbol_with_class_name_skips_class_cascade_step(self):
+        """When caller supplies class_name, the class_name cascade step is skipped."""
+        method_result = _make_result(
+            "meth-scoped",
+            content="# DailyTransport.configure\ndef configure(self): ...",
+            content_type="source",
+            metadata={
+                "method_name": "configure",
+                "class_name": "DailyTransport",
+            },
+        )
+        call_filters: list[dict[str, Any]] = []
+
+        async def mock_vector(query):
+            call_filters.append(dict(query.filters))
+            if (
+                query.filters.get("class_name") == "DailyTransport"
+                and query.filters.get("method_name") == "configure"
+            ):
+                return [method_result]
+            return []
+
+        mock_reader = _mock_index_reader()
+        mock_reader.vector_search = mock_vector
+        mock_reader.keyword_search = AsyncMock(return_value=[])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(symbol="configure", class_name="DailyTransport")
+        )
+
+        assert len(output.snippets) > 0
+        # Should NOT have a step where class_name == "configure" (the symbol),
+        # because caller's class_name="DailyTransport" was used instead.
+        assert not any(f.get("class_name") == "configure" for f in call_filters)
+        # All steps should carry class_name="DailyTransport" from base_filters
+        assert all(f.get("class_name") == "DailyTransport" for f in call_filters)
+
+    async def test_symbol_with_module_filter(self):
+        """When caller supplies module, results are scoped to that module."""
+        daily_result = _make_result(
+            "daily-cfg",
+            content="# configure\ndef configure(): ...",
+            content_type="source",
+            metadata={
+                "method_name": "configure",
+                "module_path": "pipecat.runner.daily",
+            },
+        )
+        call_filters: list[dict[str, Any]] = []
+
+        async def mock_vector(query):
+            call_filters.append(dict(query.filters))
+            if query.filters.get("module_path") == "pipecat.runner.daily":
+                return [daily_result]
+            return []
+
+        mock_reader = _mock_index_reader()
+        mock_reader.vector_search = mock_vector
+        mock_reader.keyword_search = AsyncMock(return_value=[])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(symbol="configure", module="pipecat.runner.daily")
+        )
+
+        assert len(output.snippets) > 0
+        # All cascade steps should carry module_path filter
+        assert all(
+            f.get("module_path") == "pipecat.runner.daily" for f in call_filters
+        )
+
+
 class TestHybridRetrieverProtocol:
     """Verify HybridRetriever satisfies the Retriever protocol."""
 

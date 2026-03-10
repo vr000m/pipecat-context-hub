@@ -352,8 +352,6 @@ class GetCodeSnippetInput(BaseModel):
         description="Override content type: 'source' for framework, 'code' for examples. "
         "Defaults to 'source' for symbol mode, 'code' for intent mode.",
     )
-    framework: str | None = None
-    example_ids: list[str] | None = None
     max_lines: int = Field(default=50, ge=1, le=500)
 
     @model_validator(mode="after")
