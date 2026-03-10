@@ -408,18 +408,27 @@ class HybridRetriever:
         # Intent and path lookups target example code (content_type="code").
         if input.symbol:
             query_text = input.symbol
-            base_filters: dict[str, Any] = {"content_type": "source"}
+            base_filters: dict[str, Any] = {
+                "content_type": input.content_type or "source",
+            }
             if input.path is not None:
                 base_filters["path"] = input.path
+            if input.module is not None:
+                base_filters["module_path"] = input.module
+            if input.class_name is not None:
+                base_filters["class_name"] = input.class_name
 
             # Filter cascade: class_name → method_name → unstructured fallback.
             # Tries exact metadata filters first for precise symbol matches,
-            # then relaxes progressively.
-            for extra_filter in [
-                {"class_name": input.symbol},
-                {"method_name": input.symbol},
-                {},
-            ]:
+            # then relaxes progressively.  When the caller already supplied
+            # class_name, skip the first cascade step (it would be redundant).
+            cascade_steps: list[dict[str, str]] = []
+            if input.class_name is None:
+                cascade_steps.append({"class_name": input.symbol})
+            cascade_steps.append({"method_name": input.symbol})
+            cascade_steps.append({})
+
+            for extra_filter in cascade_steps:
                 cascade_filters = {**base_filters, **extra_filter}
                 results = await self._hybrid_search(
                     query_text, cascade_filters, _DEFAULT_SNIPPET_CANDIDATES
@@ -429,7 +438,7 @@ class HybridRetriever:
             filters = cascade_filters
         elif input.intent:
             query_text = input.intent
-            filters["content_type"] = "code"
+            filters["content_type"] = input.content_type or "code"
             # path narrows intent search to a specific file
             if input.path is not None:
                 filters["path"] = input.path

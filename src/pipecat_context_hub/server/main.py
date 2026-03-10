@@ -65,7 +65,10 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "Get a targeted code snippet by symbol name, intent, or file path + line range. "
         "Symbol lookups search framework source (class/method definitions); "
         "intent lookups search example code. "
-        "For multiple topics, use ` + ` or ` & ` delimiters in the intent field.",
+        "Use `module` to scope symbol lookups (e.g. module='pipecat.runner.daily' with symbol='configure'). "
+        "Use `class_name` to scope to a specific class. "
+        "Use `content_type='source'` with intent to search framework code instead of examples. "
+        "For multiple topics, use ` + ` or ` & ` delimiters.",
         GetCodeSnippetInput.model_json_schema(),
     ),
     (

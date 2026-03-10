@@ -339,6 +339,19 @@ class GetCodeSnippetInput(BaseModel):
     path: str | None = None
     line_start: int | None = None
     line_end: int | None = None
+    module: str | None = Field(
+        default=None,
+        description="Filter by module path prefix, e.g. 'pipecat.runner.daily'. Symbol mode only.",
+    )
+    class_name: str | None = Field(
+        default=None,
+        description="Filter by class name, e.g. 'DailyTransport'. Symbol mode only.",
+    )
+    content_type: str | None = Field(
+        default=None,
+        description="Override content type: 'source' for framework, 'code' for examples. "
+        "Defaults to 'source' for symbol mode, 'code' for intent mode.",
+    )
     framework: str | None = None
     example_ids: list[str] | None = None
     max_lines: int = Field(default=50, ge=1, le=500)
