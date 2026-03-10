@@ -413,9 +413,9 @@ class HybridRetriever:
             }
             if input.path is not None:
                 base_filters["path"] = input.path
-            if input.module is not None:
+            if input.module:
                 base_filters["module_path"] = input.module
-            if input.class_name is not None:
+            if input.class_name:
                 base_filters["class_name"] = input.class_name
 
             # Filter cascade: class_name → method_name → unstructured fallback.
@@ -425,7 +425,7 @@ class HybridRetriever:
             # and the caller's class_name carries through all subsequent steps
             # (scoping method and unstructured searches to that class).
             cascade_steps: list[dict[str, str]] = []
-            if input.class_name is None:
+            if not input.class_name:
                 cascade_steps.append({"class_name": input.symbol})
             cascade_steps.append({"method_name": input.symbol})
             cascade_steps.append({})
