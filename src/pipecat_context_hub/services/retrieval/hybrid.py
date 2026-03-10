@@ -201,7 +201,7 @@ class HybridRetriever:
         """Search documentation with hybrid retrieval."""
         filters: dict[str, Any] = {"content_type": "doc"}
         if input.area:
-            filters["area"] = input.area
+            filters["path"] = input.area
 
         results = await self._hybrid_search(input.query, filters, input.limit)
         evidence = assemble_evidence(input.query, results, filters)

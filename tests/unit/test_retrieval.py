@@ -424,7 +424,7 @@ class TestHybridRetrieverSearchDocs:
             assert hit.citation.source_url != ""
 
     async def test_with_area_filter(self):
-        """search_docs passes area filter to the index."""
+        """search_docs passes area as path prefix filter to the index."""
         mock_reader = _mock_index_reader()
         retriever = HybridRetriever(mock_reader)
 
@@ -432,11 +432,11 @@ class TestHybridRetrieverSearchDocs:
             SearchDocsInput(query="test", area="guides")
         )
 
-        # Verify the query included content_type and area filters
+        # area is mapped to path prefix filter
         call_args = mock_reader.vector_search.call_args
         query = call_args[0][0]
         assert query.filters["content_type"] == "doc"
-        assert query.filters["area"] == "guides"
+        assert query.filters["path"] == "guides"
 
     async def test_empty_results(self):
         """search_docs with no results returns empty hits and low confidence."""

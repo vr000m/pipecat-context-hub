@@ -273,13 +273,12 @@ class TestGetExample:
 
     async def test_with_optional_params(self, mock_retriever):
         result = await handle_get_example(
-            {"example_id": "foundational-01", "path": "bot.py", "include_readme": False},
+            {"example_id": "foundational-01", "include_readme": False},
             mock_retriever,
         )
         parsed = GetExampleOutput.model_validate_json(result)
         assert parsed.example_id == "foundational-01"
         call_args = mock_retriever.get_example.call_args[0][0]
-        assert call_args.path == "bot.py"
         assert call_args.include_readme is False
 
     async def test_missing_example_id_raises(self, mock_retriever):

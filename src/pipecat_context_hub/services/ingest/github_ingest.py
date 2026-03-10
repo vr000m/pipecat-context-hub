@@ -434,6 +434,8 @@ def _build_chunk_metadata(
             meta["capability_tags"] = cap_tag_names
         if taxonomy_entry.key_files:
             meta["key_files"] = taxonomy_entry.key_files
+        if taxonomy_entry.readme_content is not None:
+            meta["readme_content"] = taxonomy_entry.readme_content
         meta["execution_mode"] = _infer_execution_mode(cap_tag_names)
 
     return meta

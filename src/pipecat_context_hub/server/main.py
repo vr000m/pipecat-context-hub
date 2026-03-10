@@ -37,20 +37,22 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "search_docs",
         "Search Pipecat documentation for conceptual questions, guides, configuration, and API "
         "references. Use for 'how do I...?' questions. Returns ranked doc hits with evidence. "
+        "Use `area` to narrow by docs path prefix (e.g. 'guides', 'server/services'). "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'TTS + STT').",
         SearchDocsInput.model_json_schema(),
     ),
     (
         "get_doc",
         "Retrieve a specific Pipecat documentation page by its chunk ID. "
-        "Use after search_docs to get full page content.",
+        "Use after search_docs to get full page content. "
+        "Use `section` to extract a specific heading; falls back to full document if not found.",
         GetDocInput.model_json_schema(),
     ),
     (
         "search_examples",
         "Find working Pipecat code examples by task, modality, or component. "
         "Use when the user needs runnable code patterns. "
-        "Filter by repo, capability tags, or foundational class. "
+        "Filter by `repo`, `tags` (capability tags), `foundational_class`, `language`, or `execution_mode`. "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'idle timeout + function calling').",
         SearchExamplesInput.model_json_schema(),
     ),
@@ -76,6 +78,8 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "Search Pipecat framework internals — class definitions, method signatures, constructors, "
         "base classes, and frame types. Use when you need implementation details, type information, "
         "or inheritance hierarchies. "
+        "Filter by `module` (path prefix, e.g. 'pipecat.services'), `class_name`, "
+        "`chunk_type` ('module_overview', 'class_overview', 'method', 'function'), or `is_dataclass`. "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'BaseTransport + WebSocketTransport').",
         SearchApiInput.model_json_schema(),
     ),
