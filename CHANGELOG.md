@@ -25,8 +25,28 @@ This project uses [Semantic Versioning](https://semver.org/).
   metadata keys (e.g. cached SHAs for removed repos)
 - **Removed-repo cleanup**: `refresh` detects repos no longer in
   `effective_repos` and deletes their stale index data and metadata
+- **`module` and `class_name` filters** on `get_code_snippet`: symbol lookups
+  can be scoped by module path prefix (e.g. `module='pipecat.runner.daily'`)
+  and/or class name, matching the filtering already available in `search_api`
+- **`content_type` override** on `get_code_snippet`: intent and path lookups
+  can set `content_type='source'` to search framework code instead of examples
+- **`max_length` constraints** on all MCP tool string input fields to prevent
+  oversized inputs reaching SQLite LIKE and ChromaDB queries
+- **`chunk_type` Literal enum** on `SearchApiInput` — rejects invalid values
+  at validation time and exposes the enum in the JSON schema
+- **Per-element tag constraint** on `SearchExamplesInput.tags` — each tag
+  capped at 64 characters
 
 ### Changed
+
+- `search_docs` `area` filter now maps to a path prefix query (previously
+  accepted but silently ignored by both index backends)
+- `get_example` `include_readme` now returns stored `readme_content` from
+  chunk metadata (previously always None due to ingest gap — content is now
+  stored during GitHub ingestion, capped at 64 KB)
+- Tool descriptions for `search_docs`, `get_doc`, `search_examples`,
+  `search_api`, and `get_code_snippet` updated to document available filters
+  and parameter usage
 
 - `refresh` now ingests repos individually for per-repo error tracking instead
   of batch-ingesting all changed repos at once
@@ -45,6 +65,15 @@ This project uses [Semantic Versioning](https://semver.org/).
   `delete_by_source`) now wrap FTS calls in error guards with divergence logging
 - Cached repo SHA invalidated when `--force` ingest fails — prevents the next
   non-force refresh from skipping a repo left empty by a transient failure
+- LIKE metacharacters (`%`, `_`, `\`) now escaped in all FTS filter patterns —
+  prevents silent filter bypass from user input containing wildcards
+- Explicit `device="cpu"` on `SentenceTransformer` init — avoids torch 2.10+
+  meta tensor errors in long-running MCP server processes
+
+### Removed
+
+- Dead `path` field from `GetExampleInput` (was declared but never read)
+- Dead `framework` and `example_ids` fields from `GetCodeSnippetInput`
 
 ## [0.0.4] - 2026-02-26
 
