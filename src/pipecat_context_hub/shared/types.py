@@ -347,10 +347,10 @@ class GetCodeSnippetInput(BaseModel):
         default=None,
         description="Filter by class name, e.g. 'DailyTransport'. Symbol mode only.",
     )
-    content_type: str | None = Field(
+    content_type: Literal["code", "source"] | None = Field(
         default=None,
         description="Override content type: 'source' for framework, 'code' for examples. "
-        "Defaults to 'source' for symbol mode, 'code' for intent mode.",
+        "Defaults to 'source' for symbol mode, 'code' for intent/path mode.",
     )
     max_lines: int = Field(default=50, ge=1, le=500)
 
