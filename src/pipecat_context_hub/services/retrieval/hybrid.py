@@ -201,7 +201,11 @@ class HybridRetriever:
         """Search documentation with hybrid retrieval."""
         filters: dict[str, Any] = {"content_type": "doc"}
         if input.area:
-            filters["path"] = input.area
+            # Doc paths are stored with a leading slash (e.g. "/guides/...")
+            # from urlparse(source_url).path.  Normalize the user-supplied
+            # area so the prefix filter matches.
+            area = input.area if input.area.startswith("/") else f"/{input.area}"
+            filters["path"] = area
 
         results = await self._hybrid_search(input.query, filters, input.limit)
         evidence = assemble_evidence(input.query, results, filters)

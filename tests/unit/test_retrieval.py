@@ -424,7 +424,7 @@ class TestHybridRetrieverSearchDocs:
             assert hit.citation.source_url != ""
 
     async def test_with_area_filter(self):
-        """search_docs passes area as path prefix filter to the index."""
+        """search_docs normalizes area to include leading slash for path prefix."""
         mock_reader = _mock_index_reader()
         retriever = HybridRetriever(mock_reader)
 
@@ -432,11 +432,24 @@ class TestHybridRetrieverSearchDocs:
             SearchDocsInput(query="test", area="guides")
         )
 
-        # area is mapped to path prefix filter
+        # area is normalized with leading slash to match indexed doc paths
         call_args = mock_reader.vector_search.call_args
         query = call_args[0][0]
         assert query.filters["content_type"] == "doc"
-        assert query.filters["path"] == "guides"
+        assert query.filters["path"] == "/guides"
+
+    async def test_with_area_filter_already_has_slash(self):
+        """search_docs preserves leading slash if area already has one."""
+        mock_reader = _mock_index_reader()
+        retriever = HybridRetriever(mock_reader)
+
+        await retriever.search_docs(
+            SearchDocsInput(query="test", area="/server/services")
+        )
+
+        call_args = mock_reader.vector_search.call_args
+        query = call_args[0][0]
+        assert query.filters["path"] == "/server/services"
 
     async def test_empty_results(self):
         """search_docs with no results returns empty hits and low confidence."""
