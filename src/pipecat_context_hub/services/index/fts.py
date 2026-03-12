@@ -142,7 +142,9 @@ class FTSIndex:
                 (content_type,),
             )
             self._conn.commit()
-            logger.debug("Deleted %d records from FTS index for content_type=%s", count, content_type)
+            logger.debug(
+                "Deleted %d records from FTS index for content_type=%s", count, content_type
+            )
 
         return count
 
@@ -286,8 +288,15 @@ class FTSIndex:
             return []
 
         (
-            cid, content, content_type, source_url,
-            repo, path, commit_sha, indexed_at_str, metadata_json,
+            cid,
+            content,
+            content_type,
+            source_url,
+            repo,
+            path,
+            commit_sha,
+            indexed_at_str,
+            metadata_json,
         ) = row
 
         extra_meta: dict[str, Any] = json.loads(metadata_json) if metadata_json else {}
@@ -321,9 +330,7 @@ class FTSIndex:
 
     def get_metadata(self, key: str) -> str | None:
         """Get a metadata value by key, or None if not found."""
-        cursor = self._conn.execute(
-            "SELECT value FROM index_metadata WHERE key = ?", (key,)
-        )
+        cursor = self._conn.execute("SELECT value FROM index_metadata WHERE key = ?", (key,))
         row = cursor.fetchone()
         return row[0] if row else None
 
@@ -368,6 +375,11 @@ class FTSIndex:
         return " ".join(f'"{token}"' for token in tokens if token.strip())
 
     @staticmethod
+    def _escape_like(value: str) -> str:
+        """Escape LIKE metacharacters so they match literally."""
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    @staticmethod
     def _build_filter_sql(
         filters: dict[str, Any],
     ) -> tuple[list[str], list[Any]]:
@@ -375,6 +387,7 @@ class FTSIndex:
 
         Returns (clause_list, param_list) to be appended to the WHERE.
         """
+        esc = FTSIndex._escape_like
         clauses: list[str] = []
         params: list[Any] = []
 
@@ -385,34 +398,34 @@ class FTSIndex:
             clauses.append("c.content_type = ?")
             params.append(filters["content_type"])
         if "path" in filters:
-            clauses.append("c.path LIKE ?")
-            params.append(f"{filters['path']}%")
+            clauses.append("c.path LIKE ? ESCAPE '\\'")
+            params.append(f"{esc(filters['path'])}%")
         if "capability_tags" in filters:
             tags = filters["capability_tags"]
             if isinstance(tags, list):
                 for tag in tags:
-                    clauses.append("c.metadata_json LIKE ?")
-                    params.append(f"%{tag}%")
+                    clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+                    params.append(f"%{esc(tag)}%")
             else:
-                clauses.append("c.metadata_json LIKE ?")
-                params.append(f"%{tags}%")
+                clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+                params.append(f"%{esc(tags)}%")
         # Metadata JSON filters for fields stored in the JSON blob
         for key in ("foundational_class", "language", "execution_mode"):
             if key in filters:
-                clauses.append("c.metadata_json LIKE ?")
-                params.append(f'%"{key}": "{filters[key]}"%')
+                clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+                params.append(f'%"{key}": "{esc(filters[key])}"%')
         # Source API metadata filters (exact match)
         for key in ("class_name", "chunk_type", "method_name"):
             if key in filters:
-                clauses.append("c.metadata_json LIKE ?")
-                params.append(f'%"{key}": "{filters[key]}"%')
+                clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+                params.append(f'%"{key}": "{esc(filters[key])}"%')
         # module_path is a prefix filter (e.g. "pipecat.services" matches "pipecat.services.tts")
         if "module_path" in filters:
-            clauses.append("c.metadata_json LIKE ?")
-            params.append(f'%"module_path": "{filters["module_path"]}%')
+            clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+            params.append(f'%"module_path": "{esc(filters["module_path"])}%')
         if "is_dataclass" in filters:
             val = "true" if filters["is_dataclass"] else "false"
-            clauses.append("c.metadata_json LIKE ?")
+            clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
             params.append(f'%"is_dataclass": {val}%')
 
         return clauses, params

@@ -26,15 +26,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # File extensions we consider "code" for ingestion.
-_CODE_EXTENSIONS: frozenset[str] = frozenset({
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".yaml", ".yml", ".toml",
-})
+_CODE_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".py",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+    }
+)
 
 # Directories to skip during traversal.
-_SKIP_DIRS: frozenset[str] = frozenset({
-    "__pycache__", ".git", "node_modules", ".venv", "venv", ".mypy_cache",
-    ".pytest_cache", ".ruff_cache", "dist", "build", ".egg-info",
-})
+_SKIP_DIRS: frozenset[str] = frozenset(
+    {
+        "__pycache__",
+        ".git",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "dist",
+        "build",
+        ".egg-info",
+    }
+)
 
 # Max file size (bytes) we'll attempt to chunk.
 _MAX_FILE_BYTES: int = 512_000  # 500 KB
@@ -200,22 +221,56 @@ def _make_chunk_id(repo: str, path: str, commit_sha: str, chunk_index: int) -> s
 
 
 # Root-level directories to skip when scanning repos without an ``examples/`` dir.
-_NON_EXAMPLE_ROOT_DIRS: frozenset[str] = frozenset({
-    *_SKIP_DIRS,
-    "src", "lib", "docs", "doc", "tests", "test", "scripts", "tools",
-    "ci", ".github", ".tox", ".nox", "assets", "static", "bin",
-    "include", "man", "config", "deploy",
-})
+_NON_EXAMPLE_ROOT_DIRS: frozenset[str] = frozenset(
+    {
+        *_SKIP_DIRS,
+        "src",
+        "lib",
+        "docs",
+        "doc",
+        "tests",
+        "test",
+        "scripts",
+        "tools",
+        "ci",
+        ".github",
+        ".tox",
+        ".nox",
+        "assets",
+        "static",
+        "bin",
+        "include",
+        "man",
+        "config",
+        "deploy",
+    }
+)
 
 # Top-level directories to skip when the repo root IS the single example.
 # Only checked against the FIRST path component relative to the scan root —
 # nested dirs with the same name (e.g. ``src/pkg/config/``) are NOT excluded.
 # Keeps ``src/`` and ``lib/`` since those contain actual source code.
-_ROOT_FALLBACK_SKIP_ROOT_DIRS: frozenset[str] = frozenset({
-    "docs", "doc", "tests", "test", "scripts", "tools",
-    "ci", ".github", ".tox", ".nox", "assets", "static", "bin",
-    "include", "man", "config", "deploy",
-})
+_ROOT_FALLBACK_SKIP_ROOT_DIRS: frozenset[str] = frozenset(
+    {
+        "docs",
+        "doc",
+        "tests",
+        "test",
+        "scripts",
+        "tools",
+        "ci",
+        ".github",
+        ".tox",
+        ".nox",
+        "assets",
+        "static",
+        "bin",
+        "include",
+        "man",
+        "config",
+        "deploy",
+    }
+)
 
 
 def _find_example_dirs(repo_root: Path) -> list[Path]:
@@ -256,9 +311,7 @@ def _discover_under_examples(examples_dir: Path) -> list[Path]:
         if child.name in _SKIP_DIRS or not child.is_dir():
             continue
         # Check if this dir directly contains code files.
-        sub_has_code = any(
-            f.suffix in _CODE_EXTENSIONS for f in child.iterdir() if f.is_file()
-        )
+        sub_has_code = any(f.suffix in _CODE_EXTENSIONS for f in child.iterdir() if f.is_file())
         if sub_has_code:
             result.append(child)
         else:
@@ -288,9 +341,7 @@ def _discover_root_level_examples(repo_root: Path) -> list[Path]:
         if child.name.startswith(".") or child.name in _NON_EXAMPLE_ROOT_DIRS:
             continue
         # Only include dirs that directly contain code files.
-        has_code = any(
-            f.suffix in _CODE_EXTENSIONS for f in child.iterdir() if f.is_file()
-        )
+        has_code = any(f.suffix in _CODE_EXTENSIONS for f in child.iterdir() if f.is_file())
         if has_code:
             result.append(child)
 
@@ -384,9 +435,17 @@ def _build_taxonomy_lookup(
 
 
 # Tags whose presence implies the example requires a cloud service.
-_CLOUD_TAGS: frozenset[str] = frozenset({
-    "daily", "twilio", "vonage", "livekit", "azure", "aws", "google",
-})
+_CLOUD_TAGS: frozenset[str] = frozenset(
+    {
+        "daily",
+        "twilio",
+        "vonage",
+        "livekit",
+        "azure",
+        "aws",
+        "google",
+    }
+)
 
 
 def _infer_execution_mode(capability_tags: list[str]) -> str:
@@ -434,6 +493,8 @@ def _build_chunk_metadata(
             meta["capability_tags"] = cap_tag_names
         if taxonomy_entry.key_files:
             meta["key_files"] = taxonomy_entry.key_files
+        if taxonomy_entry.readme_content is not None:
+            meta["readme_content"] = taxonomy_entry.readme_content[:65536]
         meta["execution_mode"] = _infer_execution_mode(cap_tag_names)
 
     return meta
@@ -506,9 +567,7 @@ class GitHubRepoIngester:
 
         target_repos = repos if repos is not None else self._config.sources.effective_repos
         for repo_slug in target_repos:
-            result = await self._ingest_repo(
-                repo_slug, prefetched=prefetched.get(repo_slug)
-            )
+            result = await self._ingest_repo(repo_slug, prefetched=prefetched.get(repo_slug))
             total_upserted += result.records_upserted
             all_errors.extend(result.errors)
 
@@ -540,9 +599,7 @@ class GitHubRepoIngester:
             repo_path, commit_sha = prefetched
         else:
             try:
-                repo_path, commit_sha = await asyncio.to_thread(
-                    self.clone_or_fetch, repo_slug
-                )
+                repo_path, commit_sha = await asyncio.to_thread(self.clone_or_fetch, repo_slug)
             except Exception as exc:
                 msg = f"Failed to clone/fetch {repo_slug}: {exc}"
                 logger.error(msg)
@@ -564,7 +621,9 @@ class GitHubRepoIngester:
 
             root_builder = TaxonomyBuilder()
             taxonomy_lookup["."] = root_builder.build_entry_for_repo_root(
-                repo_path, repo=repo_slug, commit_sha=commit_sha,
+                repo_path,
+                repo=repo_slug,
+                commit_sha=commit_sha,
             )
 
         now = datetime.now(tz=timezone.utc)
@@ -612,9 +671,7 @@ class GitHubRepoIngester:
                 # fall back to directory-level lookup (subdirectory examples).
                 taxonomy_entry = taxonomy_lookup.get(rel_path) or dir_taxonomy_entry
 
-                source_url = (
-                    f"https://github.com/{repo_slug}/blob/{commit_sha}/{rel_path}"
-                )
+                source_url = f"https://github.com/{repo_slug}/blob/{commit_sha}/{rel_path}"
                 language = _EXTENSION_TO_LANGUAGE.get(code_file.suffix)
 
                 chunks = _chunk_code(
@@ -668,7 +725,9 @@ class GitHubRepoIngester:
 
                 root_builder = TaxonomyBuilder()
                 taxonomy_lookup["."] = root_builder.build_entry_for_repo_root(
-                    repo_path, repo=repo_slug, commit_sha=commit_sha,
+                    repo_path,
+                    repo=repo_slug,
+                    commit_sha=commit_sha,
                 )
             root_taxonomy = taxonomy_lookup.get(".")
 
@@ -682,9 +741,7 @@ class GitHubRepoIngester:
 
                 rel_path = str(code_file.relative_to(repo_path))
                 taxonomy_entry = taxonomy_lookup.get(rel_path) or root_taxonomy
-                source_url = (
-                    f"https://github.com/{repo_slug}/blob/{commit_sha}/{rel_path}"
-                )
+                source_url = f"https://github.com/{repo_slug}/blob/{commit_sha}/{rel_path}"
                 language = _EXTENSION_TO_LANGUAGE.get(code_file.suffix)
                 chunks = _chunk_code(
                     content,

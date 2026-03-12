@@ -29,7 +29,7 @@ from pipecat_context_hub.server.tools.search_examples import handle_search_examp
 
 logger = logging.getLogger(__name__)
 
-_SERVER_VERSION = "0.0.6"
+_SERVER_VERSION = "0.0.7"
 
 # Tool name → (description, input schema, handler)
 _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
@@ -37,20 +37,22 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "search_docs",
         "Search Pipecat documentation for conceptual questions, guides, configuration, and API "
         "references. Use for 'how do I...?' questions. Returns ranked doc hits with evidence. "
+        "Use `area` to narrow by docs path prefix (e.g. 'guides', 'server/services'). "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'TTS + STT').",
         SearchDocsInput.model_json_schema(),
     ),
     (
         "get_doc",
         "Retrieve a specific Pipecat documentation page by its chunk ID. "
-        "Use after search_docs to get full page content.",
+        "Use after search_docs to get full page content. "
+        "Use `section` to extract a specific heading; falls back to full document if not found.",
         GetDocInput.model_json_schema(),
     ),
     (
         "search_examples",
         "Find working Pipecat code examples by task, modality, or component. "
         "Use when the user needs runnable code patterns. "
-        "Filter by repo, capability tags, or foundational class. "
+        "Filter by `repo`, `tags` (capability tags), `foundational_class`, `language`, or `execution_mode`. "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'idle timeout + function calling').",
         SearchExamplesInput.model_json_schema(),
     ),
@@ -65,7 +67,10 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "Get a targeted code snippet by symbol name, intent, or file path + line range. "
         "Symbol lookups search framework source (class/method definitions); "
         "intent lookups search example code. "
-        "For multiple topics, use ` + ` or ` & ` delimiters in the intent field.",
+        "Use `module` to scope symbol lookups (e.g. module='pipecat.runner.daily' with symbol='configure'). "
+        "Use `class_name` to scope to a specific class. "
+        "Use `content_type='source'` with intent to search framework code instead of examples. "
+        "For multiple topics, use ` + ` or ` & ` delimiters.",
         GetCodeSnippetInput.model_json_schema(),
     ),
     (
@@ -73,6 +78,8 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "Search Pipecat framework internals — class definitions, method signatures, constructors, "
         "base classes, and frame types. Use when you need implementation details, type information, "
         "or inheritance hierarchies. "
+        "Filter by `module` (path prefix, e.g. 'pipecat.services'), `class_name`, "
+        "`chunk_type` ('module_overview', 'class_overview', 'method', 'function'), or `is_dataclass`. "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'BaseTransport + WebSocketTransport').",
         SearchApiInput.model_json_schema(),
     ),
@@ -146,9 +153,7 @@ def create_server(retriever: Retriever, index_store: IndexStore | None = None) -
         ]
 
     @server.call_tool()  # type: ignore[untyped-decorator]
-    async def call_tool(
-        name: str, arguments: dict[str, Any] | None
-    ) -> list[types.TextContent]:
+    async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
         args = arguments or {}
 
         # get_hub_status has a different dispatch signature (needs index_store)

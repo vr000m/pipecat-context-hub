@@ -143,9 +143,7 @@ class TestReciprocalRankFusion:
         # "a" rank 1 in both lists → 2/(k+1) / (2/(k+1)) = 1.0
         assert scores["a"] == pytest.approx(1.0)
         # "b" rank 2 in list 1 only → (1/(k+2)) / (2/(k+1)) = (k+1) / (2*(k+2))
-        assert scores["b"] == pytest.approx(
-            (DEFAULT_RRF_K + 1) / (2 * (DEFAULT_RRF_K + 2))
-        )
+        assert scores["b"] == pytest.approx((DEFAULT_RRF_K + 1) / (2 * (DEFAULT_RRF_K + 2)))
 
     def test_custom_k(self):
         """RRF with custom k normalizes rank 1 to 1.0."""
@@ -187,9 +185,7 @@ class TestCodeIntentHeuristics:
         r1 = _make_result("a", score=0.8, content="class PipelineRunner: pass")
         rrf_scores = {"a": 0.5}
 
-        results = apply_code_intent_heuristics(
-            [r1], rrf_scores, "use PipelineRunner", now=NOW
-        )
+        results = apply_code_intent_heuristics([r1], rrf_scores, "use PipelineRunner", now=NOW)
         assert results[0].score == pytest.approx(0.5 + SYMBOL_MATCH_BOOST)
 
     def test_no_symbol_no_boost(self):
@@ -197,9 +193,7 @@ class TestCodeIntentHeuristics:
         r1 = _make_result("a", score=0.8, content="just some docs")
         rrf_scores = {"a": 0.5}
 
-        results = apply_code_intent_heuristics(
-            [r1], rrf_scores, "use PipelineRunner", now=NOW
-        )
+        results = apply_code_intent_heuristics([r1], rrf_scores, "use PipelineRunner", now=NOW)
         assert results[0].score == pytest.approx(0.5)
 
     def test_staleness_penalty(self):
@@ -208,9 +202,7 @@ class TestCodeIntentHeuristics:
         r1 = _make_result("a", score=0.8, indexed_at=old_date)
         rrf_scores = {"a": 0.5}
 
-        results = apply_code_intent_heuristics(
-            [r1], rrf_scores, "some query", now=NOW
-        )
+        results = apply_code_intent_heuristics([r1], rrf_scores, "some query", now=NOW)
         assert results[0].score == pytest.approx(0.5 - STALENESS_PENALTY)
 
     def test_fresh_no_penalty(self):
@@ -219,9 +211,7 @@ class TestCodeIntentHeuristics:
         r1 = _make_result("a", score=0.8, indexed_at=recent_date)
         rrf_scores = {"a": 0.5}
 
-        results = apply_code_intent_heuristics(
-            [r1], rrf_scores, "some query", now=NOW
-        )
+        results = apply_code_intent_heuristics([r1], rrf_scores, "some query", now=NOW)
         assert results[0].score == pytest.approx(0.5)
 
     def test_sort_order(self):
@@ -230,9 +220,7 @@ class TestCodeIntentHeuristics:
         r2 = _make_result("b", score=0.9, content="class PipelineRunner: pass")
         rrf_scores = {"a": 0.3, "b": 0.2}
 
-        results = apply_code_intent_heuristics(
-            [r1, r2], rrf_scores, "use PipelineRunner", now=NOW
-        )
+        results = apply_code_intent_heuristics([r1, r2], rrf_scores, "use PipelineRunner", now=NOW)
         # b gets symbol boost: 0.2 + 0.15 = 0.35 > a's 0.3
         assert results[0].chunk.chunk_id == "b"
         assert results[1].chunk.chunk_id == "a"
@@ -412,9 +400,7 @@ class TestHybridRetrieverSearchDocs:
         mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r2])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.search_docs(
-            SearchDocsInput(query="pipecat getting started")
-        )
+        output = await retriever.search_docs(SearchDocsInput(query="pipecat getting started"))
 
         assert len(output.hits) > 0
         assert output.evidence is not None
@@ -424,28 +410,35 @@ class TestHybridRetrieverSearchDocs:
             assert hit.citation.source_url != ""
 
     async def test_with_area_filter(self):
-        """search_docs passes area filter to the index."""
+        """search_docs normalizes area to include leading slash for path prefix."""
         mock_reader = _mock_index_reader()
         retriever = HybridRetriever(mock_reader)
 
-        await retriever.search_docs(
-            SearchDocsInput(query="test", area="guides")
-        )
+        await retriever.search_docs(SearchDocsInput(query="test", area="guides"))
 
-        # Verify the query included content_type and area filters
+        # area is normalized with leading slash to match indexed doc paths
         call_args = mock_reader.vector_search.call_args
         query = call_args[0][0]
         assert query.filters["content_type"] == "doc"
-        assert query.filters["area"] == "guides"
+        assert query.filters["path"] == "/guides"
+
+    async def test_with_area_filter_already_has_slash(self):
+        """search_docs preserves leading slash if area already has one."""
+        mock_reader = _mock_index_reader()
+        retriever = HybridRetriever(mock_reader)
+
+        await retriever.search_docs(SearchDocsInput(query="test", area="/server/services"))
+
+        call_args = mock_reader.vector_search.call_args
+        query = call_args[0][0]
+        assert query.filters["path"] == "/server/services"
 
     async def test_empty_results(self):
         """search_docs with no results returns empty hits and low confidence."""
         mock_reader = _mock_index_reader()
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.search_docs(
-            SearchDocsInput(query="nonexistent topic")
-        )
+        output = await retriever.search_docs(SearchDocsInput(query="nonexistent topic"))
 
         assert len(output.hits) == 0
         assert output.evidence.confidence == 0.0
@@ -494,9 +487,7 @@ class TestHybridRetrieverGetDoc:
         mock_reader = _mock_index_reader(keyword_results=[r1])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.get_doc(
-            GetDocInput(doc_id="doc-sec", section="Details")
-        )
+        output = await retriever.get_doc(GetDocInput(doc_id="doc-sec", section="Details"))
 
         assert "Detailed content" in output.content
 
@@ -517,9 +508,7 @@ class TestHybridRetrieverSearchExamples:
         mock_reader = _mock_index_reader(vector_results=[r1])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.search_examples(
-            SearchExamplesInput(query="tts example")
-        )
+        output = await retriever.search_examples(SearchExamplesInput(query="tts example"))
 
         assert len(output.hits) > 0
         assert output.hits[0].capability_tags == ["tts"]
@@ -575,13 +564,53 @@ class TestHybridRetrieverGetExample:
         mock_reader = _mock_index_reader()
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.get_example(
-            GetExampleInput(example_id="missing-ex")
-        )
+        output = await retriever.get_example(GetExampleInput(example_id="missing-ex"))
 
         assert output.example_id == "missing-ex"
         assert len(output.files) == 0
         assert output.evidence.confidence == 0.0
+
+    async def test_include_readme_false_suppresses_readme(self):
+        """include_readme=False returns None for readme_content."""
+        r1 = _make_result(
+            "ex-readme",
+            content="async def main(): pass",
+            content_type="code",
+            metadata={
+                "key_files": ["main.py"],
+                "readme_content": "# Example README\nThis is a test.",
+                "language": "python",
+            },
+        )
+        mock_reader = _mock_index_reader(keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_example(
+            GetExampleInput(example_id="ex-readme", include_readme=False)
+        )
+
+        assert output.metadata.readme_content is None
+
+    async def test_include_readme_true_returns_content(self):
+        """include_readme=True returns stored readme_content."""
+        r1 = _make_result(
+            "ex-readme",
+            content="async def main(): pass",
+            content_type="code",
+            metadata={
+                "key_files": ["main.py"],
+                "readme_content": "# Example README",
+                "language": "python",
+            },
+        )
+        mock_reader = _mock_index_reader(keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_example(
+            GetExampleInput(example_id="ex-readme", include_readme=True)
+        )
+
+        assert output.metadata.readme_content == "# Example README"
 
 
 class TestHybridRetrieverGetCodeSnippet:
@@ -598,9 +627,7 @@ class TestHybridRetrieverGetCodeSnippet:
         mock_reader = _mock_index_reader(vector_results=[r1])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.get_code_snippet(
-            GetCodeSnippetInput(intent="create a pipeline")
-        )
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(intent="create a pipeline"))
 
         assert len(output.snippets) > 0
         assert output.snippets[0].language == "python"
@@ -617,9 +644,7 @@ class TestHybridRetrieverGetCodeSnippet:
         mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r1])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.get_code_snippet(
-            GetCodeSnippetInput(symbol="MLXModel")
-        )
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="MLXModel"))
 
         assert len(output.snippets) > 0
 
@@ -628,9 +653,7 @@ class TestHybridRetrieverGetCodeSnippet:
         mock_reader = _mock_index_reader()
         retriever = HybridRetriever(mock_reader)
 
-        await retriever.get_code_snippet(
-            GetCodeSnippetInput(symbol="MyClass")
-        )
+        await retriever.get_code_snippet(GetCodeSnippetInput(symbol="MyClass"))
 
         # Both vector_search and keyword_search should receive content_type="source"
         for call in mock_reader.vector_search.call_args_list:
@@ -666,9 +689,7 @@ class TestHybridRetrieverGetCodeSnippet:
         mock_reader = _mock_index_reader()
         retriever = HybridRetriever(mock_reader)
 
-        await retriever.get_code_snippet(
-            GetCodeSnippetInput(intent="create a pipeline")
-        )
+        await retriever.get_code_snippet(GetCodeSnippetInput(intent="create a pipeline"))
 
         query = mock_reader.vector_search.call_args[0][0]
         assert query.filters.get("content_type") == "code"
@@ -697,9 +718,7 @@ class TestHybridRetrieverGetCodeSnippet:
         mock_reader = _mock_index_reader()
         retriever = HybridRetriever(mock_reader)
 
-        await retriever.get_code_snippet(
-            GetCodeSnippetInput(path="src/main.py", line_start=10)
-        )
+        await retriever.get_code_snippet(GetCodeSnippetInput(path="src/main.py", line_start=10))
 
         query = mock_reader.vector_search.call_args[0][0]
         assert query.filters.get("content_type") == "code"
@@ -752,9 +771,7 @@ class TestSymbolFilterCascade:
         mock_reader.keyword_search = AsyncMock(return_value=[])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.get_code_snippet(
-            GetCodeSnippetInput(symbol="MLXModel")
-        )
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="MLXModel"))
 
         assert len(output.snippets) > 0
         # Should have found result with class_name filter (first cascade step)
@@ -783,9 +800,7 @@ class TestSymbolFilterCascade:
         mock_reader.keyword_search = AsyncMock(return_value=[])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.get_code_snippet(
-            GetCodeSnippetInput(symbol="run_stt")
-        )
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="run_stt"))
 
         assert len(output.snippets) > 0
         # First tried class_name, then method_name
@@ -814,19 +829,112 @@ class TestSymbolFilterCascade:
         mock_reader.keyword_search = AsyncMock(return_value=[])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.get_code_snippet(
-            GetCodeSnippetInput(symbol="SomeVagueThing")
-        )
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="SomeVagueThing"))
 
         assert len(output.snippets) > 0
         # All three cascade steps tried
         assert any(f.get("class_name") == "SomeVagueThing" for f in call_filters)
         assert any(f.get("method_name") == "SomeVagueThing" for f in call_filters)
         # Fallback has neither class_name nor method_name
-        assert any(
-            "class_name" not in f and "method_name" not in f
-            for f in call_filters
+        assert any("class_name" not in f and "method_name" not in f for f in call_filters)
+
+    async def test_symbol_with_class_name_skips_class_cascade_step(self):
+        """When caller supplies class_name, the class_name cascade step is skipped."""
+        method_result = _make_result(
+            "meth-scoped",
+            content="# DailyTransport.configure\ndef configure(self): ...",
+            content_type="source",
+            metadata={
+                "method_name": "configure",
+                "class_name": "DailyTransport",
+            },
         )
+        call_filters: list[dict[str, Any]] = []
+
+        async def mock_vector(query):
+            call_filters.append(dict(query.filters))
+            if (
+                query.filters.get("class_name") == "DailyTransport"
+                and query.filters.get("method_name") == "configure"
+            ):
+                return [method_result]
+            return []
+
+        mock_reader = _mock_index_reader()
+        mock_reader.vector_search = mock_vector
+        mock_reader.keyword_search = AsyncMock(return_value=[])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(symbol="configure", class_name="DailyTransport")
+        )
+
+        assert len(output.snippets) > 0
+        # Should NOT have a step where class_name == "configure" (the symbol),
+        # because caller's class_name="DailyTransport" was used instead.
+        assert not any(f.get("class_name") == "configure" for f in call_filters)
+        # All steps should carry class_name="DailyTransport" from base_filters
+        assert all(f.get("class_name") == "DailyTransport" for f in call_filters)
+
+    async def test_symbol_with_module_filter(self):
+        """When caller supplies module, results are scoped to that module."""
+        daily_result = _make_result(
+            "daily-cfg",
+            content="# configure\ndef configure(): ...",
+            content_type="source",
+            metadata={
+                "method_name": "configure",
+                "module_path": "pipecat.runner.daily",
+            },
+        )
+        call_filters: list[dict[str, Any]] = []
+
+        async def mock_vector(query):
+            call_filters.append(dict(query.filters))
+            if query.filters.get("module_path") == "pipecat.runner.daily":
+                return [daily_result]
+            return []
+
+        mock_reader = _mock_index_reader()
+        mock_reader.vector_search = mock_vector
+        mock_reader.keyword_search = AsyncMock(return_value=[])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(symbol="configure", module="pipecat.runner.daily")
+        )
+
+        assert len(output.snippets) > 0
+        # All cascade steps should carry module_path filter
+        assert all(f.get("module_path") == "pipecat.runner.daily" for f in call_filters)
+
+    async def test_symbol_with_content_type_override(self):
+        """content_type override is respected in symbol mode."""
+        call_filters: list[dict[str, Any]] = []
+
+        async def mock_vector(query):
+            call_filters.append(dict(query.filters))
+            return []
+
+        mock_reader = _mock_index_reader()
+        mock_reader.vector_search = mock_vector
+        mock_reader.keyword_search = AsyncMock(return_value=[])
+        retriever = HybridRetriever(mock_reader)
+
+        await retriever.get_code_snippet(GetCodeSnippetInput(symbol="MyClass", content_type="code"))
+
+        # All cascade steps should use content_type="code" instead of default "source"
+        assert all(f.get("content_type") == "code" for f in call_filters)
+
+    def test_module_rejected_in_intent_mode(self):
+        """module filter raises ValueError when used with intent mode."""
+        with pytest.raises(ValueError, match="symbol mode"):
+            GetCodeSnippetInput(intent="how to do X", module="pipecat.runner")
+
+    def test_class_name_rejected_in_intent_mode(self):
+        """class_name filter raises ValueError when used with intent mode."""
+        with pytest.raises(ValueError, match="symbol mode"):
+            GetCodeSnippetInput(intent="how to do X", class_name="SomeClass")
 
 
 class TestHybridRetrieverProtocol:
@@ -963,9 +1071,7 @@ class TestMultiConceptSearch:
         mock_reader = _mock_index_reader(vector_results=[r1])
         retriever = HybridRetriever(mock_reader)
 
-        output = await retriever.search_docs(
-            SearchDocsInput(query="getting started with pipecat")
-        )
+        output = await retriever.search_docs(SearchDocsInput(query="getting started with pipecat"))
 
         assert len(output.hits) > 0
         # vector_search called exactly once with the full query (not decomposed)

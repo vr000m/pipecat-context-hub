@@ -7,9 +7,9 @@ are defined here so parallel agents can code against stable types.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -26,12 +26,16 @@ class ChunkedRecord(BaseModel):
         description="Whether this chunk came from documentation, code, a README, or framework source."
     )
     source_url: str = Field(description="Canonical URL for the source.")
-    repo: str | None = Field(default=None, description="GitHub repo slug, e.g. 'pipecat-ai/pipecat'.")
+    repo: str | None = Field(
+        default=None, description="GitHub repo slug, e.g. 'pipecat-ai/pipecat'."
+    )
     path: str = Field(description="File path within the repo or URL path for docs.")
     commit_sha: str | None = Field(default=None, description="Git commit SHA at index time.")
     indexed_at: datetime = Field(description="Timestamp when this record was indexed.")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Arbitrary extra metadata.")
-    embedding: list[float] | None = Field(default=None, description="Embedding vector, if computed.")
+    embedding: list[float] | None = Field(
+        default=None, description="Embedding vector, if computed."
+    )
 
 
 class IndexQuery(BaseModel):
@@ -92,9 +96,7 @@ class TaxonomyEntry(BaseModel):
     )
     key_files: list[str] = Field(default_factory=list, description="Primary files in this example.")
     summary: str = Field(default="", description="Short auto-generated summary.")
-    readme_content: str | None = Field(
-        default=None, description="README contents if present."
-    )
+    readme_content: str | None = Field(default=None, description="README contents if present.")
     commit_sha: str | None = Field(default=None, description="Git commit SHA at index time.")
     indexed_at: datetime | None = Field(
         default=None, description="Timestamp when this entry was last indexed."
@@ -199,8 +201,12 @@ class IngestResult(BaseModel):
 class SearchDocsInput(BaseModel):
     """Input for the search_docs MCP tool."""
 
-    query: str
-    area: str | None = Field(default=None, description="Narrow to a docs area, e.g. 'api', 'guides'.")
+    query: str = Field(max_length=1000)
+    area: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Narrow to a docs area by path prefix, e.g. 'api', 'guides', 'server/services'.",
+    )
     limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -230,8 +236,12 @@ class SearchDocsOutput(BaseModel):
 class GetDocInput(BaseModel):
     """Input for the get_doc MCP tool."""
 
-    doc_id: str
-    section: str | None = None
+    doc_id: str = Field(max_length=256)
+    section: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Extract a specific section by heading. Falls back to full document if not found.",
+    )
 
 
 class GetDocOutput(BaseModel):
@@ -254,12 +264,15 @@ class GetDocOutput(BaseModel):
 class SearchExamplesInput(BaseModel):
     """Input for the search_examples MCP tool."""
 
-    query: str
-    repo: str | None = None
-    language: str | None = None
-    tags: list[str] | None = None
-    foundational_class: str | None = None
-    execution_mode: str | None = None
+    query: str = Field(max_length=1000)
+    repo: str | None = Field(default=None, max_length=256)
+    language: str | None = Field(default=None, max_length=64)
+    tags: list[Annotated[str, StringConstraints(max_length=64)]] | None = Field(
+        default=None,
+        max_length=20,
+    )
+    foundational_class: str | None = Field(default=None, max_length=256)
+    execution_mode: str | None = Field(default=None, max_length=64)
     limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -293,8 +306,7 @@ class SearchExamplesOutput(BaseModel):
 class GetExampleInput(BaseModel):
     """Input for the get_example MCP tool."""
 
-    example_id: str
-    path: str | None = Field(default=None, description="Specific file within the example.")
+    example_id: str = Field(max_length=256)
     include_readme: bool = True
 
 
@@ -334,13 +346,26 @@ class GetCodeSnippetInput(BaseModel):
     - ``path`` + ``line_start`` (without ``intent``) — direct line-range lookup
     """
 
-    symbol: str | None = None
-    intent: str | None = None
-    path: str | None = None
+    symbol: str | None = Field(default=None, max_length=256)
+    intent: str | None = Field(default=None, max_length=1000)
+    path: str | None = Field(default=None, max_length=512)
     line_start: int | None = None
     line_end: int | None = None
-    framework: str | None = None
-    example_ids: list[str] | None = None
+    module: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Filter by module path prefix, e.g. 'pipecat.runner.daily'. Symbol mode only.",
+    )
+    class_name: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Filter by class name, e.g. 'DailyTransport'. Symbol mode only.",
+    )
+    content_type: Literal["code", "source"] | None = Field(
+        default=None,
+        description="Override content type: 'source' for framework, 'code' for examples. "
+        "Defaults to 'source' for symbol mode, 'code' for intent/path mode.",
+    )
     max_lines: int = Field(default=50, ge=1, le=500)
 
     @model_validator(mode="after")
@@ -354,11 +379,7 @@ class GetCodeSnippetInput(BaseModel):
         has_symbol = self.symbol is not None
         has_intent = self.intent is not None
         # path+line_start is its own mode only when intent is absent.
-        has_path_range = (
-            self.path is not None
-            and self.line_start is not None
-            and not has_intent
-        )
+        has_path_range = self.path is not None and self.line_start is not None and not has_intent
         modes = [has_symbol, has_intent, has_path_range]
         if sum(modes) == 0:
             raise ValueError(
@@ -366,6 +387,8 @@ class GetCodeSnippetInput(BaseModel):
             )
         if sum(modes) > 1:
             raise ValueError("Only one lookup mode may be set at a time.")
+        if not has_symbol and (self.module or self.class_name):
+            raise ValueError("`module` and `class_name` filters are only supported in symbol mode.")
         return self
 
 
@@ -429,12 +452,20 @@ class HubStatusOutput(BaseModel):
 class SearchApiInput(BaseModel):
     """Input for the search_api MCP tool."""
 
-    query: str
-    module: str | None = Field(default=None, description="Filter by module path prefix, e.g. 'pipecat.services'.")
-    class_name: str | None = Field(default=None, description="Filter by class name, e.g. 'TTSService'.")
-    chunk_type: str | None = Field(
+    query: str = Field(max_length=1000)
+    module: str | None = Field(
         default=None,
-        description="Filter by chunk type: 'module_overview', 'class_overview', 'method', or 'function'.",
+        max_length=256,
+        description="Filter by module path prefix, e.g. 'pipecat.services'.",
+    )
+    class_name: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Filter by class name, e.g. 'TTSService'.",
+    )
+    chunk_type: Literal["module_overview", "class_overview", "method", "function"] | None = Field(
+        default=None,
+        description="Filter by chunk type.",
     )
     is_dataclass: bool | None = Field(default=None, description="Filter for dataclass types only.")
     limit: int = Field(default=10, ge=1, le=50)

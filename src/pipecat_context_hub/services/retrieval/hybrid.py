@@ -110,9 +110,7 @@ class HybridRetriever:
         """Run vector + keyword search for a single query, merge with RRF."""
         query_embedding: list[float] | None = None
         if self._embedding is not None:
-            query_embedding = await asyncio.to_thread(
-                self._embedding.embed_query, query_text
-            )
+            query_embedding = await asyncio.to_thread(self._embedding.embed_query, query_text)
 
         query = IndexQuery(
             query_text=query_text,
@@ -121,7 +119,9 @@ class HybridRetriever:
             limit=limit,
         )
 
-        logger.debug("Single-concept search: query=%r filters=%r limit=%d", query_text, filters, limit)
+        logger.debug(
+            "Single-concept search: query=%r filters=%r limit=%d", query_text, filters, limit
+        )
 
         vector_results, keyword_results = await asyncio.gather(
             self._index.vector_search(query),
@@ -159,9 +159,7 @@ class HybridRetriever:
         # per-concept searches would over-fetch.  Fall back to a single
         # search using the full (joined) query.
         if limit < n:
-            return await self._single_concept_search(
-                " ".join(concepts), filters, limit
-            )
+            return await self._single_concept_search(" ".join(concepts), filters, limit)
 
         per_concept = -(-limit // n)  # ceiling division
 
@@ -201,7 +199,11 @@ class HybridRetriever:
         """Search documentation with hybrid retrieval."""
         filters: dict[str, Any] = {"content_type": "doc"}
         if input.area:
-            filters["area"] = input.area
+            # Doc paths are stored with a leading slash (e.g. "/guides/...")
+            # from urlparse(source_url).path.  Normalize the user-supplied
+            # area so the prefix filter matches.
+            area = input.area if input.area.startswith("/") else f"/{input.area}"
+            filters["path"] = area
 
         results = await self._hybrid_search(input.query, filters, input.limit)
         evidence = assemble_evidence(input.query, results, filters)
@@ -358,9 +360,7 @@ class HybridRetriever:
             capabilities=[],  # Raw tag names are in capability_tags
             key_files=key_files,
             summary=chunk.content[:200],
-            readme_content=chunk.metadata.get("readme_content")
-            if input.include_readme
-            else None,
+            readme_content=chunk.metadata.get("readme_content") if input.include_readme else None,
             commit_sha=chunk.commit_sha,
             indexed_at=chunk.indexed_at,
         )
@@ -408,18 +408,30 @@ class HybridRetriever:
         # Intent and path lookups target example code (content_type="code").
         if input.symbol:
             query_text = input.symbol
-            base_filters: dict[str, Any] = {"content_type": "source"}
+            base_filters: dict[str, Any] = {
+                "content_type": input.content_type or "source",
+            }
             if input.path is not None:
                 base_filters["path"] = input.path
+            if input.module:
+                base_filters["module_path"] = input.module
+            if input.class_name:
+                base_filters["class_name"] = input.class_name
 
             # Filter cascade: class_name → method_name → unstructured fallback.
             # Tries exact metadata filters first for precise symbol matches,
-            # then relaxes progressively.
-            for extra_filter in [
-                {"class_name": input.symbol},
-                {"method_name": input.symbol},
-                {},
-            ]:
+            # then relaxes progressively.  When the caller already supplied
+            # class_name, skip the first cascade step (it would be redundant)
+            # and the caller's class_name carries through all subsequent steps
+            # (scoping method and unstructured searches to that class).
+            cascade_steps: list[dict[str, str]] = []
+            if not input.class_name:
+                cascade_steps.append({"class_name": input.symbol})
+            cascade_steps.append({"method_name": input.symbol})
+            cascade_steps.append({})
+
+            cascade_filters: dict[str, Any] = base_filters
+            for extra_filter in cascade_steps:
                 cascade_filters = {**base_filters, **extra_filter}
                 results = await self._hybrid_search(
                     query_text, cascade_filters, _DEFAULT_SNIPPET_CANDIDATES
@@ -429,13 +441,13 @@ class HybridRetriever:
             filters = cascade_filters
         elif input.intent:
             query_text = input.intent
-            filters["content_type"] = "code"
+            filters["content_type"] = input.content_type or "code"
             # path narrows intent search to a specific file
             if input.path is not None:
                 filters["path"] = input.path
         elif input.path is not None and input.line_start is not None:
             query_text = input.path
-            filters["content_type"] = "code"
+            filters["content_type"] = input.content_type or "code"
             filters["path"] = input.path
             # line_start/line_end are applied as post-filters below, not
             # passed to index backends which don't support numeric ranges.
