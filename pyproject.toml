@@ -54,3 +54,8 @@ disallow_untyped_decorators = false
 disallow_incomplete_defs = false
 disallow_untyped_calls = false
 warn_return_any = false
+
+[dependency-groups]
+dev = [
+    "umap-learn>=0.5.11",
+]
