@@ -702,6 +702,7 @@ _CALLGRAPH_MODULE_SOURCE = '''\
 """Module with yields and calls."""
 
 from pipecat.frames.frames import TTSAudioRawFrame, TTSStoppedFrame
+from .utils import helper_func
 import os
 
 class TTSService:
@@ -749,12 +750,13 @@ class TestCallGraphMetadata:
         assert "push_frame" in run_tts.metadata["calls"]
 
     def test_method_chunk_has_pipecat_imports_only(self):
-        """Method chunks get pipecat-internal imports, not all imports."""
+        """Method chunks get pipecat-internal imports (absolute + relative), not stdlib."""
         chunks = self._get_chunks()
         method_chunks = [c for c in chunks if c.metadata["chunk_type"] == "method"]
         run_tts = [c for c in method_chunks if c.metadata["method_name"] == "run_tts"][0]
         imports = run_tts.metadata["imports"]
         assert any("pipecat" in i for i in imports)
+        assert any(i.startswith("from .") for i in imports), "relative imports should be included"
         assert not any("import os" == i for i in imports)
 
     def test_class_overview_has_pipecat_imports(self):

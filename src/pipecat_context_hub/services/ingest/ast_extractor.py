@@ -410,9 +410,11 @@ def _extract_imports(node: ast.Import | ast.ImportFrom) -> list[str]:
         for alias in node.names:
             results.append(f"import {alias.name}")
     elif isinstance(node, ast.ImportFrom):
+        # Preserve relative import dots (e.g. from .utils → level=1, from ..core → level=2)
+        dots = "." * (node.level or 0)
         module = node.module or ""
         names = ", ".join(alias.name for alias in node.names)
-        results.append(f"from {module} import {names}")
+        results.append(f"from {dots}{module} import {names}")
     return results
 
 

@@ -204,7 +204,12 @@ def _build_chunks(
 
     # Pipecat-internal imports for propagation to class/method chunks.
     # Module overview retains the full imports list unchanged.
-    pipecat_imports = [i for i in module_info.imports if "pipecat" in i]
+    # Include both absolute pipecat imports and relative imports (from . / from ..)
+    # since relative imports within pipecat packages are also pipecat-internal.
+    pipecat_imports = [
+        i for i in module_info.imports
+        if "pipecat" in i or i.startswith("from .")
+    ]
 
     # --- Module overview chunk ---
     module_content = _build_module_overview(module_info)
