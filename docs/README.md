@@ -19,7 +19,7 @@ IDE/Agent  ←stdio→  pipecat-context-hub serve  ←→  Local index (~/.pipec
 | `search_examples` | Find working code examples by task, modality, or component |
 | `get_example` | Retrieve full example with source files and metadata |
 | `get_code_snippet` | Get targeted code spans by intent, symbol, or path |
-| `search_api` | Search framework internals — class definitions, method signatures, inheritance |
+| `search_api` | Search framework internals — class definitions, method signatures, inheritance. Filter by `yields` (frame types) or `calls` (method names) |
 | `get_hub_status` | Get index health: last refresh time, record counts, commit SHAs |
 
 All responses include an `EvidenceReport` with `known`/`unknown` items, confidence scores, and suggested follow-up queries.
@@ -165,7 +165,7 @@ src/pipecat_context_hub/
 ├── services/
 │   ├── embedding.py                # EmbeddingService + EmbeddingIndexWriter
 │   ├── ingest/
-│   │   ├── ast_extractor.py        # Python AST analysis (classes, methods, imports)
+│   │   ├── ast_extractor.py        # Python AST analysis (classes, methods, imports, yields, calls)
 │   │   ├── docs_crawler.py         # llms-full.txt ingester + markdown chunker
 │   │   ├── github_ingest.py        # Git clone/fetch + code chunking
 │   │   ├── source_ingest.py        # Source code chunking + module metadata

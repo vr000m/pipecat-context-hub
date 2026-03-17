@@ -27,24 +27,23 @@
   reason agents fall back to `.venv` reads is tracing call chains — "method A calls
   method B which yields frame C." Current chunks are isolated definitions with no
   links between them. Scope:
-  1. **Extract yield types** from method bodies — walk `ast.Yield`/`ast.YieldFrom`
-     nodes for frame class names. Store as `yields: ["TTSAudioRawFrame", ...]` on
-     method chunks. Covers the #1 Pipecat-specific tracing need (processor → frame
-     type mapping).
-  2. **Extract method calls** from method bodies — walk `ast.Call` nodes for
-     `self.method_name()` and `ClassName.method()` patterns. Store as
-     `calls: ["process_frame", "push_frame", ...]`. Does not need full type
-     resolution, just names.
-  3. **Propagate imports to class/method chunks** — currently only module_overview
-     chunks carry the `imports` field. Propagating filtered imports (e.g. only
-     pipecat-internal) to child chunks enables "what does this method depend on?"
-     queries without a second lookup.
-  4. **Make filterable** — add `yields` and `calls` to FTS `_build_filter_sql()`
-     and vector `_build_where_clause()` so agents can query "methods that yield
-     AudioRawFrame" or "methods that call push_frame" directly.
-  5. **Populate `dependency_notes` and `companion_snippets`** — these fields exist
-     on `CodeSnippet` output type but are never populated for source chunks. Use
-     the call/yield metadata to auto-generate them.
+  1. ~~**Extract yield types** from method bodies~~ ✅ Done (`ast_extractor._extract_yields`,
+     `_walk_shallow` for nested-function boundary). Stored as `yields: [...]` on
+     method/function chunks. Uses shallow AST walk to avoid leaking inner function
+     yields to outer scope.
+  2. ~~**Extract method calls** from method bodies~~ ✅ Done (`ast_extractor._extract_calls`).
+     Patterns: `self.method()` → `"method"`, `ClassName.method()` → `"ClassName.method"`,
+     `super().method()` → `"super().method"`. Lowercase attribute chains excluded.
+  3. ~~**Propagate imports to class/method chunks**~~ ✅ Done (`source_ingest._build_chunks`).
+     Pipecat-internal imports propagated to class_overview and method chunks.
+     Module overview retains full imports list.
+  4. ~~**Make filterable**~~ ✅ Done. FTS: `_build_filter_sql()` with JSON-key-anchored
+     LIKE patterns. Vector: `_apply_post_filters()` with list membership checks
+     (post-filter, not push-down — yields/calls are JSON strings in ChromaDB).
+     `SearchApiInput` exposes `yields` and `calls` filter params; `ApiHit` includes
+     both as structured list fields.
+  5. **Populate `dependency_notes` and `companion_snippets`** — deferred. Requires
+     retrieval-layer changes in evidence.py and tool handlers.
   - **Non-goal:** Full type-resolved call graph. Name-based extraction is sufficient
     for the retrieval use case and avoids the complexity of cross-module type
     inference.
