@@ -5,6 +5,41 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.8] - Unreleased
+
+### Added
+
+- **Call-graph metadata** on method/function chunks: `yields` (frame types
+  yielded) and `calls` (methods called via `self.method()`,
+  `ClassName.method()`, `super().method()`) extracted from AST and stored
+  as structured list fields
+- **`yields` and `calls` filters** on `search_api` — agents can query
+  "methods that yield TTSAudioRawFrame" or "methods that call push_frame"
+  directly instead of falling back to `.venv` source reads
+- **`yields` and `calls` fields** on `ApiHit` output — structured lists
+  surfaced through MCP tool responses
+- **Pipecat-internal import propagation** to class overview and method chunks,
+  including relative imports (`from .utils import X`) — module overview retains
+  full imports list
+- **`## Yields` / `## Calls` sections** appended to method chunk text content
+  for FTS keyword searchability
+- `_walk_body_shallow()` iterative DFS walker that restricts extraction to
+  executable function bodies — excludes decorators, parameter defaults, return
+  annotations, nested functions, lambdas, and nested classes
+
+### Changed
+
+- `_extract_yields` only processes `ast.Yield` (not `ast.YieldFrom`) — generator
+  delegation names are not frame types and were breaking the `yields` contract
+- FTS `yields`/`calls` filters use JSON-key-anchored LIKE patterns with quoted
+  values and closing `]` to prevent cross-field false positives
+- Vector `yields`/`calls` filters use list membership post-filter (not substring
+  matching on JSON dumps) for exact-match semantics
+- `_extract_imports` preserves relative import dots (`from .utils` no longer
+  stripped to `from utils`) via `node.level`
+- `needs_post_filter` in `VectorIndex.search()` updated to include `yields`
+  and `calls` for over-fetch when post-filtering
+
 ## [0.0.7] - 2026-03-11
 
 ### Added

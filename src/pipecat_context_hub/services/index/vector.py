@@ -74,6 +74,12 @@ def _record_to_metadata(
     imports = record.metadata.get("imports")
     if imports and isinstance(imports, list):
         meta["imports"] = json.dumps(imports)
+    yields = record.metadata.get("yields")
+    if yields and isinstance(yields, list):
+        meta["yields"] = json.dumps(yields)
+    calls = record.metadata.get("calls")
+    if calls and isinstance(calls, list):
+        meta["calls"] = json.dumps(calls)
     return meta
 
 
@@ -117,6 +123,18 @@ def _metadata_to_record_fields(
             extra_meta["imports"] = json.loads(imports_str)
         except (json.JSONDecodeError, TypeError):
             extra_meta["imports"] = []
+    yields_str = meta.get("yields", "")
+    if yields_str:
+        try:
+            extra_meta["yields"] = json.loads(yields_str)
+        except (json.JSONDecodeError, TypeError):
+            extra_meta["yields"] = []
+    calls_str = meta.get("calls", "")
+    if calls_str:
+        try:
+            extra_meta["calls"] = json.loads(calls_str)
+        except (json.JSONDecodeError, TypeError):
+            extra_meta["calls"] = []
 
     return ChunkedRecord(
         chunk_id=chunk_id,
@@ -193,6 +211,13 @@ def _apply_post_filters(
     if "module_path" in filters:
         prefix = filters["module_path"]
         filtered = [r for r in filtered if r.chunk.metadata.get("module_path", "").startswith(prefix)]
+
+    if "yields" in filters:
+        val = filters["yields"]
+        filtered = [r for r in filtered if val in r.chunk.metadata.get("yields", [])]
+    if "calls" in filters:
+        val = filters["calls"]
+        filtered = [r for r in filtered if val in r.chunk.metadata.get("calls", [])]
 
     return filtered
 
@@ -312,7 +337,7 @@ class VectorIndex:
             logger.warning("vector_search called without query_embedding")
             return []
 
-        needs_post_filter = "path" in query.filters or "capability_tags" in query.filters or "module_path" in query.filters
+        needs_post_filter = any(k in query.filters for k in ("path", "capability_tags", "module_path", "yields", "calls"))
         where = _build_where_clause(query.filters)
 
         # Clamp n_results to collection size to prevent ChromaDB crash

@@ -36,6 +36,8 @@ class MethodInfo:
     line_start: int = 0
     line_end: int = 0
     source: str = ""
+    yields: list[str] = field(default_factory=list)
+    calls: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -64,6 +66,8 @@ class FunctionInfo:
     line_start: int = 0
     line_end: int = 0
     source: str = ""
+    yields: list[str] = field(default_factory=list)
+    calls: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -183,6 +187,126 @@ def _is_dataclass(decorators: list[str]) -> bool:
     return any("dataclass" in d for d in decorators)
 
 
+def _walk_body_shallow(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.AST]:
+    """Walk only the executable body of a function, stopping at scope boundaries.
+
+    Unlike ``ast.walk(node)``, this:
+    1. Only walks ``node.body`` statements — decorators, parameter defaults,
+       and return annotations are excluded so that calls/yields in those
+       positions are not attributed to the function's runtime behaviour.
+    2. Does NOT descend into nested ``FunctionDef``, ``AsyncFunctionDef``,
+       ``ClassDef``, or ``Lambda`` nodes, preventing inner-scope leakage.
+
+    Comprehension nodes (``ListComp``, ``SetComp``, etc.) are intentionally
+    traversed — calls inside comprehensions are part of the method's logic.
+
+    Uses an iterative DFS with reversed children on a stack to preserve
+    source order while avoiding recursion-depth limits on deeply nested AST.
+    """
+    _SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+    nodes: list[ast.AST] = []
+    # Seed with body statements only — skip decorators, args, returns annotation.
+    # Also filter scope types from the seed to exclude nested def/class at body level.
+    stack: list[ast.AST] = [
+        stmt for stmt in reversed(node.body)
+        if not isinstance(stmt, _SCOPE_TYPES)
+    ]
+    while stack:
+        current = stack.pop()
+        nodes.append(current)
+        for child in reversed(list(ast.iter_child_nodes(current))):
+            if isinstance(child, _SCOPE_TYPES):
+                continue
+            stack.append(child)
+    return nodes
+
+
+def _extract_yields(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """Extract frame class names from yield expressions in a function body.
+
+    Walks the executable body (excluding nested scopes) for ``ast.Yield``
+    nodes whose value is a constructor call (``ast.Call``).  Returns
+    deduplicated class names in order of first appearance.
+
+    ``ast.YieldFrom`` is intentionally excluded — ``yield from gen()``
+    delegates to a generator, and the generator name is not a frame type.
+    Including it would break the ``yields`` contract ("frame types yielded
+    by this method") with false entries like ``"generate_frames"``.
+
+    Bare ``yield variable`` (no Call wrapper) is skipped because it carries
+    no useful type information.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for child in _walk_body_shallow(node):
+        if not isinstance(child, ast.Yield):
+            continue
+        value = child.value
+        if not isinstance(value, ast.Call):
+            continue
+        # Extract the callable name from the Call node
+        func = value.func
+        if isinstance(func, ast.Name):
+            name = func.id
+        elif isinstance(func, ast.Attribute):
+            name = ast.unparse(func)
+        else:
+            continue
+        if name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
+
+
+def _extract_calls(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """Extract method call names from a function body.
+
+    Walks the AST body (excluding nested function/class bodies) so that
+    calls inside inner helpers or closures are not attributed to the outer
+    function.
+
+    Recognised patterns:
+    - ``self.method()`` → ``"method"``
+    - ``ClassName.method()`` (uppercase first char) → ``"ClassName.method"``
+    - ``super().method()`` → ``"super().method"``
+
+    Plain function calls (``len()``, ``isinstance()``) and lowercase
+    attribute chains (``logger.info()``) are skipped.  Returns deduplicated
+    names in order of first appearance.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for child in _walk_body_shallow(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if not isinstance(func, ast.Attribute):
+            continue
+        attr_name = func.attr
+        value = func.value
+
+        name: str | None = None
+
+        if isinstance(value, ast.Name):
+            if value.id == "self":
+                # self.method()
+                name = attr_name
+            elif value.id[0:1].isupper():
+                # ClassName.method()
+                name = f"{value.id}.{attr_name}"
+        elif isinstance(value, ast.Call):
+            # super().method()
+            if isinstance(value.func, ast.Name) and value.func.id == "super":
+                name = f"super().{attr_name}"
+
+        if name is not None and name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
+
+
 def _extract_method(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     source_lines: list[str],
@@ -207,6 +331,8 @@ def _extract_method(
         line_start=line_start,
         line_end=line_end,
         source=source,
+        yields=_extract_yields(node),
+        calls=_extract_calls(node),
     )
 
 
@@ -259,6 +385,8 @@ def _extract_function(
         line_start=line_start,
         line_end=line_end,
         source=source,
+        yields=_extract_yields(node),
+        calls=_extract_calls(node),
     )
 
 
@@ -282,9 +410,11 @@ def _extract_imports(node: ast.Import | ast.ImportFrom) -> list[str]:
         for alias in node.names:
             results.append(f"import {alias.name}")
     elif isinstance(node, ast.ImportFrom):
+        # Preserve relative import dots (e.g. from .utils → level=1, from ..core → level=2)
+        dots = "." * (node.level or 0)
         module = node.module or ""
         names = ", ".join(alias.name for alias in node.names)
-        results.append(f"from {module} import {names}")
+        results.append(f"from {dots}{module} import {names}")
     return results
 
 

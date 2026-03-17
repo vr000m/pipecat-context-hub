@@ -921,3 +921,136 @@ class TestIndexStore:
         results = await store.keyword_search(query)
         assert len(results) == 1
         assert results[0].chunk.chunk_id == "f1"
+
+
+# ---------------------------------------------------------------------------
+# Call-graph metadata filter end-to-end tests
+# ---------------------------------------------------------------------------
+
+
+class TestFTSCallGraphFilters:
+    """End-to-end tests for yields/calls filters through FTS search."""
+
+    def test_yields_filter_matches(self, tmp_path: Path):
+        """FTS search with yields filter returns matching records."""
+        fts = FTSIndex(tmp_path / "fts.db")
+        rec_with = _make_record(
+            chunk_id="m1",
+            content="run_tts method yields audio frames",
+            content_type="source",
+            metadata={"yields": ["TTSAudioRawFrame", "TTSStoppedFrame"], "calls": []},
+        )
+        rec_without = _make_record(
+            chunk_id="m2",
+            content="process_frame handles pipeline frames",
+            content_type="source",
+            metadata={"yields": [], "calls": ["push_frame"]},
+        )
+        fts.upsert([rec_with, rec_without])
+        query = IndexQuery(query_text="frames", filters={"yields": "TTSAudioRawFrame"}, limit=10)
+        results = fts.search(query)
+        ids = {r.chunk.chunk_id for r in results}
+        assert "m1" in ids
+        assert "m2" not in ids
+
+    def test_calls_filter_matches(self, tmp_path: Path):
+        """FTS search with calls filter returns matching records."""
+        fts = FTSIndex(tmp_path / "fts.db")
+        rec_with = _make_record(
+            chunk_id="m1",
+            content="process_frame calls push_frame to forward data",
+            content_type="source",
+            metadata={"calls": ["push_frame", "transform"], "yields": []},
+        )
+        rec_without = _make_record(
+            chunk_id="m2",
+            content="init method sets up the push_frame service",
+            content_type="source",
+            metadata={"calls": [], "yields": [], "method_name": "push_frame"},
+        )
+        fts.upsert([rec_with, rec_without])
+        query = IndexQuery(query_text="push_frame", filters={"calls": "push_frame"}, limit=10)
+        results = fts.search(query)
+        ids = {r.chunk.chunk_id for r in results}
+        assert "m1" in ids
+        # m2 has method_name=push_frame but empty calls — must NOT match
+        assert "m2" not in ids
+
+    def test_yields_filter_no_partial_match(self, tmp_path: Path):
+        """Yields filter does not match partial substrings."""
+        fts = FTSIndex(tmp_path / "fts.db")
+        rec = _make_record(
+            chunk_id="m1",
+            content="yields TTSAudioRawFrame from method body",
+            content_type="source",
+            metadata={"yields": ["TTSAudioRawFrame"], "calls": []},
+        )
+        fts.upsert([rec])
+        # "Frame" is a substring of "TTSAudioRawFrame" — should NOT match with quoted pattern
+        query = IndexQuery(query_text="yields", filters={"yields": "Frame"}, limit=10)
+        results = fts.search(query)
+        assert len(results) == 0
+
+
+class TestVectorCallGraphFilters:
+    """End-to-end tests for yields/calls post-filters through vector search."""
+
+    def test_yields_post_filter(self, tmp_path: Path):
+        """Vector search with yields filter returns only matching records."""
+        vi = VectorIndex(tmp_path / "chroma")
+        embedding = _random_embedding(42)
+        rec_with = _make_record(
+            chunk_id="v1",
+            content="yields TTSAudioRawFrame",
+            content_type="source",
+            embedding=embedding,
+            metadata={"yields": ["TTSAudioRawFrame"], "calls": []},
+        )
+        rec_without = _make_record(
+            chunk_id="v2",
+            content="yields nothing here",
+            content_type="source",
+            embedding=_random_embedding(43),
+            metadata={"yields": [], "calls": ["push_frame"]},
+        )
+        vi.upsert([rec_with, rec_without])
+        query = IndexQuery(
+            query_text="audio",
+            query_embedding=embedding,
+            filters={"yields": "TTSAudioRawFrame"},
+            limit=10,
+        )
+        results = vi.search(query)
+        ids = {r.chunk.chunk_id for r in results}
+        assert "v1" in ids
+        assert "v2" not in ids
+
+    def test_calls_post_filter(self, tmp_path: Path):
+        """Vector search with calls filter returns only matching records."""
+        vi = VectorIndex(tmp_path / "chroma")
+        embedding = _random_embedding(44)
+        rec_with = _make_record(
+            chunk_id="v1",
+            content="calls push_frame to forward",
+            content_type="source",
+            embedding=embedding,
+            metadata={"calls": ["push_frame"], "yields": []},
+        )
+        rec_without = _make_record(
+            chunk_id="v2",
+            content="calls nothing relevant",
+            content_type="source",
+            embedding=_random_embedding(45),
+            metadata={"calls": [], "yields": [], "method_name": "push_frame"},
+        )
+        vi.upsert([rec_with, rec_without])
+        query = IndexQuery(
+            query_text="push",
+            query_embedding=embedding,
+            filters={"calls": "push_frame"},
+            limit=10,
+        )
+        results = vi.search(query)
+        ids = {r.chunk.chunk_id for r in results}
+        assert "v1" in ids
+        assert "v2" not in ids

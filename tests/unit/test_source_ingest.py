@@ -691,3 +691,115 @@ class TestSourceIngester:
         assert result.errors == []
         assert result.records_upserted == 0
         writer.upsert.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Call-graph metadata tests
+# ---------------------------------------------------------------------------
+
+
+_CALLGRAPH_MODULE_SOURCE = '''\
+"""Module with yields and calls."""
+
+from pipecat.frames.frames import TTSAudioRawFrame, TTSStoppedFrame
+from .utils import helper_func
+import os
+
+class TTSService:
+    """Text-to-speech service."""
+
+    async def run_tts(self, text: str):
+        """Generate TTS audio."""
+        audio = self._synthesize(text)
+        yield TTSAudioRawFrame(audio=audio)
+        yield TTSStoppedFrame()
+        await self.push_frame(audio)
+'''
+
+
+class TestCallGraphMetadata:
+    """Tests for yields/calls/imports in chunk metadata."""
+
+    def _get_chunks(self) -> list[ChunkedRecord]:
+        """Build chunks from _CALLGRAPH_MODULE_SOURCE."""
+        module_info = extract_module_info(_CALLGRAPH_MODULE_SOURCE, "pipecat.services.tts")
+        return _build_chunks(
+            module_info=module_info,
+            source=_CALLGRAPH_MODULE_SOURCE,
+            rel_path="pipecat/services/tts.py",
+            commit_sha="abc123",
+            now=datetime(2026, 3, 16, tzinfo=timezone.utc),
+            repo_slug=_TEST_REPO_SLUG,
+        )
+
+    def test_method_chunk_has_yields(self):
+        """Method chunks include yields metadata."""
+        chunks = self._get_chunks()
+        method_chunks = [c for c in chunks if c.metadata["chunk_type"] == "method"]
+        assert len(method_chunks) >= 1
+        run_tts = [c for c in method_chunks if c.metadata["method_name"] == "run_tts"][0]
+        assert "TTSAudioRawFrame" in run_tts.metadata["yields"]
+        assert "TTSStoppedFrame" in run_tts.metadata["yields"]
+
+    def test_method_chunk_has_calls(self):
+        """Method chunks include calls metadata."""
+        chunks = self._get_chunks()
+        method_chunks = [c for c in chunks if c.metadata["chunk_type"] == "method"]
+        run_tts = [c for c in method_chunks if c.metadata["method_name"] == "run_tts"][0]
+        assert "_synthesize" in run_tts.metadata["calls"]
+        assert "push_frame" in run_tts.metadata["calls"]
+
+    def test_method_chunk_has_pipecat_imports_only(self):
+        """Method chunks get pipecat-internal imports (absolute + relative), not stdlib."""
+        chunks = self._get_chunks()
+        method_chunks = [c for c in chunks if c.metadata["chunk_type"] == "method"]
+        run_tts = [c for c in method_chunks if c.metadata["method_name"] == "run_tts"][0]
+        imports = run_tts.metadata["imports"]
+        assert any("pipecat" in i for i in imports)
+        assert any(i.startswith("from .") for i in imports), "relative imports should be included"
+        assert not any("import os" == i for i in imports)
+
+    def test_class_overview_has_pipecat_imports(self):
+        """Class overview chunks get pipecat-internal imports."""
+        chunks = self._get_chunks()
+        class_chunks = [c for c in chunks if c.metadata["chunk_type"] == "class_overview"]
+        assert len(class_chunks) == 1
+        imports = class_chunks[0].metadata["imports"]
+        assert any("pipecat" in i for i in imports)
+        assert not any("import os" == i for i in imports)
+
+    def test_module_overview_retains_full_imports(self):
+        """Module overview retains the full imports list."""
+        chunks = self._get_chunks()
+        module_chunks = [c for c in chunks if c.metadata["chunk_type"] == "module_overview"]
+        assert len(module_chunks) == 1
+        imports = module_chunks[0].metadata["imports"]
+        assert any("pipecat" in i for i in imports)
+        assert any("import os" == i for i in imports)
+
+    def test_method_content_includes_yields_section(self):
+        """Method chunk content text includes Yields section."""
+        chunks = self._get_chunks()
+        method_chunks = [c for c in chunks if c.metadata["chunk_type"] == "method"]
+        run_tts = [c for c in method_chunks if c.metadata["method_name"] == "run_tts"][0]
+        assert "## Yields" in run_tts.content
+        assert "TTSAudioRawFrame" in run_tts.content
+
+    def test_method_content_includes_calls_section(self):
+        """Method chunk content text includes Calls section."""
+        chunks = self._get_chunks()
+        method_chunks = [c for c in chunks if c.metadata["chunk_type"] == "method"]
+        run_tts = [c for c in method_chunks if c.metadata["method_name"] == "run_tts"][0]
+        assert "## Calls" in run_tts.content
+        assert "push_frame" in run_tts.content
+
+    def test_existing_chunks_still_have_required_metadata(self):
+        """Existing required metadata fields still present after adding new fields."""
+        chunks = self._get_chunks()
+        required_keys = {
+            "module_path", "chunk_type", "class_name", "method_name",
+            "language", "line_start", "line_end",
+        }
+        for chunk in chunks:
+            missing = required_keys - set(chunk.metadata.keys())
+            assert not missing, f"Chunk {chunk.chunk_id} missing metadata: {missing}"

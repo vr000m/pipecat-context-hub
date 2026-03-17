@@ -526,6 +526,10 @@ class HybridRetriever:
             filters["chunk_type"] = input.chunk_type
         if input.is_dataclass is not None:
             filters["is_dataclass"] = input.is_dataclass
+        if input.yields:
+            filters["yields"] = input.yields
+        if input.calls:
+            filters["calls"] = input.calls
 
         results = await self._hybrid_search(input.query, filters, input.limit)
         evidence = assemble_evidence(input.query, results, filters)
@@ -545,6 +549,18 @@ class HybridRetriever:
                     imports_raw = json.loads(imports_raw)
                 except (ValueError, TypeError):
                     imports_raw = []
+            yields_raw = r.chunk.metadata.get("yields", [])
+            if isinstance(yields_raw, str):
+                try:
+                    yields_raw = json.loads(yields_raw)
+                except (ValueError, TypeError):
+                    yields_raw = []
+            calls_raw = r.chunk.metadata.get("calls", [])
+            if isinstance(calls_raw, str):
+                try:
+                    calls_raw = json.loads(calls_raw)
+                except (ValueError, TypeError):
+                    calls_raw = []
             hits.append(
                 ApiHit(
                     chunk_id=r.chunk.chunk_id,
@@ -557,6 +573,8 @@ class HybridRetriever:
                     method_signature=r.chunk.metadata.get("method_signature") or None,
                     is_dataclass=bool(r.chunk.metadata.get("is_dataclass", False)),
                     imports=imports_raw,
+                    yields=yields_raw,
+                    calls=calls_raw,
                     citation=citation,
                     score=r.score,
                 )

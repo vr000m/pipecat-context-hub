@@ -468,6 +468,16 @@ class SearchApiInput(BaseModel):
         description="Filter by chunk type.",
     )
     is_dataclass: bool | None = Field(default=None, description="Filter for dataclass types only.")
+    yields: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Filter for methods that yield a specific frame type, e.g. 'TTSAudioRawFrame'.",
+    )
+    calls: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Filter for methods that call a specific method, e.g. 'push_frame'.",
+    )
     limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -486,6 +496,14 @@ class ApiHit(BaseModel):
     imports: list[str] = Field(
         default_factory=list,
         description="Pipecat-internal imports in this module.",
+    )
+    yields: list[str] = Field(
+        default_factory=list,
+        description="Frame types yielded by this method.",
+    )
+    calls: list[str] = Field(
+        default_factory=list,
+        description="Methods called by this method (self.X, Class.X).",
     )
     citation: Citation
     score: float

@@ -605,3 +605,377 @@ class TestFunctionSourceExtraction:
         func = info.functions[0]
         assert func.line_start == 1
         assert func.line_end == 3
+
+
+# ---------------------------------------------------------------------------
+# Yield extraction tests
+# ---------------------------------------------------------------------------
+
+
+class TestYieldExtraction:
+    """Verify yield/yield-from frame type extraction."""
+
+    SOURCE = textwrap.dedent('''\
+        class TTSService:
+            async def run_tts(self, text: str):
+                """Generate TTS audio."""
+                audio = self._synthesize(text)
+                yield TTSAudioRawFrame(audio=audio, sample_rate=16000)
+                yield TTSStoppedFrame()
+    ''')
+
+    def test_yields_extracted(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.yields == ["TTSAudioRawFrame", "TTSStoppedFrame"]
+
+    def test_bare_yield_skipped(self):
+        """Bare ``yield variable`` without Call wrapper is skipped."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def gen(self):
+                    frame = make_frame()
+                    yield frame
+                    yield None
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.yields == []
+
+    def test_yield_from_excluded(self):
+        """``yield from gen()`` is excluded — generator name is not a frame type."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def gen(self):
+                    yield from generate_frames()
+                    yield from FrameFactory.create()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.yields == []
+
+    def test_no_yields_empty_list(self):
+        """Methods without yields have an empty yields list."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def process(self, x):
+                    return x + 1
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.yields == []
+
+    def test_duplicate_yields_deduplicated(self):
+        """Same frame type yielded multiple times appears once."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def gen(self):
+                    yield AudioFrame(data=b"a")
+                    yield AudioFrame(data=b"b")
+                    yield StopFrame()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.yields == ["AudioFrame", "StopFrame"]
+
+
+# ---------------------------------------------------------------------------
+# Call extraction tests
+# ---------------------------------------------------------------------------
+
+
+class TestCallExtraction:
+    """Verify method call extraction from function bodies."""
+
+    SOURCE = textwrap.dedent('''\
+        class MyProcessor(FrameProcessor):
+            async def process_frame(self, frame):
+                await super().process_frame(frame)
+                result = self.transform(frame)
+                await self.push_frame(OutputFrame(data=result))
+                logger.info("done")
+    ''')
+
+    def test_self_calls(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "transform" in method.calls
+        assert "push_frame" in method.calls
+
+    def test_super_call(self):
+        info = extract_module_info(self.SOURCE, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "super().process_frame" in method.calls
+
+    def test_lowercase_attribute_excluded(self):
+        """logger.info() should NOT be captured (lowercase first char)."""
+        info = extract_module_info(self.SOURCE, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "info" not in method.calls
+        assert "logger.info" not in method.calls
+
+    def test_class_method_call(self):
+        """ClassName.method() pattern is captured."""
+        source = textwrap.dedent('''\
+            class Foo:
+                def bar(self):
+                    result = Helper.convert(data)
+                    return result
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "Helper.convert" in method.calls
+
+    def test_await_self_call(self):
+        """``await self.method()`` is captured (ast.walk traverses into Await)."""
+        source = textwrap.dedent('''\
+            class Svc:
+                async def run(self):
+                    await self.start()
+                    await self.push_frame(Frame())
+                    return None
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "start" in method.calls
+        assert "push_frame" in method.calls
+
+    def test_no_calls_empty_list(self):
+        """Methods without relevant calls have an empty list."""
+        source = textwrap.dedent('''\
+            class Foo:
+                def bar(self):
+                    x = len([1, 2, 3])
+                    return x
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.calls == []
+
+    def test_duplicate_calls_deduplicated(self):
+        """Same method called multiple times appears once."""
+        source = textwrap.dedent('''\
+            class Foo:
+                def bar(self):
+                    self.push(1)
+                    self.push(2)
+                    self.push(3)
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.calls == ["push"]
+
+    def test_private_method_call(self):
+        """self._private_method() is captured."""
+        source = textwrap.dedent('''\
+            class Svc:
+                def run(self):
+                    self._setup()
+                    self.__internal()
+                    return None
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "_setup" in method.calls
+        assert "__internal" in method.calls
+
+    def test_top_level_function_calls(self):
+        """Top-level functions also extract calls."""
+        source = textwrap.dedent('''\
+            def helper():
+                result = Manager.process(data)
+                return result
+        ''')
+        info = extract_module_info(source, "test_mod")
+        func = info.functions[0]
+        assert "Manager.process" in func.calls
+
+
+class TestNestedFunctionBoundary:
+    """Regression: yields/calls from nested functions must not leak to the outer function."""
+
+    SOURCE = textwrap.dedent('''\
+        class Processor:
+            def outer(self):
+                """Outer method — only calls self.setup()."""
+                self.setup()
+
+                def inner_helper():
+                    """Nested helper — calls self.push_frame() and yields AudioFrame."""
+                    self.push_frame(AudioFrame())
+                    yield AudioFrame(data=b"x")
+
+                return inner_helper
+    ''')
+
+    def test_outer_calls_exclude_inner(self):
+        """outer() should have calls=['setup'], not push_frame from inner."""
+        info = extract_module_info(self.SOURCE, "test_mod")
+        outer = info.classes[0].methods[0]
+        assert outer.name == "outer"
+        assert "setup" in outer.calls
+        assert "push_frame" not in outer.calls
+
+    def test_outer_yields_exclude_inner(self):
+        """outer() should have yields=[], not AudioFrame from inner."""
+        info = extract_module_info(self.SOURCE, "test_mod")
+        outer = info.classes[0].methods[0]
+        assert outer.yields == []
+
+    def test_nested_async_excluded(self):
+        """Nested async def should not leak calls to outer."""
+        source = textwrap.dedent('''\
+            class Svc:
+                async def run(self):
+                    self.start()
+
+                    async def on_event():
+                        await self.handle_event()
+                        yield EventFrame()
+
+                    return on_event
+        ''')
+        info = extract_module_info(source, "test_mod")
+        run_method = info.classes[0].methods[0]
+        assert run_method.name == "run"
+        assert "start" in run_method.calls
+        assert "handle_event" not in run_method.calls
+        assert run_method.yields == []
+
+    def test_lambda_calls_excluded(self):
+        """Lambda body calls should not leak to the enclosing method."""
+        source = textwrap.dedent('''\
+            class Svc:
+                def setup(self):
+                    self.start()
+                    cb = lambda: self.push_frame(Frame())
+                    return cb
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.name == "setup"
+        assert "start" in method.calls
+        assert "push_frame" not in method.calls
+
+    def test_lambda_yields_excluded(self):
+        """Lambda body yields should not leak to the enclosing function."""
+        source = textwrap.dedent('''\
+            def outer():
+                gen = lambda: (yield AudioFrame())
+                return gen
+        ''')
+        info = extract_module_info(source, "test_mod")
+        func = info.functions[0]
+        assert func.yields == []
+
+    def test_comprehension_calls_included(self):
+        """Calls inside comprehensions ARE included (intentional — part of method logic)."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def run(self):
+                    results = [self.transform(x) for x in items]
+                    return results
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "transform" in method.calls
+
+    def test_yield_from_variable_skipped(self):
+        """``yield from self._frames`` (non-Call value) is skipped."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def gen(self):
+                    yield from self._frames
+        ''')
+        info = extract_module_info(source, "test_mod")
+        assert info.classes[0].methods[0].yields == []
+
+    def test_chained_attribute_call_excluded(self):
+        """``self.get_transport().send()`` — the chained .send() is not captured."""
+        source = textwrap.dedent('''\
+            class Svc:
+                def run(self):
+                    self.get_transport().send(data)
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        # self.get_transport() is a self.method() call — captured.
+        assert "get_transport" in method.calls
+        # .send() is chained (func.value is a Call, not Name) — excluded.
+        assert "send" not in method.calls
+
+
+class TestDecoratorAndDefaultExclusion:
+    """Regression: calls/yields in decorators, defaults, and annotations must not leak."""
+
+    def test_decorator_calls_excluded(self):
+        """Calls in decorators should not appear in method calls."""
+        source = textwrap.dedent('''\
+            class Svc:
+                @Router.route("/path")
+                def handle(self):
+                    self.process()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "process" in method.calls
+        assert "Router.route" not in method.calls
+        assert "route" not in method.calls
+
+    def test_default_value_calls_excluded(self):
+        """Calls in parameter defaults should not appear in method calls."""
+        source = textwrap.dedent('''\
+            class Svc:
+                def run(self, config=Config.default()):
+                    self.start()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "start" in method.calls
+        assert "Config.default" not in method.calls
+
+    def test_return_annotation_excluded(self):
+        """Calls in return annotations should not appear in method calls."""
+        source = textwrap.dedent('''\
+            class Svc:
+                def run(self) -> Optional[Frame]:
+                    self.start()
+                    return None
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "start" in method.calls
+        # Optional[Frame] is an annotation, not a runtime call
+        assert method.calls == ["start"]
+
+
+class TestCallExtractionOrder:
+    """Verify calls/yields preserve source order."""
+
+    def test_calls_in_source_order(self):
+        """Calls should appear in the order they first occur in source."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def run(self):
+                    self.first()
+                    if True:
+                        self.second()
+                    self.third()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.calls == ["first", "second", "third"]
+
+    def test_yields_in_source_order(self):
+        """Yields should appear in the order they first occur in source."""
+        source = textwrap.dedent('''\
+            class Gen:
+                def run(self):
+                    yield AlphaFrame()
+                    if True:
+                        yield BetaFrame()
+                    yield GammaFrame()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.yields == ["AlphaFrame", "BetaFrame", "GammaFrame"]

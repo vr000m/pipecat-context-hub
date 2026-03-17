@@ -202,6 +202,15 @@ def _build_chunks(
     records: list[ChunkedRecord] = []
     mp = module_info.module_path
 
+    # Pipecat-internal imports for propagation to class/method chunks.
+    # Module overview retains the full imports list unchanged.
+    # Include both absolute pipecat imports and relative imports (from . / from ..)
+    # since relative imports within pipecat packages are also pipecat-internal.
+    pipecat_imports = [
+        i for i in module_info.imports
+        if "pipecat" in i or i.startswith("from .")
+    ]
+
     # --- Module overview chunk ---
     module_content = _build_module_overview(module_info)
     records.append(ChunkedRecord(
@@ -254,6 +263,7 @@ def _build_chunks(
                 "language": "python",
                 "line_start": cls.line_start,
                 "line_end": cls.line_end,
+                "imports": pipecat_imports,
             },
         ))
 
@@ -288,6 +298,9 @@ def _build_chunks(
                     "language": "python",
                     "line_start": method.line_start,
                     "line_end": method.line_end,
+                    "yields": method.yields,
+                    "calls": method.calls,
+                    "imports": pipecat_imports,
                 },
             ))
 
@@ -320,6 +333,9 @@ def _build_chunks(
                 "language": "python",
                 "line_start": func.line_start,
                 "line_end": func.line_end,
+                "yields": func.yields,
+                "calls": func.calls,
+                "imports": pipecat_imports,
             },
         ))
 
@@ -389,6 +405,10 @@ def _build_method_chunk(cls: ClassInfo, method: MethodInfo, module_path: str) ->
     if method.docstring:
         parts.append(f"\n{method.docstring}")
     parts.append(f"\n```python\n{method.source}\n```")
+    if method.yields:
+        parts.append(f"\n## Yields\n{', '.join(method.yields)}")
+    if method.calls:
+        parts.append(f"\n## Calls\n{', '.join(method.calls)}")
     return "\n".join(parts)
 
 
@@ -399,4 +419,8 @@ def _build_function_chunk(func: FunctionInfo, module_path: str) -> str:
     if func.docstring:
         parts.append(f"\n{func.docstring}")
     parts.append(f"\n```python\n{func.source}\n```")
+    if func.yields:
+        parts.append(f"\n## Yields\n{', '.join(func.yields)}")
+    if func.calls:
+        parts.append(f"\n## Calls\n{', '.join(func.calls)}")
     return "\n".join(parts)
