@@ -196,20 +196,25 @@ def _walk_shallow(node: ast.AST) -> list[ast.AST]:
     function do not include those belonging to inner helpers, closures,
     or lambda bodies.
 
-    Uses recursive DFS to preserve source order (children are visited
-    before siblings' subtrees).
-    """
-    nodes: list[ast.AST] = []
-    _SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+    Comprehension nodes (``ListComp``, ``SetComp``, ``DictComp``,
+    ``GeneratorExp``) are intentionally traversed — calls inside
+    comprehensions are part of the method's logic, unlike closures
+    and lambdas which define separate callable units.
 
-    def _visit(n: ast.AST) -> None:
-        nodes.append(n)
-        for child in ast.iter_child_nodes(n):
+    Uses an iterative DFS with reversed children on a stack to preserve
+    source order while avoiding recursion-depth limits on deeply nested AST.
+    """
+    _SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+    nodes: list[ast.AST] = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        nodes.append(current)
+        # Push children in reverse so the first child is popped (visited) first.
+        for child in reversed(list(ast.iter_child_nodes(current))):
             if isinstance(child, _SCOPE_TYPES):
                 continue
-            _visit(child)
-
-    _visit(node)
+            stack.append(child)
     return nodes
 
 

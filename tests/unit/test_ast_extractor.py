@@ -869,6 +869,42 @@ class TestNestedFunctionBoundary:
         func = info.functions[0]
         assert func.yields == []
 
+    def test_comprehension_calls_included(self):
+        """Calls inside comprehensions ARE included (intentional — part of method logic)."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def run(self):
+                    results = [self.transform(x) for x in items]
+                    return results
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert "transform" in method.calls
+
+    def test_yield_from_variable_skipped(self):
+        """``yield from self._frames`` (non-Call value) is skipped."""
+        source = textwrap.dedent('''\
+            class Proc:
+                def gen(self):
+                    yield from self._frames
+        ''')
+        info = extract_module_info(source, "test_mod")
+        assert info.classes[0].methods[0].yields == []
+
+    def test_chained_attribute_call_excluded(self):
+        """``self.get_transport().send()`` — the chained .send() is not captured."""
+        source = textwrap.dedent('''\
+            class Svc:
+                def run(self):
+                    self.get_transport().send(data)
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        # self.get_transport() is a self.method() call — captured.
+        assert "get_transport" in method.calls
+        # .send() is chained (func.value is a Call, not Name) — excluded.
+        assert "send" not in method.calls
+
 
 class TestCallExtractionOrder:
     """Verify calls/yields preserve source order."""
