@@ -1833,7 +1833,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-context-hub"
-version = "0.0.7"
+version = "0.0.8"
 source = { editable = "." }
 dependencies = [
     { name = "chromadb" },
