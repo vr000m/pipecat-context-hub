@@ -344,6 +344,23 @@ class FTSIndex:
         cursor = self._conn.execute("SELECT key, value FROM index_metadata")
         return dict(cursor.fetchall())
 
+    def get_counts_by_repo(self) -> dict[str, int]:
+        """Return record counts grouped by repo. Includes a 'docs' key for doc chunks."""
+        counts: dict[str, int] = {}
+        # Doc chunks have no repo — count them separately
+        cursor = self._conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE content_type = 'doc'"
+        )
+        doc_count = cursor.fetchone()[0]
+        if doc_count:
+            counts["docs.pipecat.ai"] = doc_count
+        # Repo-scoped chunks
+        cursor = self._conn.execute(
+            "SELECT repo, COUNT(*) FROM chunks WHERE repo IS NOT NULL GROUP BY repo"
+        )
+        counts.update(dict(cursor.fetchall()))
+        return counts
+
     def get_index_stats(self) -> dict[str, Any]:
         """Return record counts by content_type, total count, and distinct commit SHAs."""
         cursor = self._conn.execute(

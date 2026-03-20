@@ -126,6 +126,10 @@ class IndexStore:
         """Return all persistent index metadata as a dict."""
         return self._fts.get_all_metadata()
 
+    def get_counts_by_repo(self) -> dict[str, int]:
+        """Return record counts grouped by repo."""
+        return self._fts.get_counts_by_repo()
+
     def get_index_stats(self) -> dict[str, Any]:
         """Return index statistics (counts by type, total, commit SHAs)."""
         return self._fts.get_index_stats()

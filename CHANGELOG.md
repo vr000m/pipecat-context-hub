@@ -5,6 +5,17 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Refresh summary table** — `refresh` command prints a per-source table
+  showing status (updated/skipped/error), commit SHA, existing chunk count,
+  and updated chunk count. Both columns sum to totals for at-a-glance
+  verification
+- `get_counts_by_repo()` on `FTSIndex` and `IndexStore` for pre-refresh
+  chunk count snapshots
+
 ## [0.0.8] - 2026-03-17
 
 ### Added

@@ -134,22 +134,42 @@ def refresh(ctx: click.Context, force: bool) -> None:
     total_upserted = 0
     all_errors: list[str] = []
 
+    # Per-source tracking for the summary table.
+    # Each entry: {status, sha, existing, updated}
+    source_status: dict[str, dict[str, str | int]] = {}
+
     async def _run_refresh() -> None:
         nonlocal total_upserted, all_errors
 
+        # Snapshot per-repo chunk counts before any changes.
+        pre_counts = index_store.get_counts_by_repo()
+
         # ----- 1. Docs -----
         crawler = DocsCrawler(writer, config.sources, config.chunking)
+        docs_key = "docs.pipecat.ai"
         try:
             raw_text = await crawler.fetch_llms_txt()
         except Exception as exc:
             all_errors.append(f"Failed to fetch llms-full.txt: {exc}")
             raw_text = None
+            source_status[docs_key] = {
+                "status": "error",
+                "sha": "—",
+                "existing": pre_counts.get(docs_key, 0),
+                "updated": "—",
+            }
 
         if raw_text is not None:
             content_hash = hashlib.sha256(raw_text.encode()).hexdigest()
             stored_hash = index_store.get_metadata("docs:content_hash")
             if not force and stored_hash == content_hash:
                 logger.info("Docs unchanged (hash=%s…), skipping", content_hash[:8])
+                source_status[docs_key] = {
+                    "status": "skipped",
+                    "sha": "—",
+                    "existing": pre_counts.get(docs_key, 0),
+                    "updated": "—",
+                }
             else:
                 await index_store.delete_by_content_type("doc")
                 docs_result = await crawler.ingest(prefetched_text=raw_text)
@@ -162,6 +182,12 @@ def refresh(ctx: click.Context, force: bool) -> None:
                 )
                 if not docs_result.errors:
                     index_store.set_metadata("docs:content_hash", content_hash)
+                source_status[docs_key] = {
+                    "status": "error" if docs_result.errors else "updated",
+                    "sha": "—",
+                    "existing": pre_counts.get(docs_key, 0),
+                    "updated": docs_result.records_upserted,
+                }
         await crawler.close()
 
         # ----- 2. Repos (code + source) -----
@@ -191,6 +217,12 @@ def refresh(ctx: click.Context, force: bool) -> None:
                 prefetched[repo_slug] = (repo_path, commit_sha)
             except Exception as exc:
                 all_errors.append(f"Failed to clone/fetch {repo_slug}: {exc}")
+                source_status[repo_slug] = {
+                    "status": "error",
+                    "sha": "—",
+                    "existing": pre_counts.get(repo_slug, 0),
+                    "updated": "—",
+                }
                 continue
 
             stored_sha = index_store.get_metadata(f"repo:{repo_slug}:commit_sha")
@@ -200,6 +232,12 @@ def refresh(ctx: click.Context, force: bool) -> None:
                     repo_slug,
                     commit_sha[:8],
                 )
+                source_status[repo_slug] = {
+                    "status": "skipped",
+                    "sha": commit_sha[:8],
+                    "existing": pre_counts.get(repo_slug, 0),
+                    "updated": "—",
+                }
             else:
                 changed_repos.append(repo_slug)
 
@@ -211,12 +249,14 @@ def refresh(ctx: click.Context, force: bool) -> None:
             logger.info("Deleted stale records for %s", repo_slug)
 
             repo_has_errors = False
+            repo_upserted = 0
 
             # Code ingest (per-repo for error tracking)
             code_result = await github.ingest(
                 repos=[repo_slug], prefetched=prefetched,
             )
             total_upserted += code_result.records_upserted
+            repo_upserted += code_result.records_upserted
             all_errors.extend(code_result.errors)
             if code_result.errors:
                 repo_has_errors = True
@@ -231,6 +271,7 @@ def refresh(ctx: click.Context, force: bool) -> None:
             source_ingester = SourceIngester(config, writer, repo_slug)
             source_result = await source_ingester.ingest()
             total_upserted += source_result.records_upserted
+            repo_upserted += source_result.records_upserted
             all_errors.extend(source_result.errors)
             if source_result.errors:
                 repo_has_errors = True
@@ -241,6 +282,13 @@ def refresh(ctx: click.Context, force: bool) -> None:
                     source_result.records_upserted,
                     len(source_result.errors),
                 )
+
+            source_status[repo_slug] = {
+                "status": "error" if repo_has_errors else "updated",
+                "sha": repo_shas.get(repo_slug, "—")[:8],
+                "existing": pre_counts.get(repo_slug, 0),
+                "updated": repo_upserted,
+            }
 
             if not repo_has_errors:
                 ingested_repos.add(repo_slug)
@@ -282,4 +330,70 @@ def refresh(ctx: click.Context, force: bool) -> None:
     else:
         index_store.set_metadata("last_refresh_errored_at", now)
 
-    click.echo(f"Refresh complete: {total_upserted} records upserted in {duration}s.")
+    # ----- Summary table -----
+    _print_refresh_summary(source_status, total_upserted, len(all_errors), duration)
+
+
+def _print_refresh_summary(
+    source_status: dict[str, dict[str, str | int]],
+    total_upserted: int,
+    error_count: int,
+    duration: float,
+) -> None:
+    """Print a summary table after refresh."""
+    if not source_status:
+        click.echo(f"Refresh complete: {total_upserted} records upserted in {duration}s.")
+        return
+
+    # Compute column widths
+    name_width = max(len(name) for name in source_status)
+    name_width = max(name_width, len("Repository"))
+
+    # Header
+    click.echo()
+    click.echo(
+        f"{'Repository':<{name_width}}  {'Status':<8}  {'SHA':<10}  {'Existing':>8}  {'Updated':>8}"
+    )
+    click.echo(f"{'─' * name_width}  {'─' * 8}  {'─' * 10}  {'─' * 8}  {'─' * 8}")
+
+    # Rows — updated/error first, then skipped
+    total_existing = 0
+    total_updated = 0
+    for name in sorted(source_status, key=lambda n: (source_status[n]["status"] == "skipped", n)):
+        entry = source_status[name]
+        status = str(entry["status"])
+        sha = str(entry["sha"])
+        existing = entry["existing"]
+        updated = entry["updated"]
+
+        existing_int = int(existing) if isinstance(existing, int) else 0
+        total_existing += existing_int
+
+        if isinstance(updated, int):
+            total_updated += updated
+            updated_str = f"{updated:,}"
+        elif status == "skipped":
+            # Skipped repos carry forward their existing count —
+            # their chunks are still in the index unchanged.
+            total_updated += existing_int
+            updated_str = "—"
+        else:
+            # Error repos: don't carry forward (chunks may have been deleted).
+            updated_str = "—"
+
+        existing_str = f"{existing_int:,}" if existing_int else "—"
+
+        click.echo(
+            f"{name:<{name_width}}  {status:<8}  {sha:<10}  {existing_str:>8}  {updated_str:>8}"
+        )
+
+    # Footer
+    click.echo(f"{'─' * name_width}  {'─' * 8}  {'─' * 10}  {'─' * 8}  {'─' * 8}")
+    click.echo(
+        f"{'Total':<{name_width}}  {'':<8}  {'':<10}  {total_existing:>8,}  {total_updated:>8,}"
+    )
+    click.echo()
+    click.echo(
+        f"Refresh complete: {total_upserted:,} upserted, "
+        f"{error_count} errors, {duration}s."
+    )
