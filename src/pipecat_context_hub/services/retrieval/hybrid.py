@@ -484,11 +484,14 @@ class HybridRetriever:
                 # Compute offsets relative to chunk start
                 offset_start = max(0, req_start - chunk_line_start)
                 offset_end = min(len(all_lines), req_end - chunk_line_start + 1)
-                all_lines = all_lines[offset_start:offset_end]
+                new_lines = all_lines[offset_start:offset_end]
+                # Only mark as sliced if we actually narrowed the range
+                if len(new_lines) < len(all_lines):
+                    line_sliced = True
+                all_lines = new_lines
                 chunk_line_start = max(req_start, chunk_line_start)
                 chunk_line_end = chunk_line_start + len(all_lines) - 1
                 content = "\n".join(all_lines)
-                line_sliced = True
 
             # Respect max_lines (enrichment still applies — the metadata
             # describes the full method, helping agents decide whether to

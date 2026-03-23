@@ -1094,6 +1094,35 @@ class TestCodeSnippetEnrichment:
         assert s.companion_snippets == []
         assert s.interface_expectations == []
 
+    async def test_enrichment_kept_when_path_covers_full_chunk(self):
+        """path+line_start that covers the entire chunk keeps enrichment."""
+        r1 = _make_result(
+            "enrich-fullpath",
+            content="line1\nline2\nline3",
+            content_type="source",
+            metadata={
+                "line_start": 10,
+                "line_end": 12,
+                "class_name": "Svc",
+                "imports": '["pipecat.frames.AudioFrame"]',
+                "calls": '["push_frame"]',
+                "yields": '["AudioRawFrame"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        # Request covers the full chunk (lines 10-12)
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(path="docs/test.md", line_start=10, line_end=12)
+        )
+
+        assert len(output.snippets) == 1
+        s = output.snippets[0]
+        assert s.dependency_notes == ["pipecat.frames.AudioFrame"]
+        assert "Svc.push_frame" in s.companion_snippets
+        assert "Yields: AudioRawFrame" in s.interface_expectations
+
     async def test_enrichment_kept_when_truncated_by_max_lines(self):
         """Enrichment is preserved on max_lines truncation — metadata describes
         the full method and helps agents decide whether to re-fetch with more lines."""
