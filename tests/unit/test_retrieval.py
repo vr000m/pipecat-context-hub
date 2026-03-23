@@ -1094,8 +1094,9 @@ class TestCodeSnippetEnrichment:
         assert s.companion_snippets == []
         assert s.interface_expectations == []
 
-    async def test_enrichment_skipped_when_truncated_by_max_lines(self):
-        """Enrichment fields are empty when snippet is truncated by max_lines."""
+    async def test_enrichment_kept_when_truncated_by_max_lines(self):
+        """Enrichment is preserved on max_lines truncation — metadata describes
+        the full method and helps agents decide whether to re-fetch with more lines."""
         r1 = _make_result(
             "enrich-truncated",
             content="line1\nline2\nline3\nline4\nline5",
@@ -1118,9 +1119,12 @@ class TestCodeSnippetEnrichment:
 
         assert len(output.snippets) == 1
         s = output.snippets[0]
-        assert s.dependency_notes == []
-        assert s.companion_snippets == []
-        assert s.interface_expectations == []
+        # Content is truncated to 2 lines...
+        assert s.content == "line1\nline2"
+        # ...but enrichment is preserved (describes the full method)
+        assert s.dependency_notes == ["pipecat.frames.AudioFrame"]
+        assert "Svc.push_frame" in s.companion_snippets
+        assert "Yields: AudioRawFrame" in s.interface_expectations
 
     async def test_enrichment_skipped_for_module_overview(self):
         """Module overview chunks skip enrichment (imports include stdlib)."""
