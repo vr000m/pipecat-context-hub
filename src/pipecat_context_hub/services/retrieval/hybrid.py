@@ -627,10 +627,11 @@ def _parse_metadata_list(metadata: dict[str, Any], key: str) -> list[str]:
         try:
             raw = json.loads(raw)
         except (ValueError, TypeError):
+            logger.warning("Malformed metadata for key %r: could not parse JSON", key)
             return []
     if not isinstance(raw, list):
         return []
-    return raw
+    return [item for item in raw if isinstance(item, str)]
 
 
 def _epoch() -> datetime:
