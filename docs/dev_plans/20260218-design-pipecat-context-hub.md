@@ -47,7 +47,8 @@
   5. ~~**Populate `dependency_notes` and `companion_snippets`**~~ ✅ Done. Retrieval-time
      enrichment in `hybrid.py` — no index changes needed. `get_code_snippet` now maps
      chunk metadata to all three `CodeSnippet` enrichment fields:
-     - `dependency_notes` ← `imports` (pipecat-internal imports)
+     - `dependency_notes` ← `imports` (module-level pipecat imports, not yet
+       per-method — follow-up: extract per-method imports from AST)
      - `companion_snippets` ← `calls` (qualified with `class_name` prefix)
      - `interface_expectations` ← `yields` + `base_classes` (human-readable strings)
      Handles both JSON-string and native-list metadata formats. Field description for

@@ -11,8 +11,8 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 - **Snippet enrichment for `get_code_snippet`** — `CodeSnippet` responses now
   populate three previously-empty fields from call-graph metadata:
-  `dependency_notes` (pipecat-internal imports), `companion_snippets`
-  (qualified method names called by this snippet), and
+  `dependency_notes` (module-level pipecat imports — not yet per-method),
+  `companion_snippets` (qualified method names called by this snippet), and
   `interface_expectations` (frame types yielded + base classes implemented).
   Computed at retrieval time — no index changes required
 - **Refresh summary table** — `refresh` command prints a per-source table

@@ -403,7 +403,7 @@ class CodeSnippet(BaseModel):
     citation: Citation
     dependency_notes: list[str] = Field(
         default_factory=list,
-        description="Pipecat-internal imports used by the containing method/class. May cover more than the visible lines when content is truncated by max_lines.",
+        description="Pipecat-internal imports from the containing module (not specific to this method). Useful for knowing what the file depends on, but may include imports unused by this snippet. May cover more than the visible lines when content is truncated by max_lines.",
     )
     companion_snippets: list[str] = Field(
         default_factory=list,
