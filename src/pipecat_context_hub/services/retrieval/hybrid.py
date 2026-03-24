@@ -142,6 +142,7 @@ class HybridRetriever:
             keyword_results=keyword_results,
             query=query_text,
             rrf_k=self._rrf_k,
+            filters=filters,
         )
 
         return reranked[:limit]

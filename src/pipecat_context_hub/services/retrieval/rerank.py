@@ -179,20 +179,94 @@ def apply_code_intent_heuristics(
     return reranked
 
 
+# Maximum consecutive results from the same repo or file before penalty.
+_MAX_CONSECUTIVE_SAME = 3
+
+# Chunk-type preference order for search_api results (lower index = higher preference).
+_CHUNK_TYPE_PREFERENCE = {"method": 0, "function": 1, "class_overview": 2, "module_overview": 3}
+
+
+def _apply_diversity(
+    results: list[IndexResult],
+    filters: dict[str, object] | None = None,
+) -> list[IndexResult]:
+    """Re-order results to improve repo and file diversity.
+
+    Uses a greedy selection: iterates by score order and penalizes results
+    when the same repo or file path has appeared too many consecutive times.
+    Also applies chunk-type preference for source-content results when no
+    explicit ``chunk_type`` filter was set.
+
+    This is a lightweight diversity pass, not full MMR — it preserves the
+    score-sorted order except when diversity penalties push items down.
+    """
+    if not results or len(results) <= 1:
+        return results
+
+    effective_filters = filters or {}
+
+    # Apply chunk-type preference boost for source content (search_api)
+    # only when chunk_type is not explicitly filtered.
+    apply_chunk_pref = (
+        "chunk_type" not in effective_filters
+        and effective_filters.get("content_type") == "source"
+    )
+
+    # Build diversity-adjusted scores
+    adjusted: list[tuple[float, int, IndexResult]] = []
+    repo_runs: dict[str, int] = {}
+    path_runs: dict[str, int] = {}
+
+    for idx, result in enumerate(results):
+        score = result.score
+        repo = result.chunk.repo or ""
+        path = result.chunk.path or ""
+
+        # Track consecutive runs
+        repo_runs[repo] = repo_runs.get(repo, 0) + 1
+        path_runs[path] = path_runs.get(path, 0) + 1
+
+        # Penalize over-represented repos/files
+        if repo_runs[repo] > _MAX_CONSECUTIVE_SAME:
+            score -= 0.02 * (repo_runs[repo] - _MAX_CONSECUTIVE_SAME)
+        if path_runs[path] > _MAX_CONSECUTIVE_SAME:
+            score -= 0.02 * (path_runs[path] - _MAX_CONSECUTIVE_SAME)
+
+        # Chunk-type preference for source results
+        if apply_chunk_pref:
+            chunk_type = result.chunk.metadata.get("chunk_type", "")
+            pref = _CHUNK_TYPE_PREFERENCE.get(chunk_type, 4)
+            # Small boost for preferred types (method=+0.02, function=+0.015, etc.)
+            score += max(0, (4 - pref)) * 0.005
+
+        score = max(0.0, min(1.0, score))
+        adjusted.append((score, idx, result))
+
+    # Re-sort by adjusted score (idx as tiebreaker for stability)
+    adjusted.sort(key=lambda x: (-x[0], x[1]))
+
+    return [
+        IndexResult(chunk=r.chunk, score=s, match_type=r.match_type)
+        for s, _, r in adjusted
+    ]
+
+
 def rerank(
     vector_results: list[IndexResult],
     keyword_results: list[IndexResult],
     query: str,
     rrf_k: int = DEFAULT_RRF_K,
     now: datetime | None = None,
+    filters: dict[str, object] | None = None,
 ) -> list[IndexResult]:
-    """Full reranking pipeline: RRF merge + code-intent heuristics.
+    """Full reranking pipeline: RRF merge + heuristics + diversity.
 
     1. Compute RRF scores across vector and keyword result lists.
     2. Identify dual-hit chunk IDs (found by both backends).
     3. Deduplicate by chunk_id, using RRF scores for winner selection.
     4. Apply code-intent heuristics (symbol boost, dual-hit bonus, staleness).
-    5. Return sorted results.
+    5. Apply diversity pass (repo/file diversity, chunk-type preference).
+    6. Return sorted results.
     """
     # RRF scoring
     rrf_scores = reciprocal_rank_fusion([vector_results, keyword_results], k=rrf_k)
@@ -221,7 +295,8 @@ def rerank(
         len(dual_hit_ids),
     )
 
-    # Apply heuristics
-    return apply_code_intent_heuristics(
+    # Apply heuristics then diversity
+    heuristic_results = apply_code_intent_heuristics(
         merged, rrf_scores, query, dual_hit_ids=dual_hit_ids, now=now
     )
+    return _apply_diversity(heuristic_results, filters=filters)
