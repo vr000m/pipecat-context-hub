@@ -7,6 +7,7 @@ import textwrap
 
 from pipecat_context_hub.services.ingest.ast_extractor import (
     ParameterInfo,
+    _build_import_name_map,
     build_signature,
     extract_module_info,
 )
@@ -979,3 +980,177 @@ class TestCallExtractionOrder:
         info = extract_module_info(source, "test_mod")
         method = info.classes[0].methods[0]
         assert method.yields == ["AlphaFrame", "BetaFrame", "GammaFrame"]
+
+
+# ---------------------------------------------------------------------------
+# Per-method import extraction tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildImportNameMap:
+    """Tests for _build_import_name_map."""
+
+    def test_from_import_multi_name(self):
+        """Multi-name from-import maps each name to the full string."""
+        import ast
+        tree = ast.parse("from pipecat.frames import A, B")
+        nodes = [n for n in ast.iter_child_nodes(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+        result = _build_import_name_map(nodes)
+        assert "A" in result
+        assert "B" in result
+        assert "pipecat.frames" in result["A"]
+
+    def test_from_import_alias(self):
+        """Aliased import maps the alias, not the original name."""
+        import ast
+        tree = ast.parse("from pipecat.foo import Bar as Baz")
+        nodes = [n for n in ast.iter_child_nodes(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+        result = _build_import_name_map(nodes)
+        assert "Baz" in result
+        assert "Bar" not in result
+        assert "Bar as Baz" in result["Baz"]
+
+    def test_import_dotted(self):
+        """import X.Y.Z maps the leftmost component X."""
+        import ast
+        tree = ast.parse("import pipecat.services.tts")
+        nodes = [n for n in ast.iter_child_nodes(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+        result = _build_import_name_map(nodes)
+        assert "pipecat" in result
+        assert result["pipecat"] == "import pipecat.services.tts"
+
+    def test_relative_import(self):
+        """Relative imports are included in the map."""
+        import ast
+        tree = ast.parse("from .utils import helper")
+        nodes = [n for n in ast.iter_child_nodes(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+        result = _build_import_name_map(nodes)
+        assert "helper" in result
+        assert result["helper"] == "from .utils import helper"
+
+    def test_import_with_alias(self):
+        """import X as Y maps Y."""
+        import ast
+        tree = ast.parse("import pipecat as pc")
+        nodes = [n for n in ast.iter_child_nodes(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+        result = _build_import_name_map(nodes)
+        assert "pc" in result
+        assert "pipecat" not in result
+
+
+class TestPerMethodImports:
+    """Tests for per-method import extraction via extract_module_info."""
+
+    def test_method_gets_only_used_imports(self):
+        """Method imports contain only what the method body references."""
+        source = textwrap.dedent('''\
+            from pipecat.frames import AudioFrame
+            from pipecat.frames import VideoFrame
+            from pipecat.services import TTSService
+
+            class Processor:
+                def handle_audio(self):
+                    frame = AudioFrame()
+                    return frame
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert len(method.imports) == 1
+        assert "AudioFrame" in method.imports[0]
+        # VideoFrame and TTSService not referenced in body
+        assert not any("VideoFrame" in i for i in method.imports)
+        assert not any("TTSService" in i for i in method.imports)
+
+    def test_method_with_no_imports(self):
+        """Method that references no imports gets empty list."""
+        source = textwrap.dedent('''\
+            from pipecat.frames import AudioFrame
+
+            class Processor:
+                def no_imports(self):
+                    x = 1
+                    return x
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert method.imports == []
+
+    def test_two_methods_different_imports(self):
+        """Two methods in same class get different import subsets."""
+        source = textwrap.dedent('''\
+            from pipecat.frames import AudioFrame
+            from pipecat.frames import VideoFrame
+
+            class Processor:
+                def audio(self):
+                    return AudioFrame()
+                def video(self):
+                    return VideoFrame()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        audio = info.classes[0].methods[0]
+        video = info.classes[0].methods[1]
+        assert len(audio.imports) == 1
+        assert "AudioFrame" in audio.imports[0]
+        assert len(video.imports) == 1
+        assert "VideoFrame" in video.imports[0]
+
+    def test_stdlib_imports_excluded(self):
+        """Non-pipecat imports are filtered out."""
+        source = textwrap.dedent('''\
+            import os
+            from pipecat.frames import AudioFrame
+
+            def process():
+                path = os.getcwd()
+                frame = AudioFrame()
+                return frame
+        ''')
+        info = extract_module_info(source, "test_mod")
+        func = info.functions[0]
+        assert any("AudioFrame" in i for i in func.imports)
+        assert not any("os" in i for i in func.imports)
+
+    def test_relative_import_included(self):
+        """Relative pipecat imports are included."""
+        source = textwrap.dedent('''\
+            from .utils import helper
+
+            def process():
+                return helper()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        func = info.functions[0]
+        assert any("helper" in i for i in func.imports)
+
+    def test_aliased_import_matched(self):
+        """Aliased imports are matched by the alias name in the body."""
+        source = textwrap.dedent('''\
+            from pipecat.frames import AudioFrame as AF
+
+            class Processor:
+                def handle(self):
+                    return AF()
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert len(method.imports) == 1
+        assert "AudioFrame as AF" in method.imports[0]
+
+    def test_nested_function_scope_boundary(self):
+        """Imports used only in nested functions are not attributed to outer."""
+        source = textwrap.dedent('''\
+            from pipecat.frames import AudioFrame
+            from pipecat.frames import VideoFrame
+
+            class Processor:
+                def outer(self):
+                    frame = AudioFrame()
+                    def inner():
+                        VideoFrame()
+                    return frame
+        ''')
+        info = extract_module_info(source, "test_mod")
+        method = info.classes[0].methods[0]
+        assert len(method.imports) == 1
+        assert "AudioFrame" in method.imports[0]

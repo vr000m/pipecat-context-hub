@@ -517,11 +517,11 @@ class HybridRetriever:
             # the whole method and helps agents decide if more context is needed.
             chunk_type = r.chunk.metadata.get("chunk_type", "")
             if line_sliced or chunk_type == "module_overview":
+                imports_raw: list[str] = []
                 companion: list[str] = []
                 expectations: list[str] = []
             else:
-                # dependency_notes left empty until per-method import
-                # extraction is implemented (current imports are module-level).
+                imports_raw = _parse_metadata_list(r.chunk.metadata, "imports")
                 calls_raw = _parse_metadata_list(r.chunk.metadata, "calls")
                 class_name = r.chunk.metadata.get("class_name", "")
                 companion = [
@@ -547,7 +547,7 @@ class HybridRetriever:
                     line_end=chunk_line_end,
                     language=r.chunk.metadata.get("language"),
                     citation=citation,
-                    dependency_notes=[],
+                    dependency_notes=imports_raw,
                     companion_snippets=companion,
                     interface_expectations=expectations,
                 )

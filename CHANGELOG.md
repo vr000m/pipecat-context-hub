@@ -10,11 +10,16 @@ This project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - **Snippet enrichment for `get_code_snippet`** — `CodeSnippet` responses now
-  populate two previously-empty fields from call-graph metadata:
-  `companion_snippets` (qualified method names called by this snippet) and
+  populate three previously-empty fields from call-graph metadata:
+  `dependency_notes` (per-method pipecat imports extracted from AST),
+  `companion_snippets` (qualified method names called by this snippet), and
   `interface_expectations` (frame types yielded + base classes implemented).
-  `dependency_notes` remains empty until per-method import extraction is
-  implemented. Computed at retrieval time — no index changes required
+  Computed at retrieval time — no index changes required
+- **Per-method import extraction** — each method/function chunk now stores only
+  the pipecat-internal imports that method actually references (via AST name
+  resolution), not the entire module's import list. Fixes `dependency_notes`
+  accuracy. Also improves `ApiHit.imports` precision for method/function chunks.
+  Aliases (`import X as Y`) are preserved in import strings
 - **Refresh summary table** — `refresh` command prints a per-source table
   showing status (updated/skipped/error), commit SHA, existing chunk count,
   and updated chunk count. Both columns sum to totals for at-a-glance

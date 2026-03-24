@@ -300,7 +300,7 @@ def _build_chunks(
                     "line_end": method.line_end,
                     "yields": method.yields,
                     "calls": method.calls,
-                    "imports": pipecat_imports,
+                    "imports": method.imports,
                 },
             ))
 
@@ -335,7 +335,7 @@ def _build_chunks(
                 "line_end": func.line_end,
                 "yields": func.yields,
                 "calls": func.calls,
-                "imports": pipecat_imports,
+                "imports": func.imports,
             },
         ))
 

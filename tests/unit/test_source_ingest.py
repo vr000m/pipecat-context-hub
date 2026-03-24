@@ -749,14 +749,16 @@ class TestCallGraphMetadata:
         assert "_synthesize" in run_tts.metadata["calls"]
         assert "push_frame" in run_tts.metadata["calls"]
 
-    def test_method_chunk_has_pipecat_imports_only(self):
-        """Method chunks get pipecat-internal imports (absolute + relative), not stdlib."""
+    def test_method_chunk_has_per_method_imports(self):
+        """Method chunks get only the pipecat imports the method actually uses."""
         chunks = self._get_chunks()
         method_chunks = [c for c in chunks if c.metadata["chunk_type"] == "method"]
         run_tts = [c for c in method_chunks if c.metadata["method_name"] == "run_tts"][0]
         imports = run_tts.metadata["imports"]
-        assert any("pipecat" in i for i in imports)
-        assert any(i.startswith("from .") for i in imports), "relative imports should be included"
+        # run_tts references TTSAudioRawFrame and TTSStoppedFrame
+        assert any("TTSAudioRawFrame" in i for i in imports)
+        # run_tts does NOT reference helper_func or os
+        assert not any("helper_func" in i for i in imports)
         assert not any("import os" == i for i in imports)
 
     def test_class_overview_has_pipecat_imports(self):
