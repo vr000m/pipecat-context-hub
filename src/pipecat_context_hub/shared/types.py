@@ -402,13 +402,16 @@ class CodeSnippet(BaseModel):
     language: str | None = None
     citation: Citation
     dependency_notes: list[str] = Field(
-        default_factory=list, description="Imports or setup required by this snippet."
+        default_factory=list,
+        description="Imports required by this snippet. Currently empty — per-method import extraction is planned.",
     )
     companion_snippets: list[str] = Field(
-        default_factory=list, description="IDs of related snippets needed alongside this one."
+        default_factory=list,
+        description="Qualified method names called by the containing method (e.g. 'TTSService.push_frame'). May cover more than the visible lines when content is truncated by max_lines.",
     )
     interface_expectations: list[str] = Field(
-        default_factory=list, description="Interfaces this snippet expects from callers."
+        default_factory=list,
+        description="Frame types yielded and base classes implemented by the containing method/class. May cover more than the visible lines when content is truncated by max_lines.",
     )
 
 

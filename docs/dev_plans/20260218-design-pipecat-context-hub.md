@@ -44,8 +44,17 @@
      (post-filter, not push-down — yields/calls are JSON strings in ChromaDB).
      `SearchApiInput` exposes `yields` and `calls` filter params; `ApiHit` includes
      both as structured list fields.
-  5. **Populate `dependency_notes` and `companion_snippets`** — deferred. Requires
-     retrieval-layer changes in evidence.py and tool handlers.
+  5. ~~**Populate `dependency_notes` and `companion_snippets`**~~ ✅ Done. Retrieval-time
+     enrichment in `hybrid.py` — no index changes needed. `get_code_snippet` now maps
+     chunk metadata to all three `CodeSnippet` enrichment fields:
+     - `dependency_notes` ← `imports` (module-level pipecat imports, not yet
+       per-method — follow-up: extract per-method imports from AST)
+     - `companion_snippets` ← `calls` (qualified with `class_name` prefix)
+     - `interface_expectations` ← `yields` + `base_classes` (human-readable strings)
+     Handles both JSON-string and native-list metadata formats. Field description for
+     `companion_snippets` updated from "IDs of related snippets" to "Qualified method
+     names called by this snippet." Tests in `test_retrieval.py` (4 cases) and
+     `test_mcp_tools.py` (yields/calls filter validation).
   - **Non-goal:** Full type-resolved call graph. Name-based extraction is sufficient
     for the retrieval use case and avoids the complexity of cross-module type
     inference.

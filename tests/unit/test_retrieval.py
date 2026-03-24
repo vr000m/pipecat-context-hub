@@ -937,6 +937,307 @@ class TestSymbolFilterCascade:
             GetCodeSnippetInput(intent="how to do X", class_name="SomeClass")
 
 
+class TestCodeSnippetEnrichment:
+    """Tests for dependency_notes, companion_snippets, interface_expectations population."""
+
+    async def test_enrichment_from_metadata(self):
+        """CodeSnippet fields are populated from chunk call-graph metadata."""
+        r1 = _make_result(
+            "enrich-1",
+            content="async def run_tts(self, text):\n    yield AudioFrame(text)",
+            content_type="source",
+            metadata={
+                "line_start": 10,
+                "line_end": 11,
+                "language": "python",
+                "chunk_type": "method",
+                "class_name": "TTSService",
+                "imports": '["pipecat.frames.AudioFrame", "pipecat.services.base.BaseService"]',
+                "calls": '["_process_audio", "emit"]',
+                "yields": '["AudioRawFrame", "TTSStartedFrame"]',
+                "base_classes": '["BaseService", "AIService"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="TTSService.run_tts"))
+
+        assert len(output.snippets) == 1
+        s = output.snippets[0]
+        # dependency_notes empty until per-method import extraction
+        assert s.dependency_notes == []
+        assert "TTSService._process_audio" in s.companion_snippets
+        assert "TTSService.emit" in s.companion_snippets
+        assert "Yields: AudioRawFrame, TTSStartedFrame" in s.interface_expectations
+        assert "Implements: BaseService, AIService" in s.interface_expectations
+
+    async def test_enrichment_with_dotted_calls(self):
+        """Calls that already contain dots are not re-qualified with class_name."""
+        r1 = _make_result(
+            "enrich-dot",
+            content="def foo(self): self.bar.baz()",
+            content_type="source",
+            metadata={
+                "line_start": 1,
+                "line_end": 1,
+                "class_name": "Foo",
+                "calls": '["self.bar.baz", "local_fn"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="Foo.foo"))
+
+        s = output.snippets[0]
+        assert "self.bar.baz" in s.companion_snippets
+        assert "Foo.local_fn" in s.companion_snippets
+
+    async def test_enrichment_empty_metadata(self):
+        """Enrichment fields default to empty lists when metadata is absent."""
+        r1 = _make_result(
+            "enrich-empty",
+            content="x = 1",
+            content_type="source",
+            metadata={"line_start": 1, "line_end": 1},
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="x"))
+
+        s = output.snippets[0]
+        assert s.dependency_notes == []
+        assert s.companion_snippets == []
+        assert s.interface_expectations == []
+
+    async def test_enrichment_with_native_list_metadata(self):
+        """Metadata that is already a list (not JSON string) is handled correctly."""
+        r1 = _make_result(
+            "enrich-list",
+            content="def bar(): pass",
+            content_type="source",
+            metadata={
+                "line_start": 1,
+                "line_end": 1,
+                "imports": ["mod_a", "mod_b"],
+                "calls": ["helper"],
+                "yields": ["FrameA"],
+                "base_classes": ["Base"],
+                "class_name": "MyClass",
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="MyClass.bar"))
+
+        s = output.snippets[0]
+        assert s.dependency_notes == []
+        assert "MyClass.helper" in s.companion_snippets
+        assert "Yields: FrameA" in s.interface_expectations
+        assert "Implements: Base" in s.interface_expectations
+
+    async def test_enrichment_no_class_name(self):
+        """Calls are not prefixed with a leading dot when class_name is absent."""
+        r1 = _make_result(
+            "enrich-no-class",
+            content="def standalone(): helper()",
+            content_type="source",
+            metadata={
+                "line_start": 1,
+                "line_end": 1,
+                "calls": '["helper", "other.qualified"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="standalone"))
+
+        s = output.snippets[0]
+        # Without class_name, bare calls should stay unqualified (no leading dot)
+        assert "helper" in s.companion_snippets
+        assert ".helper" not in s.companion_snippets
+        # Dotted calls pass through as-is
+        assert "other.qualified" in s.companion_snippets
+
+    async def test_enrichment_skipped_when_sliced_by_path_line(self):
+        """Enrichment fields are empty when snippet is sliced to a sub-range."""
+        r1 = _make_result(
+            "enrich-sliced",
+            content="line1\nline2\nline3\nline4\nline5",
+            content_type="source",
+            metadata={
+                "line_start": 10,
+                "line_end": 14,
+                "class_name": "Svc",
+                "imports": '["pipecat.frames.AudioFrame"]',
+                "calls": '["push_frame"]',
+                "yields": '["AudioRawFrame"]',
+                "base_classes": '["BaseService"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(path="docs/test.md", line_start=12, line_end=13)
+        )
+
+        assert len(output.snippets) == 1
+        s = output.snippets[0]
+        assert s.dependency_notes == []
+        assert s.companion_snippets == []
+        assert s.interface_expectations == []
+
+    async def test_enrichment_kept_when_path_covers_full_chunk(self):
+        """path+line_start that covers the entire chunk keeps enrichment."""
+        r1 = _make_result(
+            "enrich-fullpath",
+            content="line1\nline2\nline3",
+            content_type="source",
+            metadata={
+                "line_start": 10,
+                "line_end": 12,
+                "class_name": "Svc",
+                "imports": '["pipecat.frames.AudioFrame"]',
+                "calls": '["push_frame"]',
+                "yields": '["AudioRawFrame"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        # Request covers the full chunk (lines 10-12)
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(path="docs/test.md", line_start=10, line_end=12)
+        )
+
+        assert len(output.snippets) == 1
+        s = output.snippets[0]
+        assert s.dependency_notes == []
+        assert "Svc.push_frame" in s.companion_snippets
+        assert "Yields: AudioRawFrame" in s.interface_expectations
+
+    async def test_enrichment_kept_when_path_line_start_with_max_lines(self):
+        """path + line_start + max_lines (no line_end) keeps enrichment when
+        line_start aligns with chunk start — truncation is from max_lines only."""
+        r1 = _make_result(
+            "enrich-path-maxlines",
+            content="line1\nline2\nline3\nline4\nline5",
+            content_type="source",
+            metadata={
+                "line_start": 10,
+                "line_end": 14,
+                "class_name": "Svc",
+                "imports": '["pipecat.frames.AudioFrame"]',
+                "calls": '["push_frame"]',
+                "yields": '["AudioRawFrame"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        # path + line_start at chunk start, no line_end, max_lines truncates
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(path="docs/test.md", line_start=10, max_lines=2)
+        )
+
+        assert len(output.snippets) == 1
+        s = output.snippets[0]
+        assert s.content == "line1\nline2"
+        # Enrichment preserved — truncation is from max_lines, not explicit slicing
+        assert s.dependency_notes == []
+        assert "Svc.push_frame" in s.companion_snippets
+        assert "Yields: AudioRawFrame" in s.interface_expectations
+
+    async def test_enrichment_skipped_when_path_line_start_mid_chunk(self):
+        """path + line_start into the middle of a chunk is real slicing."""
+        r1 = _make_result(
+            "enrich-midchunk",
+            content="line1\nline2\nline3\nline4\nline5",
+            content_type="source",
+            metadata={
+                "line_start": 10,
+                "line_end": 14,
+                "class_name": "Svc",
+                "imports": '["pipecat.frames.AudioFrame"]',
+                "calls": '["push_frame"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        # line_start=12 cuts into chunk starting at 10 — real slice
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(path="docs/test.md", line_start=12, max_lines=100)
+        )
+
+        assert len(output.snippets) == 1
+        s = output.snippets[0]
+        assert s.dependency_notes == []
+        assert s.companion_snippets == []
+
+    async def test_enrichment_kept_when_truncated_by_max_lines(self):
+        """Enrichment is preserved on max_lines truncation — metadata describes
+        the full method and helps agents decide whether to re-fetch with more lines."""
+        r1 = _make_result(
+            "enrich-truncated",
+            content="line1\nline2\nline3\nline4\nline5",
+            content_type="source",
+            metadata={
+                "line_start": 1,
+                "line_end": 5,
+                "class_name": "Svc",
+                "imports": '["pipecat.frames.AudioFrame"]',
+                "calls": '["push_frame"]',
+                "yields": '["AudioRawFrame"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(
+            GetCodeSnippetInput(symbol="Svc", max_lines=2)
+        )
+
+        assert len(output.snippets) == 1
+        s = output.snippets[0]
+        # Content is truncated to 2 lines...
+        assert s.content == "line1\nline2"
+        # ...but enrichment is preserved (describes the full method)
+        assert s.dependency_notes == []
+        assert "Svc.push_frame" in s.companion_snippets
+        assert "Yields: AudioRawFrame" in s.interface_expectations
+
+    async def test_enrichment_skipped_for_module_overview(self):
+        """Module overview chunks skip enrichment (imports include stdlib)."""
+        r1 = _make_result(
+            "enrich-modoverview",
+            content="# Module: pipecat.services.tts",
+            content_type="source",
+            metadata={
+                "line_start": 1,
+                "line_end": 1,
+                "chunk_type": "module_overview",
+                "imports": '["import os", "pipecat.frames.AudioFrame"]',
+                "calls": '["some_call"]',
+            },
+        )
+        mock_reader = _mock_index_reader(vector_results=[r1], keyword_results=[r1])
+        retriever = HybridRetriever(mock_reader)
+
+        output = await retriever.get_code_snippet(GetCodeSnippetInput(symbol="tts"))
+
+        assert len(output.snippets) == 1
+        s = output.snippets[0]
+        assert s.dependency_notes == []
+        assert s.companion_snippets == []
+        assert s.interface_expectations == []
+
+
 class TestHybridRetrieverProtocol:
     """Verify HybridRetriever satisfies the Retriever protocol."""
 

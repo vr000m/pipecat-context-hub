@@ -473,6 +473,7 @@ class HybridRetriever:
 
             # When path+line_start lookup was requested, extract the
             # requested sub-range from within this chunk.
+            line_sliced = False
             if input.path is not None and input.line_start is not None:
                 req_start = input.line_start
                 req_end = input.line_end or (req_start + input.max_lines - 1)
@@ -483,16 +484,60 @@ class HybridRetriever:
                 # Compute offsets relative to chunk start
                 offset_start = max(0, req_start - chunk_line_start)
                 offset_end = min(len(all_lines), req_end - chunk_line_start + 1)
-                all_lines = all_lines[offset_start:offset_end]
+                new_lines = all_lines[offset_start:offset_end]
+                # Mark as sliced only when the user explicitly narrowed
+                # the range via line_end, or when line_start cuts into
+                # the chunk (offset_start > 0). When the narrowing comes
+                # solely from max_lines (no line_end, line_start at chunk
+                # start), enrichment should be preserved.
+                if len(new_lines) < len(all_lines) and (
+                    input.line_end is not None or offset_start > 0
+                ):
+                    line_sliced = True
+                all_lines = new_lines
                 chunk_line_start = max(req_start, chunk_line_start)
                 chunk_line_end = chunk_line_start + len(all_lines) - 1
                 content = "\n".join(all_lines)
 
-            # Respect max_lines
+            # Respect max_lines (enrichment still applies — the metadata
+            # describes the full method, helping agents decide whether to
+            # re-fetch with a larger max_lines).
             if len(all_lines) > input.max_lines:
                 all_lines = all_lines[: input.max_lines]
                 content = "\n".join(all_lines)
                 chunk_line_end = chunk_line_start + len(all_lines) - 1
+
+            # -- Enrich from call-graph metadata --
+            # Skip enrichment for:
+            # - path+line_start slicing: arbitrary line range, metadata may
+            #   not apply to the requested sub-range.
+            # - module_overview chunks: imports include stdlib/third-party,
+            #   not just pipecat-internal.
+            # Keep enrichment for max_lines truncation: metadata describes
+            # the whole method and helps agents decide if more context is needed.
+            chunk_type = r.chunk.metadata.get("chunk_type", "")
+            if line_sliced or chunk_type == "module_overview":
+                companion: list[str] = []
+                expectations: list[str] = []
+            else:
+                # dependency_notes left empty until per-method import
+                # extraction is implemented (current imports are module-level).
+                calls_raw = _parse_metadata_list(r.chunk.metadata, "calls")
+                class_name = r.chunk.metadata.get("class_name", "")
+                companion = [
+                    f"{class_name}.{c}"
+                    if class_name and "." not in c and not c.startswith("super()")
+                    else c
+                    for c in calls_raw
+                ]
+
+                yields_raw = _parse_metadata_list(r.chunk.metadata, "yields")
+                base_classes = _parse_metadata_list(r.chunk.metadata, "base_classes")
+                expectations = []
+                if yields_raw:
+                    expectations.append(f"Yields: {', '.join(yields_raw)}")
+                if base_classes:
+                    expectations.append(f"Implements: {', '.join(base_classes)}")
 
             snippets.append(
                 CodeSnippet(
@@ -502,9 +547,9 @@ class HybridRetriever:
                     line_end=chunk_line_end,
                     language=r.chunk.metadata.get("language"),
                     citation=citation,
-                    dependency_notes=r.chunk.metadata.get("dependency_notes", []),
-                    companion_snippets=r.chunk.metadata.get("companion_snippets", []),
-                    interface_expectations=r.chunk.metadata.get("interface_expectations", []),
+                    dependency_notes=[],
+                    companion_snippets=companion,
+                    interface_expectations=expectations,
                 )
             )
 
@@ -537,30 +582,10 @@ class HybridRetriever:
         hits: list[ApiHit] = []
         for r in results:
             citation = build_citation(r)
-            base_classes_raw = r.chunk.metadata.get("base_classes", [])
-            if isinstance(base_classes_raw, str):
-                try:
-                    base_classes_raw = json.loads(base_classes_raw)
-                except (ValueError, TypeError):
-                    base_classes_raw = base_classes_raw.split(",") if base_classes_raw else []
-            imports_raw = r.chunk.metadata.get("imports", [])
-            if isinstance(imports_raw, str):
-                try:
-                    imports_raw = json.loads(imports_raw)
-                except (ValueError, TypeError):
-                    imports_raw = []
-            yields_raw = r.chunk.metadata.get("yields", [])
-            if isinstance(yields_raw, str):
-                try:
-                    yields_raw = json.loads(yields_raw)
-                except (ValueError, TypeError):
-                    yields_raw = []
-            calls_raw = r.chunk.metadata.get("calls", [])
-            if isinstance(calls_raw, str):
-                try:
-                    calls_raw = json.loads(calls_raw)
-                except (ValueError, TypeError):
-                    calls_raw = []
+            base_classes_raw = _parse_metadata_list(r.chunk.metadata, "base_classes")
+            imports_raw = _parse_metadata_list(r.chunk.metadata, "imports")
+            yields_raw = _parse_metadata_list(r.chunk.metadata, "yields")
+            calls_raw = _parse_metadata_list(r.chunk.metadata, "calls")
             hits.append(
                 ApiHit(
                     chunk_id=r.chunk.chunk_id,
@@ -587,6 +612,26 @@ class HybridRetriever:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _parse_metadata_list(metadata: dict[str, Any], key: str) -> list[str]:
+    """Extract a list-of-strings field from chunk metadata.
+
+    Handles three storage formats:
+    - Native list (in-memory / mock): returned as-is.
+    - JSON-encoded string (ChromaDB): decoded via json.loads.
+    - Malformed / missing: returns [].
+    """
+    raw = metadata.get(key, [])
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            logger.warning("Malformed metadata for key %r: could not parse JSON", key)
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, str)]
 
 
 def _epoch() -> datetime:

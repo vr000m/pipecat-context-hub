@@ -18,7 +18,7 @@ IDE/Agent  ←stdio→  pipecat-context-hub serve  ←→  Local index (~/.pipec
 | `get_doc` | Fetch a specific doc page by chunk ID |
 | `search_examples` | Find working code examples by task, modality, or component |
 | `get_example` | Retrieve full example with source files and metadata |
-| `get_code_snippet` | Get targeted code spans by intent, symbol, or path |
+| `get_code_snippet` | Get targeted code spans by intent, symbol, or path. Returns enriched output with dependencies (`dependency_notes`), called methods (`companion_snippets`), and interface contracts (`interface_expectations`) |
 | `search_api` | Search framework internals — class definitions, method signatures, inheritance. Filter by `yields` (frame types) or `calls` (method names) |
 | `get_hub_status` | Get index health: last refresh time, record counts, commit SHAs |
 

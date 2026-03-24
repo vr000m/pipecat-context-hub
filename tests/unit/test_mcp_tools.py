@@ -388,6 +388,38 @@ class TestSearchApi:
         with pytest.raises(ValidationError):
             await handle_search_api({"query": "test", "chunk_type": "invalid_type"}, mock_retriever)
 
+    async def test_yields_and_calls_filters(self, mock_retriever):
+        """yields and calls filters are passed through to the retriever."""
+        mock_retriever.search_api.return_value = SearchApiOutput(
+            hits=[
+                ApiHit(
+                    chunk_id="api-yields",
+                    module_path="pipecat.services.tts",
+                    class_name="TTSService",
+                    method_name="run_tts",
+                    chunk_type="method",
+                    snippet="async def run_tts(self, text): ...",
+                    yields=["TTSAudioRawFrame", "TTSStartedFrame"],
+                    calls=["push_frame", "_process_audio"],
+                    citation=_make_citation(),
+                    score=0.91,
+                )
+            ],
+            evidence=_make_evidence(),
+        )
+        result = await handle_search_api(
+            {"query": "TTS", "yields": "TTSAudioRawFrame", "calls": "push_frame"},
+            mock_retriever,
+        )
+        parsed = SearchApiOutput.model_validate_json(result)
+        assert len(parsed.hits) == 1
+        assert "TTSAudioRawFrame" in parsed.hits[0].yields
+        assert "push_frame" in parsed.hits[0].calls
+        # Verify filters were forwarded
+        call_args = mock_retriever.search_api.call_args[0][0]
+        assert call_args.yields == "TTSAudioRawFrame"
+        assert call_args.calls == "push_frame"
+
     async def test_missing_query_raises(self, mock_retriever):
         with pytest.raises(ValidationError):
             await handle_search_api({}, mock_retriever)
