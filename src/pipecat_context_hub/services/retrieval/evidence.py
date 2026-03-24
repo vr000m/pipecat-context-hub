@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 HIGH_SCORE_THRESHOLD = 0.5
 LOW_SCORE_THRESHOLD = 0.1
 MIN_RESULTS_FOR_HIGH_CONFIDENCE = 3
+LOW_CONFIDENCE_THRESHOLD = 0.3
+CONFIDENCE_FLOOR = 0.15
 
 
 def build_citation(result: IndexResult) -> Citation:
@@ -59,7 +61,7 @@ def _compute_confidence(
 
     # Base confidence from score quality
     if max_score >= HIGH_SCORE_THRESHOLD and count >= MIN_RESULTS_FOR_HIGH_CONFIDENCE:
-        confidence = min(0.95, 0.6 + avg_score * 0.3 + min(count / 10.0, 0.1))
+        confidence = min(0.95, 0.6 + avg_score * 0.3 + min(count / 15.0, 0.15))
         rationale = (
             f"Found {count} results with strong relevance "
             f"(top score: {max_score:.2f}, avg: {avg_score:.2f})."
@@ -117,7 +119,14 @@ def _generate_next_queries(
     if "repo" in effective_filters:
         suggestions.append(f"Search across all repos: {query}")
 
-    # Content type filter: suggest removing it
+    # Content type filter: suggest cross-tool alternatives
+    content_type = effective_filters.get("content_type")
+    if content_type == "doc" and len(results) == 0:
+        suggestions.append(f"Try search_examples for working code: {query}")
+    elif content_type == "source" and len(results) == 0:
+        suggestions.append(f"Try search_docs for conceptual guidance: {query}")
+    elif content_type == "code" and len(results) == 0:
+        suggestions.append(f"Try search_api for framework internals: {query}")
     if "content_type" in effective_filters:
         suggestions.append(f"Search all content types: {query}")
 
@@ -209,10 +218,23 @@ def assemble_evidence(
     confidence, rationale = _compute_confidence(results, query)
     next_queries = _generate_next_queries(query, results, filters)
 
+    # Confidence floor: signal when the index has no strong matches
+    if confidence < CONFIDENCE_FLOOR and not any(
+        u.question.startswith("No content found") for u in unknown
+    ):
+        unknown.append(
+            UnknownItem(
+                question=f"Weak matches for: {query}",
+                reason="The index has no strong matches for this query.",
+                suggested_queries=next_queries[:3],
+            )
+        )
+
     report = EvidenceReport(
         known=known,
         unknown=unknown,
         confidence=confidence,
+        low_confidence=confidence < LOW_CONFIDENCE_THRESHOLD,
         confidence_rationale=rationale,
         next_retrieval_queries=next_queries,
     )

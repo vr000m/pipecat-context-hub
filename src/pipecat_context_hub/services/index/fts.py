@@ -70,7 +70,7 @@ class FTSIndex:
     def __init__(self, sqlite_path: Path) -> None:
         self._sqlite_path = sqlite_path
         sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(sqlite_path))
+        self._conn = sqlite3.connect(str(sqlite_path), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA_SQL)
         self._conn.commit()

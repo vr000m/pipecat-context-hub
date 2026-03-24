@@ -6,6 +6,7 @@ to the VectorIndex and FTSIndex backends.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -103,12 +104,20 @@ class IndexStore:
         return vector_count
 
     async def vector_search(self, query: IndexQuery) -> list[IndexResult]:
-        """Return results ranked by embedding similarity."""
-        return self._vector.search(query)
+        """Return results ranked by embedding similarity.
+
+        Offloads the synchronous ChromaDB HNSW query to a thread so it
+        doesn't block the event loop during concurrent MCP tool calls.
+        """
+        return await asyncio.to_thread(self._vector.search, query)
 
     async def keyword_search(self, query: IndexQuery) -> list[IndexResult]:
-        """Return results ranked by FTS5 keyword relevance."""
-        return self._fts.search(query)
+        """Return results ranked by FTS5 keyword relevance.
+
+        Offloads the synchronous SQLite FTS5 query to a thread so it
+        doesn't block the event loop during concurrent MCP tool calls.
+        """
+        return await asyncio.to_thread(self._fts.search, query)
 
     def set_metadata(self, key: str, value: str) -> None:
         """Store a key-value pair in persistent index metadata."""

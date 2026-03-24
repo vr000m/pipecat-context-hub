@@ -157,6 +157,10 @@ class EvidenceReport(BaseModel):
     known: list[KnownItem] = Field(default_factory=list)
     unknown: list[UnknownItem] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0, description="Overall confidence score.")
+    low_confidence: bool = Field(
+        default=False,
+        description="True when confidence < 0.3, signaling context may be insufficient.",
+    )
     confidence_rationale: str = Field(default="", description="Brief explanation of confidence.")
     next_retrieval_queries: list[str] = Field(
         default_factory=list,

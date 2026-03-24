@@ -31,7 +31,9 @@ from pipecat_context_hub.services.retrieval.decompose import (
 from pipecat_context_hub.services.retrieval.hybrid import HybridRetriever
 from pipecat_context_hub.services.retrieval.rerank import (
     DEFAULT_RRF_K,
-    STALENESS_PENALTY,
+    DUAL_HIT_BONUS,
+    STALENESS_DECAY_DAYS,
+    STALENESS_MAX_PENALTY,
     SYMBOL_MATCH_BOOST,
     _extract_query_symbols,
     apply_code_intent_heuristics,
@@ -196,23 +198,34 @@ class TestCodeIntentHeuristics:
         results = apply_code_intent_heuristics([r1], rrf_scores, "use PipelineRunner", now=NOW)
         assert results[0].score == pytest.approx(0.5)
 
-    def test_staleness_penalty(self):
-        """Old results get penalized."""
+    def test_staleness_penalty_graduated(self):
+        """Old results get a graduated penalty based on age."""
         old_date = NOW - timedelta(days=120)
         r1 = _make_result("a", score=0.8, indexed_at=old_date)
         rrf_scores = {"a": 0.5}
 
+        expected_penalty = min(STALENESS_MAX_PENALTY, 120 / STALENESS_DECAY_DAYS * STALENESS_MAX_PENALTY)
         results = apply_code_intent_heuristics([r1], rrf_scores, "some query", now=NOW)
-        assert results[0].score == pytest.approx(0.5 - STALENESS_PENALTY)
+        assert results[0].score == pytest.approx(0.5 - expected_penalty)
 
-    def test_fresh_no_penalty(self):
-        """Recent results don't get penalized."""
+    def test_very_old_results_capped_penalty(self):
+        """Very old results cap at STALENESS_MAX_PENALTY."""
+        old_date = NOW - timedelta(days=500)
+        r1 = _make_result("a", score=0.8, indexed_at=old_date)
+        rrf_scores = {"a": 0.5}
+
+        results = apply_code_intent_heuristics([r1], rrf_scores, "some query", now=NOW)
+        assert results[0].score == pytest.approx(0.5 - STALENESS_MAX_PENALTY)
+
+    def test_fresh_minimal_penalty(self):
+        """Recent results get a very small penalty (graduated, not zero)."""
         recent_date = NOW - timedelta(days=10)
         r1 = _make_result("a", score=0.8, indexed_at=recent_date)
         rrf_scores = {"a": 0.5}
 
+        expected_penalty = min(STALENESS_MAX_PENALTY, 10 / STALENESS_DECAY_DAYS * STALENESS_MAX_PENALTY)
         results = apply_code_intent_heuristics([r1], rrf_scores, "some query", now=NOW)
-        assert results[0].score == pytest.approx(0.5)
+        assert results[0].score == pytest.approx(0.5 - expected_penalty)
 
     def test_sort_order(self):
         """Results are sorted by adjusted score descending."""
@@ -224,6 +237,31 @@ class TestCodeIntentHeuristics:
         # b gets symbol boost: 0.2 + 0.15 = 0.35 > a's 0.3
         assert results[0].chunk.chunk_id == "b"
         assert results[1].chunk.chunk_id == "a"
+
+    def test_dual_hit_bonus(self):
+        """Results found by both backends get a score boost."""
+        r1 = _make_result("a", score=0.5)
+        r2 = _make_result("b", score=0.5)
+        rrf_scores = {"a": 0.3, "b": 0.3}
+
+        results = apply_code_intent_heuristics(
+            [r1, r2], rrf_scores, "some query", dual_hit_ids={"a"}, now=NOW
+        )
+        # a gets dual-hit bonus, b does not
+        assert results[0].chunk.chunk_id == "a"
+        score_a = results[0].score
+        score_b = results[1].score
+        assert score_a > score_b
+        assert score_a - score_b == pytest.approx(DUAL_HIT_BONUS)
+
+    def test_uppercase_symbol_detection(self):
+        """UPPERCASE acronyms like TTS, STT are detected as symbols."""
+        symbols = _extract_query_symbols("TTS provider for STT")
+        assert "TTS" in symbols
+        assert "STT" in symbols
+        # Single letter 'A' should NOT match
+        symbols_single = _extract_query_symbols("A simple test")
+        assert "A" not in symbols_single
 
 
 class TestRerank:
