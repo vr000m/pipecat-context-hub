@@ -10,11 +10,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import threading
 from pathlib import Path
 
 from pipecat_context_hub.shared.types import IndexResult
 
 logger = logging.getLogger(__name__)
+
+# Allowed cross-encoder models to prevent arbitrary model loading.
+# Add new models here as they are vetted for safety and quality.
+_ALLOWED_MODELS = frozenset({
+    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "cross-encoder/ms-marco-MiniLM-L-12-v2",
+    "cross-encoder/ms-marco-TinyBERT-L-2-v2",
+})
 
 
 class CrossEncoderReranker:
@@ -31,11 +41,20 @@ class CrossEncoderReranker:
         top_n: int = 20,
         enabled: bool = False,
     ) -> None:
+        if model_name not in _ALLOWED_MODELS:
+            logger.warning(
+                "Cross-encoder model '%s' not in allowlist — disabling. "
+                "Allowed models: %s",
+                model_name,
+                ", ".join(sorted(_ALLOWED_MODELS)),
+            )
+            enabled = False
         self._model_name = model_name
         self._top_n = top_n
         self._enabled = enabled
         self._model: object | None = None  # Lazy-loaded CrossEncoder instance
         self._available = enabled  # False if model fails to load
+        self._lock = threading.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -43,21 +62,25 @@ class CrossEncoderReranker:
         return self._enabled and self._available
 
     def _load_model(self) -> None:
-        """Load the cross-encoder model (synchronous, called from thread)."""
-        if self._model is not None:
-            return
-        try:
-            from sentence_transformers import CrossEncoder
+        """Load the cross-encoder model (synchronous, called from thread).
 
-            self._model = CrossEncoder(self._model_name)
-            logger.info("Cross-encoder loaded: %s", self._model_name)
-        except Exception:
-            logger.warning(
-                "Cross-encoder model '%s' not available — disabling. "
-                "Run 'pipecat-context-hub refresh' to pre-download.",
-                self._model_name,
-            )
-            self._available = False
+        Guarded by a lock to prevent double-loading under concurrency.
+        """
+        with self._lock:
+            if self._model is not None:
+                return
+            try:
+                from sentence_transformers import CrossEncoder
+
+                self._model = CrossEncoder(self._model_name)
+                logger.info("Cross-encoder loaded: %s", self._model_name)
+            except Exception:
+                logger.warning(
+                    "Cross-encoder model '%s' not available — disabling. "
+                    "Run 'pipecat-context-hub refresh' to pre-download.",
+                    self._model_name,
+                )
+                self._available = False
 
     def _score(
         self, candidates: list[IndexResult], query: str
@@ -74,7 +97,9 @@ class CrossEncoderReranker:
         pairs = [(query, r.chunk.content[:1000]) for r in top]
         scores = self._model.predict(pairs)  # type: ignore[union-attr]
 
-        # Rebuild results with cross-encoder scores, preserving chunk/match_type
+        # Rebuild results with sigmoid-normalized cross-encoder scores.
+        # ms-marco models output unbounded logits (~-11 to +11); sigmoid
+        # maps them to (0, 1) while preserving ordering.
         scored = sorted(
             zip(scores, top),
             key=lambda x: float(x[0]),
@@ -83,7 +108,7 @@ class CrossEncoderReranker:
         reranked = [
             IndexResult(
                 chunk=result.chunk,
-                score=max(0.0, min(1.0, float(ce_score))),
+                score=1.0 / (1.0 + math.exp(-float(ce_score))),
                 match_type=result.match_type,
             )
             for ce_score, result in scored

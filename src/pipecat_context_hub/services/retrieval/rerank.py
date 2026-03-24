@@ -179,8 +179,8 @@ def apply_code_intent_heuristics(
     return reranked
 
 
-# Maximum consecutive results from the same repo or file before penalty.
-_MAX_CONSECUTIVE_SAME = 3
+# Maximum total results from the same repo or file before diversity penalty.
+_MAX_SAME_SOURCE = 3
 
 # Chunk-type preference order for search_api results (lower index = higher preference).
 _CHUNK_TYPE_PREFERENCE = {"method": 0, "function": 1, "class_overview": 2, "module_overview": 3}
@@ -193,9 +193,9 @@ def _apply_diversity(
     """Re-order results to improve repo and file diversity.
 
     Uses a greedy selection: iterates by score order and penalizes results
-    when the same repo or file path has appeared too many consecutive times.
-    Also applies chunk-type preference for source-content results when no
-    explicit ``chunk_type`` filter was set.
+    when the same repo or file path has appeared more than ``_MAX_SAME_SOURCE``
+    times total. Also applies chunk-type preference for source-content results
+    when no explicit ``chunk_type`` filter was set.
 
     This is a lightweight diversity pass, not full MMR — it preserves the
     score-sorted order except when diversity penalties push items down.
@@ -227,10 +227,10 @@ def _apply_diversity(
         path_runs[path] = path_runs.get(path, 0) + 1
 
         # Penalize over-represented repos/files
-        if repo_runs[repo] > _MAX_CONSECUTIVE_SAME:
-            score -= 0.02 * (repo_runs[repo] - _MAX_CONSECUTIVE_SAME)
-        if path_runs[path] > _MAX_CONSECUTIVE_SAME:
-            score -= 0.02 * (path_runs[path] - _MAX_CONSECUTIVE_SAME)
+        if repo_runs[repo] > _MAX_SAME_SOURCE:
+            score -= 0.02 * (repo_runs[repo] - _MAX_SAME_SOURCE)
+        if path_runs[path] > _MAX_SAME_SOURCE:
+            score -= 0.02 * (path_runs[path] - _MAX_SAME_SOURCE)
 
         # Chunk-type preference for source results
         if apply_chunk_pref:
@@ -276,14 +276,13 @@ def rerank(
     keyword_ids = {r.chunk.chunk_id for r in keyword_results}
     dual_hit_ids = vector_ids & keyword_ids
 
-    # Deduplicate: use RRF scores (normalized) for winner selection instead
-    # of raw backend scores (which are on incomparable scales).
+    # Deduplicate: first-seen wins (vector results first, then keyword).
+    # RRF scoring already accounts for rank across both lists, so the
+    # choice of which IndexResult to keep is cosmetic (affects match_type).
     seen: dict[str, IndexResult] = {}
     for result in vector_results + keyword_results:
         cid = result.chunk.chunk_id
-        if cid not in seen or rrf_scores.get(cid, 0.0) > rrf_scores.get(
-            seen[cid].chunk.chunk_id, 0.0
-        ):
+        if cid not in seen:
             seen[cid] = result
 
     merged = list(seen.values())

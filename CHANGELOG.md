@@ -7,6 +7,33 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Optional cross-encoder reranker** — `CrossEncoderReranker` service with
+  lazy model loading, thread-safe inference via `asyncio.to_thread`, graceful
+  offline degradation. Disabled by default; enable via `RerankerConfig.enabled`
+- **Result diversity** — repo/file diversity penalties and chunk-type
+  preference for `search_api` (method > function > class > module)
+- **Confidence guardrails** — `low_confidence: bool` on `EvidenceReport`,
+  graduated count contribution, cross-tool suggestions, confidence floor
+  with explicit `UnknownItem`
+
+### Changed
+
+- **Graduated staleness** — linear decay (max -0.10 at 365 days) replaces
+  binary -0.05 at 90 days
+- **UPPERCASE symbol detection** — TTS, STT, VAD, RTVI, LLM now receive
+  symbol match boost
+- **Dual-hit bonus** — +0.10 for chunks found by both vector AND keyword
+- **Event loop** — `IndexStore` read methods offloaded to threads via
+  `asyncio.to_thread` (no longer blocks event loop)
+
+### Fixed
+
+- FTS5 query sanitization strips double quotes to prevent syntax injection
+- Cross-encoder model loading guarded by `threading.Lock` (no double-load)
+- Model allowlist prevents loading untrusted models from HuggingFace
+
 ## [0.0.9] - 2026-03-23
 
 ### Added
