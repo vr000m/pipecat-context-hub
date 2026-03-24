@@ -134,21 +134,27 @@
      identified 8 quality bottlenecks and 8 unused signals.
 
      **Phase 1: Cross-encoder reranker** (highest ROI)
-     - Add optional `cross-encoder/ms-marco-MiniLM-L-6-v2` scoring as a new
-       stage inside `rerank()` in `rerank.py`, after `apply_code_intent_heuristics`,
-       before returning. This keeps `hybrid.py` as pure orchestration and
-       `rerank.py` as the single ranking pipeline. `hybrid.py` does NOT change
-       for cross-encoder — it just calls `rerank()` as before.
-     - Score top-N candidates against the query, re-sort by cross-encoder score
+     - **Async design:** `rerank()` stays sync (all existing tests unchanged).
+       New `CrossEncoderReranker` service class owns model lifecycle and
+       thread offload. `HybridRetriever` holds an optional instance. Call
+       site in `_single_concept_search`: sync `rerank()` → async
+       `await cross_encoder.rerank(candidates, query)` → `[:limit]`.
+     - `CrossEncoderReranker` (new file `services/retrieval/cross_encoder.py`):
+       - `__init__(config: RerankerConfig)` — stores config, model=None
+       - `async def rerank(candidates, query, top_n) -> list[IndexResult]` —
+         lazy-loads model on first call, runs `asyncio.to_thread(self._score, ...)`
+       - `_score(candidates, query)` — sync, calls `CrossEncoder.predict()`
+       - `ensure_model()` — pre-download, called from `refresh` CLI when enabled
+     - Model: `cross-encoder/ms-marco-MiniLM-L-6-v2` (~22M params, ~80MB download)
      - Config: new `RerankerConfig` in `config.py` with `cross_encoder_model`,
        `enabled` (default `False`), `top_n` (default 20). Add as field on
        `HubConfig`. Plumb through `cli.py` / `server/main.py` →
-       `HybridRetriever.__init__` → `rerank()` call.
-     - Thread inference via `asyncio.to_thread` inside the cross-encoder
-       scoring function to avoid blocking the event loop
-     - **Model download:** pre-download during `pipecat-context-hub refresh`
-       when cross-encoder is enabled. Log a warning on first-use if model
-       is not cached. Lazy initialization — don't load until first query.
+       `HybridRetriever.__init__`.
+     - **Model download / offline policy:**
+       - `refresh --force` pre-downloads when enabled (alongside embedding model)
+       - `serve` startup: if enabled but model not cached, log warning and
+         disable cross-encoder (fall back to RRF-only). No query-time download.
+       - Offline: works without cross-encoder. Degraded, not broken.
 
      **Phase 2: Result diversity**
      - **Repo diversity:** MMR-style penalty for consecutive results from same repo
@@ -156,8 +162,9 @@
      - **Chunk-type preference for `search_api`:** method > class_overview >
        module_overview — **only when `chunk_type` filter is not explicitly set**.
        If the user requests a specific chunk_type, no preference is applied.
-     - Implement as `_apply_diversity()` stage inside `rerank()`, after
-       cross-encoder, before returning
+     - Implement as `_apply_diversity()` in `rerank.py` (sync, called from
+       inside `rerank()` after heuristics). Diversity runs before cross-encoder
+       since cross-encoder is async and lives in `hybrid.py`.
 
      **Phase 3: Confidence-based guardrails**
      - **Low-confidence flag:** add `low_confidence: bool = False` to
@@ -199,27 +206,49 @@
      **Config plumbing:**
      1. Add `RerankerConfig` to `config.py` (model, enabled, top_n)
      2. Add `reranker: RerankerConfig` field to `HubConfig`
-     3. Pass config through `cli.py` → server init → `HybridRetriever.__init__`
-     4. `HybridRetriever` passes reranker config to `rerank()` calls
+     3. `cli.py` → pass config to `CrossEncoderReranker` + `HybridRetriever`
+     4. `HybridRetriever.__init__` accepts optional `CrossEncoderReranker`
+     5. `_single_concept_search`: sync `rerank()` → async cross-encoder → limit
 
      **Files to modify:**
      | File | Changes |
      |------|---------|
-     | `services/retrieval/rerank.py` | Cross-encoder stage, diversity, all heuristic fixes |
+     | `services/retrieval/cross_encoder.py` | **New file.** `CrossEncoderReranker` service class |
+     | `services/retrieval/rerank.py` | Diversity stage, all heuristic fixes (stays sync) |
+     | `services/retrieval/hybrid.py` | Optional `CrossEncoderReranker`, async call after `rerank()` |
      | `services/retrieval/evidence.py` | Guardrail improvements, confidence formula, cross-tool suggestions |
      | `shared/config.py` | `RerankerConfig`, add to `HubConfig` |
      | `shared/types.py` | `low_confidence: bool = False` on `EvidenceReport` |
      | `services/index/store.py` | `asyncio.to_thread` wrapping inside read methods |
-     | `services/retrieval/hybrid.py` | Pass `RerankerConfig` to `rerank()` |
-     | `cli.py` / `server/main.py` | Plumb reranker config to HybridRetriever |
+     | `cli.py` | Plumb reranker config, pre-download model on refresh |
+     | `server/main.py` | Pass `CrossEncoderReranker` to `HybridRetriever` |
+     | `docs/README.md` | Update reranking description in Technology section |
+     | `CLAUDE.md` | Note cross-encoder config option |
 
-     **Testing plan:**
-     - Unit tests for each new function: cross-encoder mock (enabled/disabled),
-       `_apply_diversity()`, graduated staleness, dual-hit bonus, UPPERCASE
-       symbol detection, `low_confidence` flag, cross-tool suggestions
-     - Regression tests: cross-encoder disabled → behavior identical to current
-     - Integration test: end-to-end with cross-encoder enabled (mock model)
-     - Latency benchmark: verify cross-encoder adds <100ms on CPU
+     **Testing plan (per-phase):**
+     - **Phase 1 tests:** `CrossEncoderReranker` with mock model (enabled/disabled),
+       lazy loading, thread offload, offline fallback. Regression: disabled →
+       output identical to current `rerank()` pipeline.
+     - **Phase 2 tests:** `_apply_diversity()` with repo/file/chunk-type scenarios.
+       Guard: chunk_type preference skipped when filter is set.
+     - **Phase 3 tests:** `low_confidence` flag set/unset, graduated count formula,
+       cross-tool suggestions from `content_type`, confidence floor `UnknownItem`.
+     - **Phase 4 tests:** UPPERCASE symbol detection, dual-hit bonus, graduated
+       staleness curve, RRF-score dedup, `asyncio.to_thread` wrapping (verify
+       event loop not blocked).
+     - **Latency benchmark:** cross-encoder adds <100ms on CPU for top-20 candidates.
+
+     **Acceptance criteria:**
+     - [ ] Cross-encoder enabled: measurable improvement in top-3 result relevance
+       on a representative query set (manual evaluation)
+     - [ ] Cross-encoder disabled: all existing tests pass, output unchanged
+     - [ ] `low_confidence` flag appears in MCP responses when confidence < 0.3
+     - [ ] Diversity: no more than 3 consecutive results from same repo/file
+     - [ ] UPPERCASE symbols (TTS, STT, VAD) receive symbol boost
+     - [ ] Event loop: index queries don't block concurrent MCP tool calls
+     - [ ] docs/README.md and CLAUDE.md updated
+     - [ ] `uv run pytest tests/ -v` all pass
+     - [ ] `uv run ruff check src/ tests/` clean
 
      **Known limitations (accepted):**
      - Cross-encoder adds latency (~50-100ms per query on CPU). Optional via config.
@@ -228,6 +257,7 @@
      - Diversity penalty is position-based, not semantic dedup.
      - `_extract_query_symbols` still won't detect single-letter symbols.
      - Write-path `asyncio.to_thread` deferred (refresh runs blocking by design).
+     - Offline: cross-encoder silently disabled if model not cached. RRF-only fallback.
 
 ## Context
 Pipecat developers need grounded context for coding and ideation based on rapidly changing docs and examples. A static prompt-only approach drifts quickly and does not provide verifiable citations or reproducible outputs.
