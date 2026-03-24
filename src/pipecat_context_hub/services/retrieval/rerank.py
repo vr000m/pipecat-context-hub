@@ -227,33 +227,49 @@ def _apply_diversity(
     # Re-sort after boost (stable sort preserves ties)
     boosted.sort(key=lambda r: r.score, reverse=True)
 
-    # Phase 2: greedy selection enforcing consecutive-run limit
-    selected: list[IndexResult] = []
-    deferred: list[IndexResult] = []
-    repo_streak: int = 0
-    path_streak: int = 0
-    prev_repo: str = ""
-    prev_path: str = ""
+    # Phase 2: greedy interleave enforcing consecutive-run limit.
+    # Each candidate is checked against the last _MAX_SAME_SOURCE entries
+    # in the output. If adding it would create a run exceeding the limit,
+    # it is deferred. Deferred items are re-tried after each successful
+    # placement, ensuring they get interleaved as early as possible.
+    output: list[IndexResult] = []
+    pending = list(boosted)
 
-    for result in boosted:
-        repo = result.chunk.repo or ""
-        path = result.chunk.path or ""
+    def _would_violate(candidate: IndexResult) -> bool:
+        """Check if appending candidate would exceed the consecutive limit."""
+        repo = candidate.chunk.repo or ""
+        path = candidate.chunk.path or ""
+        # Check the last _MAX_SAME_SOURCE entries in output
+        tail = output[-_MAX_SAME_SOURCE:]
+        if len(tail) >= _MAX_SAME_SOURCE:
+            if all((r.chunk.repo or "") == repo for r in tail):
+                return True
+            if all((r.chunk.path or "") == path for r in tail):
+                return True
+        return False
 
-        # Track consecutive runs
-        repo_streak = (repo_streak + 1) if repo == prev_repo else 1
-        path_streak = (path_streak + 1) if path == prev_path else 1
+    max_iterations = len(pending) * 2  # Safety bound
+    iteration = 0
+    while pending and iteration < max_iterations:
+        iteration += 1
+        placed = False
+        remaining: list[IndexResult] = []
+        for result in pending:
+            if not _would_violate(result):
+                output.append(result)
+                placed = True
+                # Re-check remaining items from scratch after each placement
+                remaining.extend(pending[pending.index(result) + 1 :])
+                break
+            else:
+                remaining.append(result)
+        pending = remaining
+        if not placed:
+            # All remaining items violate — append them (no better option)
+            output.extend(pending)
+            break
 
-        if repo_streak > _MAX_SAME_SOURCE or path_streak > _MAX_SAME_SOURCE:
-            deferred.append(result)
-            # Don't update prev — the streak continues for the next candidate
-        else:
-            selected.append(result)
-            prev_repo = repo
-            prev_path = path
-
-    # Append deferred results at the end (preserves their relative order)
-    selected.extend(deferred)
-    return selected
+    return output
 
 
 def rerank(

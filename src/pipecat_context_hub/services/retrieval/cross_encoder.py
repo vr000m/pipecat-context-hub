@@ -137,10 +137,26 @@ class CrossEncoderReranker:
 
     @staticmethod
     def is_model_cached(model_name: str) -> bool:
-        """Check if a model is likely cached in the HuggingFace hub cache."""
-        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        if not cache_dir.exists():
-            return False
-        # HuggingFace cache uses models--org--name format
-        safe_name = model_name.replace("/", "--")
-        return any(d.name.endswith(safe_name) for d in cache_dir.iterdir() if d.is_dir())
+        """Check if a model is cached in the HuggingFace hub cache.
+
+        Uses ``huggingface_hub`` to resolve the actual cache directory
+        (respects ``HF_HOME``, ``HUGGINGFACE_HUB_CACHE``, ``XDG_CACHE_HOME``).
+        Falls back to a best-effort path check if the library is unavailable.
+        """
+        try:
+            from huggingface_hub import try_to_load_from_cache
+            from huggingface_hub.utils import EntryNotFoundError
+
+            # try_to_load_from_cache returns a path string if cached,
+            # None or _CACHED_NO_EXIST sentinel if not.
+            result = try_to_load_from_cache(model_name, "config.json")
+            return isinstance(result, str)
+        except (ImportError, EntryNotFoundError, Exception):
+            # Fallback: check default cache location
+            cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+            if not cache_dir.exists():
+                return False
+            safe_name = model_name.replace("/", "--")
+            return any(
+                d.name.endswith(safe_name) for d in cache_dir.iterdir() if d.is_dir()
+            )
