@@ -190,16 +190,18 @@ def _apply_diversity(
     results: list[IndexResult],
     filters: dict[str, object] | None = None,
 ) -> list[IndexResult]:
-    """Re-order results to enforce repo/file diversity and chunk-type preference.
+    """Re-order results to improve repo/file diversity and apply chunk-type preference.
 
     Uses a two-pass approach:
     1. Apply chunk-type preference boost for source results (when no filter set).
-    2. Greedy selection enforcing ``_MAX_SAME_SOURCE`` consecutive results from
-       the same repo or file. Results exceeding the limit are deferred and
-       appended at the end, preserving their relative order.
+    2. Greedy interleave: place each result at the earliest position where the
+       consecutive-run limit (``_MAX_SAME_SOURCE``) is not violated. Deferred
+       items are re-tried after each successful placement.
 
-    This guarantees the acceptance criterion: no more than ``_MAX_SAME_SOURCE``
-    consecutive results from the same repo or file in the output.
+    Best-effort guarantee: when diverse results exist, no more than
+    ``_MAX_SAME_SOURCE`` consecutive results from the same repo/file appear.
+    When ALL remaining candidates share a repo/file (no diversity possible),
+    they are appended in score order — the constraint cannot be satisfied.
     """
     if not results or len(results) <= 1:
         return results
@@ -265,9 +267,14 @@ def _apply_diversity(
                 remaining.append(result)
         pending = remaining
         if not placed:
-            # All remaining items violate — append them (no better option)
-            output.extend(pending)
-            break
+            # No item can be placed without violating. Force-place the first
+            # one (best score among violators), then retry the rest — the new
+            # tail may allow subsequent items from different sources.
+            if pending:
+                output.append(pending[0])
+                pending = pending[1:]
+            if not pending:
+                break
 
     return output
 
