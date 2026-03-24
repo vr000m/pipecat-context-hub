@@ -134,56 +134,100 @@
      identified 8 quality bottlenecks and 8 unused signals.
 
      **Phase 1: Cross-encoder reranker** (highest ROI)
-     - Add optional `cross-encoder/ms-marco-MiniLM-L-6-v2` scoring after RRF merge
+     - Add optional `cross-encoder/ms-marco-MiniLM-L-6-v2` scoring as a new
+       stage inside `rerank()` in `rerank.py`, after `apply_code_intent_heuristics`,
+       before returning. This keeps `hybrid.py` as pure orchestration and
+       `rerank.py` as the single ranking pipeline. `hybrid.py` does NOT change
+       for cross-encoder — it just calls `rerank()` as before.
      - Score top-N candidates against the query, re-sort by cross-encoder score
-     - Config flag to enable/disable (adds ~50-100ms latency on CPU)
-     - New `RerankerConfig` in `config.py` with `cross_encoder_model`, `enabled`, `top_n`
-     - Insert after `rerank()` in `_single_concept_search`, before `[:limit]`
-     - Thread inference via `asyncio.to_thread` to avoid blocking event loop
+     - Config: new `RerankerConfig` in `config.py` with `cross_encoder_model`,
+       `enabled` (default `False`), `top_n` (default 20). Add as field on
+       `HubConfig`. Plumb through `cli.py` / `server/main.py` →
+       `HybridRetriever.__init__` → `rerank()` call.
+     - Thread inference via `asyncio.to_thread` inside the cross-encoder
+       scoring function to avoid blocking the event loop
+     - **Model download:** pre-download during `pipecat-context-hub refresh`
+       when cross-encoder is enabled. Log a warning on first-use if model
+       is not cached. Lazy initialization — don't load until first query.
 
      **Phase 2: Result diversity**
      - **Repo diversity:** MMR-style penalty for consecutive results from same repo
      - **File diversity:** penalty for results from same file path
-     - **Chunk-type preference for `search_api`:** method > class_overview > module_overview
-     - Implement as a `_apply_diversity()` stage after cross-encoder, before limit
+     - **Chunk-type preference for `search_api`:** method > class_overview >
+       module_overview — **only when `chunk_type` filter is not explicitly set**.
+       If the user requests a specific chunk_type, no preference is applied.
+     - Implement as `_apply_diversity()` stage inside `rerank()`, after
+       cross-encoder, before returning
 
      **Phase 3: Confidence-based guardrails**
-     - **Low-confidence flag:** add `low_confidence: bool` to `EvidenceReport` —
-       `True` when `confidence < 0.3`, signals to agents that context may be insufficient
+     - **Low-confidence flag:** add `low_confidence: bool = False` to
+       `EvidenceReport` — set `True` when `confidence < 0.3`. Default `False`
+       preserves backward compatibility with existing construction sites.
      - **Graduate count contribution:** replace `min(count/10, 0.1)` cap with
        `min(count/15, 0.15)` for high-score tier
-     - **Cross-tool suggestions:** when `search_docs` returns 0 results, add
-       `"Try search_examples for working code"` to `next_retrieval_queries`; when
-       `search_api` finds nothing, suggest `search_docs`
-     - **Confidence floor:** below 0.15 overall confidence, insert an `UnknownItem`
-       explaining "The index has no strong matches for this query"
+     - **Cross-tool suggestions:** derive from `content_type` filter in
+       `_generate_next_queries`. When `content_type == "doc"` and 0 results →
+       suggest `search_examples`; when `content_type == "source"` and 0 results
+       → suggest `search_docs`. Keeps it in `evidence.py` without coupling to
+       tool-level concerns.
+     - **Confidence floor:** below 0.15 overall confidence, insert an
+       `UnknownItem` explaining "The index has no strong matches for this query"
 
      **Phase 4: Heuristic fixes**
-     - **UPPERCASE symbol detection:** extend `_extract_query_symbols` to recognize
-       2+ letter ALL-CAPS tokens (TTS, STT, VAD, RTVI, LLM) as code symbols
-     - **Dual-hit bonus:** +0.10 when a chunk appears in both vector AND keyword
-       results (stronger signal than single-backend match)
-     - **Graduated staleness:** replace binary 90-day threshold with linear decay:
-       `penalty = min(0.10, age_days / 365 * 0.10)` — gentle ramp, max -0.10 at 1 year
-     - **BM25/vector scale fix:** in `rerank()` dedup, compare RRF scores (normalized)
-       instead of raw backend scores to pick the winner entry
-     - **Event loop fix:** wrap `IndexStore.vector_search` and `keyword_search` in
-       `asyncio.to_thread` so sync ChromaDB/SQLite calls don't block the event loop
+     - **UPPERCASE symbol detection:** extend `_extract_query_symbols` to
+       recognize 2+ letter ALL-CAPS tokens (TTS, STT, VAD, RTVI, LLM) as
+       code symbols
+     - **Dual-hit bonus:** +0.10 when a chunk appears in both vector AND
+       keyword results. Detected during RRF fusion (chunk_id appears in
+       multiple ranked lists).
+     - **Graduated staleness:** replace binary 90-day threshold with linear
+       decay: `penalty = min(0.10, age_days / 365 * 0.10)` — gentle ramp,
+       max -0.10 at 1 year
+     - **BM25/vector dedup clarification:** the current raw-score comparison
+       in dedup (`rerank.py:183`) has no meaningful impact on final ordering
+       since `apply_code_intent_heuristics` overwrites `result.score` with
+       the RRF-derived score. Change to use RRF scores for the dedup winner
+       selection for consistency, but note this is a cleanup, not a behavior fix.
+     - **Event loop fix (read path):** wrap the inner sync calls inside
+       `IndexStore.vector_search` (`self._vector.search(query)`) and
+       `IndexStore.keyword_search` (`self._fts.search(query)`) with
+       `asyncio.to_thread`. No changes to method signatures or the
+       `IndexReader` protocol — the wrapping is internal to `store.py`.
+       Write-path methods (`upsert`, `delete_*`) are explicitly deferred —
+       they run during `refresh` (CLI, blocking by design).
+
+     **Config plumbing:**
+     1. Add `RerankerConfig` to `config.py` (model, enabled, top_n)
+     2. Add `reranker: RerankerConfig` field to `HubConfig`
+     3. Pass config through `cli.py` → server init → `HybridRetriever.__init__`
+     4. `HybridRetriever` passes reranker config to `rerank()` calls
 
      **Files to modify:**
      | File | Changes |
      |------|---------|
      | `services/retrieval/rerank.py` | Cross-encoder stage, diversity, all heuristic fixes |
-     | `services/retrieval/hybrid.py` | Cross-encoder integration, asyncio.to_thread wrapping |
      | `services/retrieval/evidence.py` | Guardrail improvements, confidence formula, cross-tool suggestions |
-     | `shared/config.py` | `RerankerConfig` (cross-encoder model, enabled flag, top_n) |
-     | `shared/types.py` | `low_confidence: bool` on `EvidenceReport` |
-     | `services/index/store.py` | asyncio.to_thread wrapping for sync backend calls |
+     | `shared/config.py` | `RerankerConfig`, add to `HubConfig` |
+     | `shared/types.py` | `low_confidence: bool = False` on `EvidenceReport` |
+     | `services/index/store.py` | `asyncio.to_thread` wrapping inside read methods |
+     | `services/retrieval/hybrid.py` | Pass `RerankerConfig` to `rerank()` |
+     | `cli.py` / `server/main.py` | Plumb reranker config to HybridRetriever |
+
+     **Testing plan:**
+     - Unit tests for each new function: cross-encoder mock (enabled/disabled),
+       `_apply_diversity()`, graduated staleness, dual-hit bonus, UPPERCASE
+       symbol detection, `low_confidence` flag, cross-tool suggestions
+     - Regression tests: cross-encoder disabled → behavior identical to current
+     - Integration test: end-to-end with cross-encoder enabled (mock model)
+     - Latency benchmark: verify cross-encoder adds <100ms on CPU
 
      **Known limitations (accepted):**
      - Cross-encoder adds latency (~50-100ms per query on CPU). Optional via config.
+     - Multi-concept search runs cross-encoder per-concept, not on the final
+       interleaved result. A second pass on interleaved results is deferred.
      - Diversity penalty is position-based, not semantic dedup.
      - `_extract_query_symbols` still won't detect single-letter symbols.
+     - Write-path `asyncio.to_thread` deferred (refresh runs blocking by design).
 
 ## Context
 Pipecat developers need grounded context for coding and ideation based on rapidly changing docs and examples. A static prompt-only approach drifts quickly and does not provide verifiable citations or reproducible outputs.
