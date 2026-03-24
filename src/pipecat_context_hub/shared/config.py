@@ -14,6 +14,9 @@ from pydantic import BaseModel, Field, computed_field
 # Environment variable for adding extra repos (comma-separated).
 _EXTRA_REPOS_ENV = "PIPECAT_HUB_EXTRA_REPOS"
 
+# Environment variable for enabling cross-encoder reranking.
+_RERANKER_ENABLED_ENV = "PIPECAT_HUB_RERANKER_ENABLED"
+
 
 class ChunkingConfig(BaseModel):
     """Chunking policies for docs vs code."""
@@ -62,12 +65,26 @@ class StorageConfig(BaseModel):
 
 
 class RerankerConfig(BaseModel):
-    """Cross-encoder reranking settings."""
+    """Cross-encoder reranking settings.
+
+    Enable via ``PIPECAT_HUB_RERANKER_ENABLED=1`` environment variable or
+    by setting ``enabled=True`` in Python. Disabled by default.
+    """
 
     enabled: bool = Field(
         default=False,
-        description="Enable cross-encoder reranking (adds ~50-100ms latency).",
+        description="Enable cross-encoder reranking (adds ~50-100ms latency). "
+        "Set PIPECAT_HUB_RERANKER_ENABLED=1 to enable via env var.",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_enabled(self) -> bool:
+        """Check both the field and the environment variable."""
+        if self.enabled:
+            return True
+        env = os.environ.get(_RERANKER_ENABLED_ENV, "").strip().lower()
+        return env in ("1", "true", "yes")
     cross_encoder_model: str = Field(
         default="cross-encoder/ms-marco-MiniLM-L-6-v2",
         description="Cross-encoder model name from sentence-transformers.",

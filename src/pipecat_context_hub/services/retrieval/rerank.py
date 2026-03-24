@@ -190,15 +190,16 @@ def _apply_diversity(
     results: list[IndexResult],
     filters: dict[str, object] | None = None,
 ) -> list[IndexResult]:
-    """Re-order results to improve repo and file diversity.
+    """Re-order results to enforce repo/file diversity and chunk-type preference.
 
-    Uses a greedy selection: iterates by score order and penalizes results
-    when the same repo or file path has appeared more than ``_MAX_SAME_SOURCE``
-    times total. Also applies chunk-type preference for source-content results
-    when no explicit ``chunk_type`` filter was set.
+    Uses a two-pass approach:
+    1. Apply chunk-type preference boost for source results (when no filter set).
+    2. Greedy selection enforcing ``_MAX_SAME_SOURCE`` consecutive results from
+       the same repo or file. Results exceeding the limit are deferred and
+       appended at the end, preserving their relative order.
 
-    This is a lightweight diversity pass, not full MMR — it preserves the
-    score-sorted order except when diversity penalties push items down.
+    This guarantees the acceptance criterion: no more than ``_MAX_SAME_SOURCE``
+    consecutive results from the same repo or file in the output.
     """
     if not results or len(results) <= 1:
         return results
@@ -212,43 +213,47 @@ def _apply_diversity(
         and effective_filters.get("content_type") == "source"
     )
 
-    # Build diversity-adjusted scores
-    adjusted: list[tuple[float, int, IndexResult]] = []
-    repo_runs: dict[str, int] = {}
-    path_runs: dict[str, int] = {}
-
-    for idx, result in enumerate(results):
+    # Phase 1: apply chunk-type preference boost
+    boosted: list[IndexResult] = []
+    for result in results:
         score = result.score
-        repo = result.chunk.repo or ""
-        path = result.chunk.path or ""
-
-        # Track total occurrences per repo/path
-        repo_runs[repo] = repo_runs.get(repo, 0) + 1
-        path_runs[path] = path_runs.get(path, 0) + 1
-
-        # Penalize over-represented repos/files
-        if repo_runs[repo] > _MAX_SAME_SOURCE:
-            score -= 0.02 * (repo_runs[repo] - _MAX_SAME_SOURCE)
-        if path_runs[path] > _MAX_SAME_SOURCE:
-            score -= 0.02 * (path_runs[path] - _MAX_SAME_SOURCE)
-
-        # Chunk-type preference for source results
         if apply_chunk_pref:
             chunk_type = result.chunk.metadata.get("chunk_type", "")
             pref = _CHUNK_TYPE_PREFERENCE.get(chunk_type, 4)
-            # Small boost for preferred types (method=+0.02, function=+0.015, etc.)
             score += max(0, (4 - pref)) * 0.005
+            score = max(0.0, min(1.0, score))
+        boosted.append(IndexResult(chunk=result.chunk, score=score, match_type=result.match_type))
 
-        score = max(0.0, min(1.0, score))
-        adjusted.append((score, idx, result))
+    # Re-sort after boost (stable sort preserves ties)
+    boosted.sort(key=lambda r: r.score, reverse=True)
 
-    # Re-sort by adjusted score (idx as tiebreaker for stability)
-    adjusted.sort(key=lambda x: (-x[0], x[1]))
+    # Phase 2: greedy selection enforcing consecutive-run limit
+    selected: list[IndexResult] = []
+    deferred: list[IndexResult] = []
+    repo_streak: int = 0
+    path_streak: int = 0
+    prev_repo: str = ""
+    prev_path: str = ""
 
-    return [
-        IndexResult(chunk=r.chunk, score=s, match_type=r.match_type)
-        for s, _, r in adjusted
-    ]
+    for result in boosted:
+        repo = result.chunk.repo or ""
+        path = result.chunk.path or ""
+
+        # Track consecutive runs
+        repo_streak = (repo_streak + 1) if repo == prev_repo else 1
+        path_streak = (path_streak + 1) if path == prev_path else 1
+
+        if repo_streak > _MAX_SAME_SOURCE or path_streak > _MAX_SAME_SOURCE:
+            deferred.append(result)
+            # Don't update prev — the streak continues for the next candidate
+        else:
+            selected.append(result)
+            prev_repo = repo
+            prev_path = path
+
+    # Append deferred results at the end (preserves their relative order)
+    selected.extend(deferred)
+    return selected
 
 
 def rerank(
