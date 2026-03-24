@@ -222,7 +222,7 @@ def _apply_diversity(
         repo = result.chunk.repo or ""
         path = result.chunk.path or ""
 
-        # Track consecutive runs
+        # Track total occurrences per repo/path
         repo_runs[repo] = repo_runs.get(repo, 0) + 1
         path_runs[path] = path_runs.get(path, 0) + 1
 
