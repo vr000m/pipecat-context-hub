@@ -19,7 +19,7 @@
 
 ### v1 Follow-up (post-MVP)
 - Higher-order tools: `compose_solution`, `propose_architecture`.
-- More advanced reranking and guardrail inference.
+- ~~More advanced reranking and guardrail inference.~~ → See item 7 below.
 - Optional scheduled auto-refresh and richer local observability.
 - Decide and document refresh failure policy: **empty-on-failure** (current v0 behavior — stale data is worse than missing data for LLM context) vs **retain-previous-on-failure** (keep last-known-good records when ingestion fails). May require snapshot/swap semantics in IndexStore.
 - Version-pinned ingestion: allow pinning to a specific pipecat release tag instead of always ingesting HEAD. Track index-level metadata (pipecat version, docs fetch timestamp) so users building against older pipecat versions get matching context. Warn when the indexed pipecat version diverges from the user's installed version.
@@ -128,6 +128,62 @@
   - **Evidence:** Agent session logs show repeated `.venv` reads for
     `BaseTransport`, `FrameProcessor`, and `PipelineTask` — all cases where the
     agent found the class definition but couldn't trace what it calls or yields.
+  7. **Advanced reranking & retrieval quality** — Branch: `feature/advanced-reranking`.
+     Current retrieval uses RRF (vector + keyword merge) with two heuristics
+     (symbol boost +0.15, staleness penalty -0.05). Deep pipeline exploration
+     identified 8 quality bottlenecks and 8 unused signals.
+
+     **Phase 1: Cross-encoder reranker** (highest ROI)
+     - Add optional `cross-encoder/ms-marco-MiniLM-L-6-v2` scoring after RRF merge
+     - Score top-N candidates against the query, re-sort by cross-encoder score
+     - Config flag to enable/disable (adds ~50-100ms latency on CPU)
+     - New `RerankerConfig` in `config.py` with `cross_encoder_model`, `enabled`, `top_n`
+     - Insert after `rerank()` in `_single_concept_search`, before `[:limit]`
+     - Thread inference via `asyncio.to_thread` to avoid blocking event loop
+
+     **Phase 2: Result diversity**
+     - **Repo diversity:** MMR-style penalty for consecutive results from same repo
+     - **File diversity:** penalty for results from same file path
+     - **Chunk-type preference for `search_api`:** method > class_overview > module_overview
+     - Implement as a `_apply_diversity()` stage after cross-encoder, before limit
+
+     **Phase 3: Confidence-based guardrails**
+     - **Low-confidence flag:** add `low_confidence: bool` to `EvidenceReport` —
+       `True` when `confidence < 0.3`, signals to agents that context may be insufficient
+     - **Graduate count contribution:** replace `min(count/10, 0.1)` cap with
+       `min(count/15, 0.15)` for high-score tier
+     - **Cross-tool suggestions:** when `search_docs` returns 0 results, add
+       `"Try search_examples for working code"` to `next_retrieval_queries`; when
+       `search_api` finds nothing, suggest `search_docs`
+     - **Confidence floor:** below 0.15 overall confidence, insert an `UnknownItem`
+       explaining "The index has no strong matches for this query"
+
+     **Phase 4: Heuristic fixes**
+     - **UPPERCASE symbol detection:** extend `_extract_query_symbols` to recognize
+       2+ letter ALL-CAPS tokens (TTS, STT, VAD, RTVI, LLM) as code symbols
+     - **Dual-hit bonus:** +0.10 when a chunk appears in both vector AND keyword
+       results (stronger signal than single-backend match)
+     - **Graduated staleness:** replace binary 90-day threshold with linear decay:
+       `penalty = min(0.10, age_days / 365 * 0.10)` — gentle ramp, max -0.10 at 1 year
+     - **BM25/vector scale fix:** in `rerank()` dedup, compare RRF scores (normalized)
+       instead of raw backend scores to pick the winner entry
+     - **Event loop fix:** wrap `IndexStore.vector_search` and `keyword_search` in
+       `asyncio.to_thread` so sync ChromaDB/SQLite calls don't block the event loop
+
+     **Files to modify:**
+     | File | Changes |
+     |------|---------|
+     | `services/retrieval/rerank.py` | Cross-encoder stage, diversity, all heuristic fixes |
+     | `services/retrieval/hybrid.py` | Cross-encoder integration, asyncio.to_thread wrapping |
+     | `services/retrieval/evidence.py` | Guardrail improvements, confidence formula, cross-tool suggestions |
+     | `shared/config.py` | `RerankerConfig` (cross-encoder model, enabled flag, top_n) |
+     | `shared/types.py` | `low_confidence: bool` on `EvidenceReport` |
+     | `services/index/store.py` | asyncio.to_thread wrapping for sync backend calls |
+
+     **Known limitations (accepted):**
+     - Cross-encoder adds latency (~50-100ms per query on CPU). Optional via config.
+     - Diversity penalty is position-based, not semantic dedup.
+     - `_extract_query_symbols` still won't detect single-letter symbols.
 
 ## Context
 Pipecat developers need grounded context for coding and ideation based on rapidly changing docs and examples. A static prompt-only approach drifts quickly and does not provide verifiable citations or reproducible outputs.

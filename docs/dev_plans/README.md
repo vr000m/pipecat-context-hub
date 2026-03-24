@@ -3,6 +3,7 @@
 ## Current Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
+| 2026-03-24 | feature | Advanced Reranking & Retrieval Quality | Not Started | vr000m | `feature/advanced-reranking` | `20260218-design-pipecat-context-hub.md` |
 
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
