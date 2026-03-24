@@ -7,6 +7,8 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-03-23
+
 ### Added
 
 - **Snippet enrichment for `get_code_snippet`** — `CodeSnippet` responses now
@@ -19,13 +21,15 @@ This project uses [Semantic Versioning](https://semver.org/).
   the pipecat-internal imports that method actually references (via AST name
   resolution), not the entire module's import list. Fixes `dependency_notes`
   accuracy. Also improves `ApiHit.imports` precision for method/function chunks.
-  Aliases (`import X as Y`) are preserved in import strings
+  Aliases (`import X as Y`) are preserved in import strings. Local imports
+  inside function bodies correctly shadow module-level imports
 - **Refresh summary table** — `refresh` command prints a per-source table
   showing status (updated/skipped/error), commit SHA, existing chunk count,
   and updated chunk count. Both columns sum to totals for at-a-glance
   verification
 - `get_counts_by_repo()` on `FTSIndex` and `IndexStore` for pre-refresh
   chunk count snapshots
+- **`AGENTS.md`** with Review Checklist for accepted design decisions
 
 ## [0.0.8] - 2026-03-17
 
