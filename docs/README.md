@@ -63,7 +63,7 @@ Ingestion:
   TaxonomyBuilder (auto-infer)   ──┘
     ↑                                         ↑
     Per-file taxonomy enrichment:             Metadata stored per chunk:
-    foundational_class, capability_tags,      language, execution_mode,
+    foundational_class, capability_tags,      language, domain, execution_mode,
     key_files, execution_mode                 line_start, line_end
 
 Retrieval:

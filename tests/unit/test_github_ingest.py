@@ -15,6 +15,7 @@ from pipecat_context_hub.services.ingest.github_ingest import (
     _chunk_code,
     _discover_root_level_examples,
     _find_example_dirs,
+    _infer_domain,
     _iter_code_files,
     _iter_root_level_code_files,
     _make_chunk_id,
@@ -1046,3 +1047,48 @@ class TestRootLevelFileCapture:
         # Root-level setup.py should NOT be captured for Layout A.
         assert "setup.py" not in paths
         assert "examples/bot1/main.py" in paths
+
+
+# ---------------------------------------------------------------------------
+# Domain inference tests
+# ---------------------------------------------------------------------------
+
+
+class TestInferDomain:
+    """Tests for _infer_domain heuristic."""
+
+    def test_python_is_backend(self):
+        assert _infer_domain("examples/bot.py", "python") == "backend"
+
+    def test_typescript_is_frontend(self):
+        assert _infer_domain("client/app/src/App.tsx", "typescript") == "frontend"
+
+    def test_javascript_is_frontend(self):
+        assert _infer_domain("client/index.js", "javascript") == "frontend"
+
+    def test_yaml_is_config(self):
+        assert _infer_domain("config.yaml", "yaml") == "config"
+
+    def test_toml_is_config(self):
+        assert _infer_domain("pyproject.toml", "toml") == "config"
+
+    def test_json_is_config(self):
+        assert _infer_domain("package.json", "json") == "config"
+
+    def test_github_workflow_is_infra(self):
+        assert _infer_domain(".github/workflows/ci.yml", "yaml") == "infra"
+
+    def test_ci_directory_is_infra(self):
+        assert _infer_domain("ci/deploy.yaml", "yaml") == "infra"
+
+    def test_docker_compose_is_config(self):
+        assert _infer_domain("docker-compose.yml", "yaml") == "config"
+
+    def test_empty_path_defaults_to_backend(self):
+        assert _infer_domain("", None) == "backend"
+
+    def test_empty_path_with_python(self):
+        assert _infer_domain("", "python") == "backend"
+
+    def test_pcc_deploy_toml_is_config(self):
+        assert _infer_domain("server/pcc-deploy.toml", "toml") == "config"

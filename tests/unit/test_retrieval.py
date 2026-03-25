@@ -609,6 +609,36 @@ class TestHybridRetrieverSearchExamples:
         assert query.filters["capability_tags"] == ["tts"]
         assert query.filters["foundational_class"] == "01-say-one-thing"
 
+    async def test_domain_filter(self):
+        """search_examples passes domain filter to the index."""
+        mock_reader = _mock_index_reader()
+        retriever = HybridRetriever(mock_reader)
+
+        await retriever.search_examples(
+            SearchExamplesInput(query="TTS pipeline", domain="backend")
+        )
+
+        query = mock_reader.vector_search.call_args[0][0]
+        assert query.filters["domain"] == "backend"
+        assert query.filters["content_type"] == "code"
+
+    async def test_language_and_domain_combined(self):
+        """search_examples passes both language and domain filters."""
+        mock_reader = _mock_index_reader()
+        retriever = HybridRetriever(mock_reader)
+
+        await retriever.search_examples(
+            SearchExamplesInput(
+                query="RTVI client",
+                language="typescript",
+                domain="frontend",
+            )
+        )
+
+        query = mock_reader.vector_search.call_args[0][0]
+        assert query.filters["language"] == "typescript"
+        assert query.filters["domain"] == "frontend"
+
 
 class TestHybridRetrieverGetExample:
     """Tests for HybridRetriever.get_example()."""

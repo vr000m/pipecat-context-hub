@@ -467,15 +467,17 @@ def _infer_domain(rel_path: str, language: str | None) -> str:
     - ``backend`` — Python files (bot code, pipeline logic, server code)
     - ``frontend`` — JavaScript/TypeScript files in client-like paths
     - ``config`` — YAML, TOML, JSON config files, docker-compose
-    - ``infra`` — Dockerfiles, CI, deploy configs
+    - ``infra`` — CI/deploy YAML files in .github/ or ci/ directories
+
+    Note: only files with extensions in ``_CODE_EXTENSIONS`` reach this
+    function.  Dockerfiles, Makefiles, etc. are not ingested and cannot
+    be classified here.
     """
     path_lower = rel_path.lower()
     name = path_lower.rsplit("/", 1)[-1] if "/" in path_lower else path_lower
 
-    # Infra: Dockerfiles, CI, deploy configs
-    if name.startswith("dockerfile") or name in (
-        "makefile", "justfile", "procfile",
-    ) or "ci/" in path_lower or ".github/" in path_lower:
+    # Infra: CI/deploy configs in .github/ or ci/ directories
+    if "ci/" in path_lower or ".github/" in path_lower:
         return "infra"
 
     # Config files by name or extension
