@@ -111,8 +111,9 @@ class SourceIngester:
                     errors.append(f"Error reading {py_file}: {exc}")
                     continue
 
-                rel_path = py_file.relative_to(src_dir).as_posix()
-                module_path = rel_path.replace("/", ".").removesuffix(".py")
+                rel_path_from_src = py_file.relative_to(src_dir).as_posix()
+                rel_path = f"src/{rel_path_from_src}"
+                module_path = rel_path_from_src.replace("/", ".").removesuffix(".py")
                 # Handle __init__.py: module path is the parent package
                 if module_path.endswith(".__init__"):
                     module_path = module_path.removesuffix(".__init__")
@@ -224,8 +225,12 @@ def _make_chunk_id(
 
 
 def _make_source_url(repo_slug: str, rel_path: str, commit_sha: str, line_start: int, line_end: int) -> str:
-    """Build GitHub source URL with line range."""
-    base = f"https://github.com/{repo_slug}/blob/{commit_sha}/src/{rel_path}"
+    """Build GitHub source URL with line range.
+
+    ``rel_path`` must be relative to the repo root (e.g. ``src/pipecat/foo.py``
+    or ``daily.pyi``), not relative to ``src/``.
+    """
+    base = f"https://github.com/{repo_slug}/blob/{commit_sha}/{rel_path}"
     if line_start and line_end:
         return f"{base}#L{line_start}-L{line_end}"
     return base

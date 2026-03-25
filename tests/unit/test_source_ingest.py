@@ -194,8 +194,8 @@ class TestMakeSourceUrl:
     """Tests for GitHub source URL generation."""
 
     def test_url_with_line_range(self):
-        """URL includes line range fragment."""
-        url = _make_source_url(_TEST_REPO_SLUG, "pipecat/frames/base.py", "abc123", 10, 50)
+        """URL includes line range fragment. rel_path is repo-root-relative."""
+        url = _make_source_url(_TEST_REPO_SLUG, "src/pipecat/frames/base.py", "abc123", 10, 50)
         assert url == (
             "https://github.com/pipecat-ai/pipecat/blob/abc123"
             "/src/pipecat/frames/base.py#L10-L50"
@@ -203,10 +203,18 @@ class TestMakeSourceUrl:
 
     def test_url_without_line_range(self):
         """URL without line range when start/end are 0."""
-        url = _make_source_url(_TEST_REPO_SLUG, "pipecat/frames/base.py", "abc123", 0, 0)
+        url = _make_source_url(_TEST_REPO_SLUG, "src/pipecat/frames/base.py", "abc123", 0, 0)
         assert url == (
             "https://github.com/pipecat-ai/pipecat/blob/abc123"
             "/src/pipecat/frames/base.py"
+        )
+
+    def test_url_root_level_pyi(self):
+        """Root-level .pyi files get correct URLs (no src/ prefix)."""
+        url = _make_source_url("daily-co/daily-python", "daily.pyi", "def456", 27, 33)
+        assert url == (
+            "https://github.com/daily-co/daily-python/blob/def456"
+            "/daily.pyi#L27-L33"
         )
 
 
@@ -253,7 +261,7 @@ class TestBuildChunks:
         return _build_chunks(
             module_info=module_info,
             source=_SIMPLE_MODULE_SOURCE,
-            rel_path="pipecat/processors/my.py",
+            rel_path="src/pipecat/processors/my.py",
             commit_sha="deadbeef",
             now=datetime(2026, 2, 21, tzinfo=timezone.utc),
             repo_slug=_TEST_REPO_SLUG,
@@ -726,7 +734,7 @@ class TestCallGraphMetadata:
         return _build_chunks(
             module_info=module_info,
             source=_CALLGRAPH_MODULE_SOURCE,
-            rel_path="pipecat/services/tts.py",
+            rel_path="src/pipecat/services/tts.py",
             commit_sha="abc123",
             now=datetime(2026, 3, 16, tzinfo=timezone.utc),
             repo_slug=_TEST_REPO_SLUG,
