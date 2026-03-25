@@ -93,7 +93,7 @@ class TestSourceConfig:
         s = SourceConfig()
         assert s.docs_url == "https://docs.pipecat.ai/"
         assert s.docs_llms_txt_url == "https://docs.pipecat.ai/llms-full.txt"
-        assert s.repos == ["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples"]
+        assert s.repos == ["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples", "daily-co/daily-python"]
 
     def test_custom_llms_txt_url(self):
         s = SourceConfig(docs_llms_txt_url="https://example.com/docs.txt")
@@ -116,6 +116,7 @@ class TestSourceConfig:
             assert s.effective_repos == [
                 "pipecat-ai/pipecat",
                 "pipecat-ai/pipecat-examples",
+                "daily-co/daily-python",
                 "org/repo-a",
                 "org/repo-b",
             ]
@@ -127,6 +128,7 @@ class TestSourceConfig:
             assert s.effective_repos == [
                 "pipecat-ai/pipecat",
                 "pipecat-ai/pipecat-examples",
+                "daily-co/daily-python",
                 "org/new",
             ]
 

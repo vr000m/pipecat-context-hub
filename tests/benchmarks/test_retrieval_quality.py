@@ -43,7 +43,7 @@ _ENABLE_ENV = "PIPECAT_HUB_ENABLE_QUALITY_BENCHMARK"
 _OUTPUT_ENV = "PIPECAT_HUB_BENCHMARK_OUTPUT"
 _SCHEMA_VERSION = 1
 _MATRIX_VERSION = "default-v1"
-_DEFAULT_REPOS = ("pipecat-ai/pipecat", "pipecat-ai/pipecat-examples")
+_DEFAULT_REPOS = ("pipecat-ai/pipecat", "pipecat-ai/pipecat-examples", "daily-co/daily-python")
 _VECTOR_HEALTH_TIMEOUT_SECONDS = 15
 _RECOVERY_COMMAND = "pipecat-context-hub refresh --force --reset-index"
 
