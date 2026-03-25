@@ -75,8 +75,19 @@ class SourceIngester:
             d for d in src_dir.iterdir()
             if d.is_dir() and (d / "__init__.py").is_file()
         )
+
+        # 2b. Fallback: if no Python packages in src/, check for .pyi stubs
+        # at the repo root. This covers Rust+Python binding repos (e.g.,
+        # daily-python) where the Python API surface is in type stubs.
+        pyi_files: list[Path] = []
         if not pkg_dirs:
-            return IngestResult(source=f"source:{self._repo_slug}")
+            pyi_files = sorted(clone_dir.glob("*.pyi"))
+            if not pyi_files:
+                return IngestResult(source=f"source:{self._repo_slug}")
+            logger.info(
+                "No Python packages in src/, found %d .pyi stubs at root (%s)",
+                len(pyi_files), self._repo_slug,
+            )
 
         # 3. Get commit SHA
         commit_sha = _get_commit_sha(clone_dir)
@@ -124,6 +135,37 @@ class SourceIngester:
                     repo_slug=self._repo_slug,
                 )
                 records.extend(file_records)
+
+        # 4b. Index .pyi stubs (fallback path for repos without Python packages)
+        for pyi_file in pyi_files:
+            total_files += 1
+            try:
+                source = pyi_file.read_text(encoding="utf-8", errors="replace")
+            except Exception as exc:
+                errors.append(f"Error reading {pyi_file}: {exc}")
+                continue
+
+            rel_path = pyi_file.name  # e.g., "daily.pyi"
+            module_path = pyi_file.stem  # e.g., "daily"
+
+            try:
+                module_info = extract_module_info(source, module_path)
+            except SyntaxError as exc:
+                errors.append(f"SyntaxError in {rel_path}: {exc}")
+                continue
+            except Exception as exc:
+                errors.append(f"AST error in {rel_path}: {exc}")
+                continue
+
+            file_records = _build_chunks(
+                module_info=module_info,
+                source=source,
+                rel_path=rel_path,
+                commit_sha=commit_sha,
+                now=now,
+                repo_slug=self._repo_slug,
+            )
+            records.extend(file_records)
 
         # 5. Batch upsert
         upserted = 0

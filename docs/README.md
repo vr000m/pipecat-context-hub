@@ -85,9 +85,13 @@ Retrieval:
   - Supports flat file layout (e.g. `01-say-one-thing.py`) and subdirectory layout
 - `pipecat-ai/pipecat-examples` — project-level examples
   - Discovered via root-level directory scanning (no `examples/` dir required)
+- `daily-co/daily-python` — Daily Python SDK (used by DailyTransport)
+  - `daily.pyi` type stub AST-indexed for `search_api` (CallClient, EventHandler, types)
+  - `demos/` indexed as code examples
 - Additional repos via `PIPECAT_HUB_EXTRA_REPOS` env var (comma-separated slugs)
   - Supports single-project repos (`src/`-layout, root-level entry scripts)
   - Repos with `src/` layouts are AST-indexed for `search_api` (class definitions, method signatures)
+  - Repos with `.pyi` stubs at root (no Python in `src/`) are also AST-indexed
   - See `.env.example` for usage
 
 ### Technology

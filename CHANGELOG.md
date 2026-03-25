@@ -9,6 +9,13 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`daily-co/daily-python` as default repo** — Daily Python SDK indexed
+  for `search_api` (CallClient, EventHandler, 87+ types) via `.pyi` AST
+  parsing. Agents no longer need `.venv` reads for Daily API details like
+  `send_dtmf` parameters. Demos indexed as code examples.
+- **`.pyi` stub file support** — `SourceIngester` now falls back to `.pyi`
+  files at repo root when no Python packages exist in `src/`. Enables AST
+  indexing of Rust+Python binding repos.
 - **Domain filtering for `search_examples`** — new `domain` filter param:
   `backend` (Python pipeline/bot code), `frontend` (JS/TS client code),
   `config` (YAML/TOML/JSON), `infra` (Docker/CI). Inferred from file path

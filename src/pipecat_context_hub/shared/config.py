@@ -128,7 +128,7 @@ class SourceConfig(BaseModel):
         description="URL for the pre-rendered llms-full.txt docs file.",
     )
     repos: list[str] = Field(
-        default=["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples"],
+        default=["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples", "daily-co/daily-python"],
         description="GitHub repos to ingest.",
     )
 
