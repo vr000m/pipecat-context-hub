@@ -68,8 +68,9 @@ class SourceIngester:
         clone_dir = self._repos_dir / _sanitize_slug(self._repo_slug)
 
         # 2. Check for .pyi stubs at repo root BEFORE src/ check.
-        # This covers repos without src/ (or with non-Python src/) where
-        # the Python API surface is in type stubs (e.g., daily-python).
+        # Root-only glob (not recursive) — stubs are at repo root for known
+        # targets like daily-python. .pyi files are NOT in _CODE_EXTENSIONS
+        # to avoid duplicate indexing by GitHubRepoIngester.
         pyi_files: list[Path] = sorted(
             f for f in clone_dir.glob("*.pyi")
             if f.is_file() and not f.is_symlink()
@@ -110,10 +111,11 @@ class SourceIngester:
             )
 
             for py_file in py_files:
-                # Skip symlinks to prevent reading files outside the repo
+                # Skip symlinks and files that resolve outside the repo
                 if py_file.is_symlink():
                     continue
                 try:
+                    py_file.resolve().relative_to(clone_dir.resolve())
                     source = py_file.read_text(encoding="utf-8", errors="replace")
                 except Exception as exc:
                     rel = py_file.relative_to(clone_dir).as_posix()
@@ -150,6 +152,7 @@ class SourceIngester:
         for pyi_file in pyi_files:
             total_files += 1
             try:
+                pyi_file.resolve().relative_to(clone_dir.resolve())
                 source = pyi_file.read_text(encoding="utf-8", errors="replace")
             except Exception as exc:
                 errors.append(f"Error reading {pyi_file.name}: {exc}")

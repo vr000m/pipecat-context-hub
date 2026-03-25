@@ -12,7 +12,9 @@ This project uses [Semantic Versioning](https://semver.org/).
 - **`.pyi` stub file support** — `SourceIngester` now falls back to `.pyi`
   files at repo root when no Python packages exist in `src/`. Enables AST
   indexing of Rust+Python binding repos (e.g., `daily-co/daily-python` via
-  `PIPECAT_HUB_EXTRA_REPOS`). Symlinks are rejected during ingestion.
+  `PIPECAT_HUB_EXTRA_REPOS`). `.pyi` files are only indexed by
+  `SourceIngester` (not as code examples) to prevent duplicate chunks.
+  Symlinks rejected + resolved-path containment checks at all file read sites.
 - **Domain filtering for `search_examples`** — new `domain` filter param:
   `backend` (Python pipeline/bot code), `frontend` (JS/TS client code),
   `config` (YAML/TOML/JSON), `infra` (Docker/CI). Inferred from file path

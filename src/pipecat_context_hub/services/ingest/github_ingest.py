@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 _CODE_EXTENSIONS: frozenset[str] = frozenset(
     {
         ".py",
-        ".pyi",
         ".js",
         ".ts",
         ".jsx",
@@ -64,7 +63,6 @@ _MAX_FILE_BYTES: int = 512_000  # 500 KB
 # File extension → language name for metadata.
 _EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
-    ".pyi": "python",
     ".js": "javascript",
     ".ts": "typescript",
     ".jsx": "javascript",
@@ -709,9 +707,8 @@ class GitHubRepoIngester:
                 if code_file.is_symlink():
                     continue
                 try:
-                    resolved = code_file.resolve()
-                    if not str(resolved).startswith(str(repo_path.resolve())):
-                        continue
+                    # Verify resolved path stays within the repo root
+                    code_file.resolve().relative_to(repo_path.resolve())
                     content = code_file.read_text(encoding="utf-8", errors="replace")
                 except Exception as exc:
                     errors.append(f"Error reading {code_file.relative_to(repo_path)}: {exc}")
@@ -789,9 +786,8 @@ class GitHubRepoIngester:
                 if code_file.is_symlink():
                     continue
                 try:
-                    resolved = code_file.resolve()
-                    if not str(resolved).startswith(str(repo_path.resolve())):
-                        continue
+                    # Verify resolved path stays within the repo root
+                    code_file.resolve().relative_to(repo_path.resolve())
                     content = code_file.read_text(encoding="utf-8", errors="replace")
                 except Exception as exc:
                     errors.append(f"Error reading {code_file.relative_to(repo_path)}: {exc}")
