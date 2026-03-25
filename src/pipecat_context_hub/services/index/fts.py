@@ -71,6 +71,7 @@ class FTSIndex:
         self._sqlite_path = sqlite_path
         sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(sqlite_path), check_same_thread=False)
+        self._closed = False
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA_SQL)
         self._conn.commit()
@@ -78,7 +79,10 @@ class FTSIndex:
 
     def close(self) -> None:
         """Close the database connection."""
+        if self._closed:
+            return
         self._conn.close()
+        self._closed = True
 
     def clear(self) -> None:
         """Delete all records from the chunks table (triggers sync FTS)."""

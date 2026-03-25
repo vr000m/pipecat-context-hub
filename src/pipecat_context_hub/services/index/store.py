@@ -46,8 +46,22 @@ class IndexStore:
 
     def reset(self) -> None:
         """Delete all persisted search data and cached metadata."""
-        self._vector.reset()
-        self._fts.reset()
+        vector_error: Exception | None = None
+        fts_error: Exception | None = None
+        try:
+            self._vector.reset()
+        except Exception as exc:
+            vector_error = exc
+        try:
+            self._fts.reset()
+        except Exception as exc:
+            fts_error = exc
+        if vector_error is not None and fts_error is not None:
+            raise vector_error from fts_error
+        if fts_error is not None:
+            raise fts_error
+        if vector_error is not None:
+            raise vector_error
         logger.info("IndexStore reset")
 
     async def upsert(self, records: list[ChunkedRecord]) -> int:

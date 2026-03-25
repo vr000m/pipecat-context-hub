@@ -316,6 +316,8 @@ class TestVectorIndex:
         """close() can be called more than once."""
         vector_index.close()
         vector_index.close()
+        assert vector_index._client is None
+        assert vector_index._collection is None
 
     def test_persistence(self, tmp_path: Path):
         """Verify data survives creating a new VectorIndex on the same path."""
@@ -447,7 +449,9 @@ class TestVectorIndexBatchStress:
 class TestFTSIndex:
     @pytest.fixture()
     def fts_index(self, tmp_path: Path) -> FTSIndex:
-        return FTSIndex(tmp_path / "metadata.db")
+        index = FTSIndex(tmp_path / "metadata.db")
+        yield index
+        index.close()
 
     def test_upsert_and_search(self, fts_index: FTSIndex):
         records = _make_records(3)
@@ -675,6 +679,11 @@ class TestFTSIndex:
         """Deleting a nonexistent key should not raise."""
         fts_index.delete_metadata("nonexistent:key")
 
+    def test_close_is_idempotent(self, fts_index: FTSIndex):
+        """close() can be called more than once."""
+        fts_index.close()
+        fts_index.close()
+
 
 # ---------------------------------------------------------------------------
 # Unified IndexStore tests
@@ -888,6 +897,25 @@ class TestIndexStore:
         )
         assert len(v_results) == 1
         assert v_results[0].chunk.chunk_id == "reset-store-1"
+
+    def test_reset_attempts_fts_even_if_vector_reset_fails(self, store: IndexStore, monkeypatch):
+        """reset() should still clear FTS state after a vector reset failure."""
+        calls: list[str] = []
+
+        def fail_vector_reset() -> None:
+            calls.append("vector")
+            raise RuntimeError("vector reset failed")
+
+        def run_fts_reset() -> None:
+            calls.append("fts")
+
+        monkeypatch.setattr(store._vector, "reset", fail_vector_reset)
+        monkeypatch.setattr(store._fts, "reset", run_fts_reset)
+
+        with pytest.raises(RuntimeError, match="vector reset failed"):
+            store.reset()
+
+        assert calls == ["vector", "fts"]
 
     def test_satisfies_writer_protocol(self, store: IndexStore):
         """Verify IndexStore has all IndexWriter methods."""
