@@ -1081,6 +1081,9 @@ class TestInferDomain:
     def test_ci_directory_is_infra(self):
         assert _infer_domain("ci/deploy.yaml", "yaml") == "infra"
 
+    def test_deploy_directory_is_infra(self):
+        assert _infer_domain("deploy/k8s.yaml", "yaml") == "infra"
+
     def test_docker_compose_is_config(self):
         assert _infer_domain("docker-compose.yml", "yaml") == "config"
 

@@ -476,8 +476,8 @@ def _infer_domain(rel_path: str, language: str | None) -> str:
     path_lower = rel_path.lower()
     name = path_lower.rsplit("/", 1)[-1] if "/" in path_lower else path_lower
 
-    # Infra: CI/deploy configs in .github/ or ci/ directories
-    if "ci/" in path_lower or ".github/" in path_lower:
+    # Infra: CI/deploy configs in .github/, ci/, or deploy/ directories
+    if "ci/" in path_lower or ".github/" in path_lower or "deploy/" in path_lower:
         return "infra"
 
     # Config files by name or extension
