@@ -12,12 +12,17 @@ Local-first MCP server providing Pipecat docs, examples, and API context.
 ## Commands
 
 ```bash
-uv run pytest tests/ -v          # full test suite
-uv run ruff check src/ tests/    # lint
-uv run mypy src/ tests/          # type check
-uv run pipecat-context-hub refresh  # rebuild index
-uv run pipecat-context-hub serve    # start MCP server
+uv run pytest tests/ -v                             # full test suite
+uv run ruff check src/ tests/                       # lint
+uv run mypy src/ tests/                             # type check
+uv run pipecat-context-hub refresh                  # incremental rebuild
+uv run pipecat-context-hub refresh --force          # full re-ingest
+uv run pipecat-context-hub refresh --force --reset-index  # recover unhealthy local Chroma state
+uv run pipecat-context-hub serve                    # start MCP server
 ```
+
+Use `refresh --force --reset-index` when the persisted local Chroma index is
+unhealthy and needs a clean rebuild.
 
 A `justfile` is also available as a task runner:
 
