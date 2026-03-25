@@ -467,7 +467,7 @@ def _infer_domain(rel_path: str, language: str | None) -> str:
     - ``backend`` — Python files (bot code, pipeline logic, server code)
     - ``frontend`` — JavaScript/TypeScript files in client-like paths
     - ``config`` — YAML, TOML, JSON config files, docker-compose
-    - ``infra`` — CI/deploy YAML files in .github/ or ci/ directories
+    - ``infra`` — CI/deploy YAML files in .github/, ci/, or deploy/ directories
 
     Note: only files with extensions in ``_CODE_EXTENSIONS`` reach this
     function.  Dockerfiles, Makefiles, etc. are not ingested and cannot
