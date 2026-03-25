@@ -7,6 +7,7 @@
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
+| 2026-03-24 | feature | Language & Domain Filtering for search_examples | Complete | vr000m | `feature/language-domain-filtering` | `20260218-design-pipecat-context-hub.md` |
 | 2026-03-24 | feature | Advanced Reranking & Retrieval Quality | Complete | vr000m | `feature/advanced-reranking` | `20260218-design-pipecat-context-hub.md` |
 | 2026-03-23 | feature | Per-method import extraction for dependency_notes | Complete | vr000m | `feature/per-method-imports` | `20260218-design-pipecat-context-hub.md` |
 | 2026-03-22 | feature | Snippet Enrichment (dependency_notes, companion_snippets, interface_expectations) | Complete | vr000m | `feature/snippet-enrichment` | `20260218-design-pipecat-context-hub.md` |

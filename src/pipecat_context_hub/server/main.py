@@ -52,7 +52,8 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "search_examples",
         "Find working Pipecat code examples by task, modality, or component. "
         "Use when the user needs runnable code patterns. "
-        "Filter by `repo`, `tags` (capability tags), `foundational_class`, `language`, or `execution_mode`. "
+        "Filter by `repo`, `tags` (capability tags), `foundational_class`, `language`, `domain` "
+        "(backend/frontend/config/infra), or `execution_mode`. "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'idle timeout + function calling').",
         SearchExamplesInput.model_json_schema(),
     ),

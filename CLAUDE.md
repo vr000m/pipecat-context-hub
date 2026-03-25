@@ -41,6 +41,15 @@ search_api("BaseTransport + WebSocketTransport")
 
 Each concept is searched independently and results are interleaved for balanced coverage. Do NOT stuff multiple concepts into a single natural-language query — that clusters results around whichever concept dominates the embedding.
 
+## Example Search Filters
+
+`search_examples` supports domain and language filters to reduce noise:
+
+- `domain="backend"` — Python pipeline/bot code only
+- `domain="frontend"` — JS/TS client code only
+- `language="python"` — filter by programming language
+- Combine: `search_examples("TTS pipeline", domain="backend", language="python")`
+
 ## Versioning
 
 The version lives in **two places** — both must be updated together on every release:

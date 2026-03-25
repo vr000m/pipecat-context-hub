@@ -258,7 +258,7 @@
      - `_extract_query_symbols` still won't detect single-letter symbols.
      - Write-path `asyncio.to_thread` deferred (refresh runs blocking by design).
      - Offline: cross-encoder silently disabled if model not cached. RRF-only fallback.
-  8. **Language and domain filtering for example retrieval** (v0.0.10 target) —
+  8. ~~**Language and domain filtering for example retrieval**~~ ✅ Done —
      `search_examples` returns noisy results because all `code` chunks are in
      one undifferentiated bucket. Frontend React components and Python pipeline
      bots compete for the same slots. Two ingestion-time improvements:

@@ -474,7 +474,7 @@ def _infer_domain(rel_path: str, language: str | None) -> str:
 
     # Infra: Dockerfiles, CI, deploy configs
     if name.startswith("dockerfile") or name in (
-        ".github", "makefile", "justfile", "procfile",
+        "makefile", "justfile", "procfile",
     ) or "ci/" in path_lower or ".github/" in path_lower:
         return "infra"
 
@@ -495,8 +495,8 @@ def _infer_domain(rel_path: str, language: str | None) -> str:
     if language == "python":
         return "backend"
 
-    # Fallback
-    return "config" if language in ("json", "yaml", "toml") else "backend"
+    # Fallback: anything not matched above defaults to backend
+    return "backend"
 
 
 def _build_chunk_metadata(
