@@ -7,6 +7,7 @@ files, and produces ChunkedRecord objects via an IndexWriter.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import hashlib
 import logging
 import re
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from git import Repo as GitRepo
+from git.exc import BadObject, GitCommandError
 
 from pipecat_context_hub.shared.config import HubConfig
 from pipecat_context_hub.shared.types import ChunkedRecord, IngestResult, TaxonomyEntry
@@ -119,10 +121,8 @@ def repo_ref_is_tainted(repo_path: Path, commit_sha: str, tainted_refs: set[str]
 
     tag_targets: dict[str, str] = {}
     for tag in git_repo.tags:
-        try:
+        with suppress(AttributeError, BadObject, GitCommandError, ValueError):
             tag_targets[tag.name] = tag.commit.hexsha.lower()
-        except Exception:
-            continue
 
     return any(tag_targets.get(ref) == sha for ref in named_refs)
 

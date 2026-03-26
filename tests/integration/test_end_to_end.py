@@ -466,12 +466,8 @@ class TestGetExamplePathCorrectness:
         await embedding_writer.upsert(records)
 
     async def test_file_path_matches_chunk_not_input(self, retriever: HybridRetriever):
-        """get_example should return files with the chunk's path, not input.path."""
-        result = await retriever.get_example(
-            GetExampleInput(example_id="ex1", path="examples/wrong-path/other.py")
-        )
+        """get_example should return files with the chunk's stored path."""
+        result = await retriever.get_example(GetExampleInput(example_id="ex1"))
         assert result.example_id == "ex1"
         assert len(result.files) > 0
-        # The file path should be the chunk's real path, not the input path
         assert result.files[0].path == "examples/real-path/bot.py"
-        assert result.files[0].path != "examples/wrong-path/other.py"

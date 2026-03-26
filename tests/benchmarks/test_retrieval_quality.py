@@ -16,10 +16,11 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -381,17 +382,17 @@ async def _run_case(
 ) -> dict[str, Any]:
     """Execute one quality case and return its scored result."""
     if case.tool == "search_docs":
-        output = await retriever.search_docs(case.input)
-        result = _evaluate_search_docs(case, output)
+        docs_output = await retriever.search_docs(cast(SearchDocsInput, case.input))
+        result = _evaluate_search_docs(case, docs_output)
     elif case.tool == "search_examples":
-        output = await retriever.search_examples(case.input)
-        result = _evaluate_search_examples(case, output)
+        examples_output = await retriever.search_examples(cast(SearchExamplesInput, case.input))
+        result = _evaluate_search_examples(case, examples_output)
     elif case.tool == "search_api":
-        output = await retriever.search_api(case.input)
-        result = _evaluate_search_api(case, output)
+        api_output = await retriever.search_api(cast(SearchApiInput, case.input))
+        result = _evaluate_search_api(case, api_output)
     else:
-        output = await retriever.get_code_snippet(case.input)
-        result = _evaluate_get_code_snippet(case, output)
+        snippet_output = await retriever.get_code_snippet(cast(GetCodeSnippetInput, case.input))
+        result = _evaluate_get_code_snippet(case, snippet_output)
 
     threshold_met = result["score"] >= case.min_score
     status = "PASS"
@@ -425,7 +426,7 @@ def _write_report(report: dict[str, Any]) -> None:
 
 
 @pytest.fixture(scope="module")
-def live_quality_context() -> dict[str, Any]:
+def live_quality_context() -> Generator[dict[str, Any], None, None]:
     """Create a retriever against the current local index and capture corpus metadata."""
     _require_opt_in()
 

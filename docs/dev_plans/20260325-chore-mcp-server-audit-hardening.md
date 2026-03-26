@@ -48,8 +48,8 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
 ## Implementation Checklist
 
 - [x] Create `chore/mcp-server-audit` and keep implementation off `main`.
-- [ ] Write a threat model and architecture review covering docs fetch, GitHub ingestion, HuggingFace model handling, local index persistence, CLI entrypoints, and MCP server entrypoints.
-- [ ] Add automated audit commands and CI workflows for `ruff`, `mypy`, `pytest`, dependency audit, static security scan, and SBOM generation.
+- [x] Write a threat model and architecture review covering docs fetch, GitHub ingestion, HuggingFace model handling, local index persistence, CLI entrypoints, and MCP server entrypoints.
+- [x] Add automated audit commands and CI workflows for `ruff`, `mypy`, `pytest`, dependency audit, static security scan, and SBOM generation.
 - [x] Normalize the local dependency workflow so lockfile-based setup is explicit and reproducible, then replace lockfile-bypassing install guidance with the supported `uv` commands.
 - [x] Add upstream taint-handling policy and enforcement for compromised repos, releases, tags, or commits, including a documented local skip path.
 - [ ] Add a soak/leak test path for repeated `refresh`/`serve` flows and concurrent retrieval calls, with observable RSS/thread/file-descriptor reporting.
@@ -106,11 +106,9 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
   - `uv run mypy src/ tests/`
   - `uv run ruff check src/ tests/`
 - Proposed security and supply-chain gate:
-  - `uv run pip-audit`
-  - `osv-scanner --lockfile=uv.lock`
-  - `semgrep --config=p/security-audit src tests`
-  - `bandit -r src`
-  - `syft dir:. -o cyclonedx-json`
+  - `uv run pip-audit --local --progress-spinner off --ignore-vuln CVE-2026-4539`
+  - `uv run bandit -r src`
+  - `uv run cyclonedx-py environment --output-reproducible --of JSON -o artifacts/security/sbom.json`
 - Upstream taint validation:
   - Add tests for denylisted repo slugs and denylisted refs so refresh refuses or skips them predictably.
   - Add tests for the selected policy on existing indexed data when an upstream source becomes tainted after a prior ingest.
@@ -124,6 +122,14 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
   - `uv run pytest tests/unit/test_config.py tests/unit/test_github_ingest.py tests/unit/test_cli.py -q`
   - `uv run ruff check src/pipecat_context_hub/shared/config.py src/pipecat_context_hub/services/ingest/github_ingest.py src/pipecat_context_hub/cli.py tests/unit/test_config.py tests/unit/test_github_ingest.py tests/unit/test_cli.py`
   - `uv run mypy src/pipecat_context_hub/shared/config.py src/pipecat_context_hub/services/ingest/github_ingest.py src/pipecat_context_hub/cli.py tests/unit/test_config.py tests/unit/test_github_ingest.py tests/unit/test_cli.py`
+  - `uv run pytest tests/ -q`
+  - `uv run ruff check src/ tests/`
+  - `uv run mypy src/ tests/`
+  - `uv run bandit -r src`
+  - `uv run pip-audit --local --progress-spinner off --ignore-vuln CVE-2026-4539`
+  - `uv run cyclonedx-py environment --output-reproducible --of JSON -o /tmp/pipecat-audit/sbom.json`
+  - `just --dry-run sbom /tmp/pipecat-audit-just/sbom.json`
+  - `pip-audit` initially surfaced `requests 2.32.5`, `pyjwt 2.11.0`, and `pygments 2.19.2`; the first two were remediated by pinning fixed versions, while `pygments` is recorded as an accepted risk because `pip-audit` does not currently report a fixed PyPI release.
 
 ## Issues & Solutions
 
@@ -135,11 +141,13 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
   Solution: make release/security review an operator workflow input, then enforce the decision locally via skip or denylist configuration.
 - Leak and soak validation are harder to prove in a constrained assistant sandbox than on a normal developer machine or CI runner.
   Solution: add the harness and commands in-repo, then capture local/CI artifacts as part of the review record.
+- `pip-audit` initially failed on transitive runtime/dev dependencies.
+  Solution: pin fixed `requests` and `pyjwt` versions in the project dependency set, and document the remaining `pygments` advisory as an explicit accepted risk until upstream publishes a fix.
 
 ## Acceptance Criteria
 
-- [ ] A written threat model and architecture review exist for the repo's trust boundaries.
-- [ ] The repo contains an automated review gate for quality, security, and supply-chain checks.
+- [x] A written threat model and architecture review exist for the repo's trust boundaries.
+- [x] The repo contains an automated review gate for quality, security, and supply-chain checks.
 - [ ] Install and update documentation use a reproducible, lockfile-based workflow.
 - [ ] Refresh can skip or denylist a tainted upstream repo or specific upstream ref by local policy.
 - [ ] The project has repeatable soak/leak validation for the long-lived server and refresh paths.
@@ -149,4 +157,14 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
 
 ## Final Results
 
-- Pending.
+- In progress.
+- Completed slices:
+  - local tainted-upstream denylisting for repos and refs, with pre-checkout enforcement
+  - lockfile-based install workflow in docs
+  - written MCP server threat model in `docs/security/threat-model.md`
+  - repo-local CI workflow plus `just` audit/SBOM commands
+  - repo-wide quality/security gate now passes with one documented `pip-audit` ignore for `pygments` (`CVE-2026-4539`) pending an upstream fixed release
+- Remaining slices:
+  - soak/leak harness
+  - manual high-risk module review and duplication audit
+  - final `/deep-review` before merge

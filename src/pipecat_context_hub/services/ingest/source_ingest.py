@@ -10,11 +10,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from git import Repo as GitRepo
 
 from pipecat_context_hub.services.ingest.ast_extractor import (
     ClassInfo,
@@ -204,15 +205,7 @@ class SourceIngester:
 def _get_commit_sha(clone_dir: Path) -> str:
     """Get HEAD commit SHA from git repo."""
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(clone_dir),
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
-        )
-        return result.stdout.strip()
+        return GitRepo(str(clone_dir)).head.commit.hexsha
     except Exception:
         return "unknown"
 

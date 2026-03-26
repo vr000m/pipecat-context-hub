@@ -36,6 +36,22 @@ typecheck:
 # Run lint + format check + type check
 check: lint fmt-check typecheck
 
+# Dependency vulnerability audit
+audit-deps:
+    uv run pip-audit --local --progress-spinner off --ignore-vuln CVE-2026-4539
+
+# Static security scan for Python code
+audit-security:
+    uv run bandit -r src
+
+# Generate a CycloneDX SBOM from the current locked environment
+sbom out="artifacts/security/sbom.json":
+    mkdir -p $(dirname {{out}})
+    uv run cyclonedx-py environment --output-reproducible --of JSON -o {{out}}
+
+# Run the local security gate
+audit: audit-deps audit-security
+
 # ── Server ───────────────────────────────────────────
 
 # Start the MCP server

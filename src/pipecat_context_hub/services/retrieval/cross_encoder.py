@@ -13,6 +13,7 @@ import logging
 import math
 import threading
 from pathlib import Path
+from typing import Protocol, cast
 
 from pipecat_context_hub.shared.types import IndexResult
 
@@ -25,6 +26,10 @@ _ALLOWED_MODELS = frozenset({
     "cross-encoder/ms-marco-MiniLM-L-12-v2",
     "cross-encoder/ms-marco-TinyBERT-L-2-v2",
 })
+
+
+class _CrossEncoderModel(Protocol):
+    def predict(self, sentences: list[tuple[str, str]]) -> list[float] | tuple[float, ...]: ...
 
 
 class CrossEncoderReranker:
@@ -52,7 +57,7 @@ class CrossEncoderReranker:
         self._model_name = model_name
         self._top_n = top_n
         self._enabled = enabled
-        self._model: object | None = None  # Lazy-loaded CrossEncoder instance
+        self._model: _CrossEncoderModel | None = None  # Lazy-loaded CrossEncoder instance
         self._available = enabled  # False if model fails to load
         self._lock = threading.Lock()
 
@@ -72,7 +77,7 @@ class CrossEncoderReranker:
             try:
                 from sentence_transformers import CrossEncoder
 
-                self._model = CrossEncoder(self._model_name)
+                self._model = cast(_CrossEncoderModel, CrossEncoder(self._model_name))
                 logger.info("Cross-encoder loaded: %s", self._model_name)
             except Exception:
                 logger.warning(
@@ -95,7 +100,7 @@ class CrossEncoderReranker:
         rest = candidates[self._top_n :]
 
         pairs = [(query, r.chunk.content[:1000]) for r in top]
-        scores = self._model.predict(pairs)  # type: ignore[union-attr]
+        scores = self._model.predict(pairs)
 
         # Rebuild results with sigmoid-normalized cross-encoder scores.
         # ms-marco models output unbounded logits (~-11 to +11); sigmoid
@@ -145,18 +150,21 @@ class CrossEncoderReranker:
         """
         try:
             from huggingface_hub import try_to_load_from_cache
-            from huggingface_hub.utils import EntryNotFoundError
 
             # try_to_load_from_cache returns a path string if cached,
             # None or _CACHED_NO_EXIST sentinel if not.
             result = try_to_load_from_cache(model_name, "config.json")
             return isinstance(result, str)
-        except (ImportError, EntryNotFoundError, Exception):
-            # Fallback: check default cache location
-            cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-            if not cache_dir.exists():
-                return False
-            safe_name = model_name.replace("/", "--")
-            return any(
-                d.name.endswith(safe_name) for d in cache_dir.iterdir() if d.is_dir()
+        except ImportError:
+            logger.debug("huggingface_hub unavailable, falling back to cache-dir probe")
+        except Exception:
+            logger.debug(
+                "Model cache lookup via huggingface_hub failed, falling back to cache-dir probe",
+                exc_info=True,
             )
+
+        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+        if not cache_dir.exists():
+            return False
+        safe_name = model_name.replace("/", "--")
+        return any(d.name.endswith(safe_name) for d in cache_dir.iterdir() if d.is_dir())

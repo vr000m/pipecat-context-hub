@@ -56,6 +56,18 @@ Add the server to your IDE's MCP config. Pre-built templates are in `config/clie
 
 See [docs/setup/README.md](setup/README.md) for the full setup overview.
 
+## Security
+
+The MCP server threat model and trust-boundary review live in
+[docs/security/threat-model.md](security/threat-model.md).
+
+Local upstream denylisting is available when a repo or release is suspected to
+be tainted:
+
+- `PIPECAT_HUB_TAINTED_REPOS` skips a repo entirely
+- `PIPECAT_HUB_TAINTED_REFS` skips specific `org/repo@ref` entries where `ref`
+  is a tag or commit SHA/prefix
+
 ## Architecture
 
 ```
@@ -152,6 +164,8 @@ A `justfile` provides common tasks. Run `just` to see all recipes.
 ```bash
 just check    # lint + format check + typecheck
 just test     # run tests
+just audit    # pip-audit on the frozen env + bandit
+just sbom     # generate a reproducible CycloneDX SBOM
 just benchmark-quality   # live retrieval-quality benchmark on the local index
 ```
 

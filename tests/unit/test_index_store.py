@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -70,7 +71,7 @@ def _make_records(count: int, source_url: str = "https://docs.pipecat.ai/intro")
 
 class TestVectorIndex:
     @pytest.fixture()
-    def vector_index(self, tmp_path: Path) -> VectorIndex:
+    def vector_index(self, tmp_path: Path) -> Generator[VectorIndex, None, None]:
         index = VectorIndex(tmp_path / "chroma")
         yield index
         index.close()
@@ -355,7 +356,7 @@ class TestVectorIndexBatchStress:
     OVER_LIMIT = _CHROMA_BATCH_SIZE + 100
 
     @pytest.fixture()
-    def vector_index(self, tmp_path: Path) -> VectorIndex:
+    def vector_index(self, tmp_path: Path) -> Generator[VectorIndex, None, None]:
         index = VectorIndex(tmp_path / "chroma")
         yield index
         index.close()
@@ -448,7 +449,7 @@ class TestVectorIndexBatchStress:
 
 class TestFTSIndex:
     @pytest.fixture()
-    def fts_index(self, tmp_path: Path) -> FTSIndex:
+    def fts_index(self, tmp_path: Path) -> Generator[FTSIndex, None, None]:
         index = FTSIndex(tmp_path / "metadata.db")
         yield index
         index.close()
@@ -692,7 +693,7 @@ class TestFTSIndex:
 
 class TestIndexStore:
     @pytest.fixture()
-    def store(self, tmp_path: Path) -> IndexStore:
+    def store(self, tmp_path: Path) -> Generator[IndexStore, None, None]:
         config = StorageConfig(data_dir=tmp_path / "hub-data")
         store = IndexStore(config)
         yield store

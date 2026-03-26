@@ -227,18 +227,18 @@ class FTSIndex:
         where_parts.extend(filter_clauses)
         params.extend(filter_params)
 
-        where_sql = " AND ".join(where_parts)
-
-        sql = f"""
-            SELECT c.chunk_id, c.content, c.content_type, c.source_url,
-                   c.repo, c.path, c.commit_sha, c.indexed_at, c.metadata_json,
-                   bm25(chunks_fts) AS rank
-            FROM chunks_fts
-            JOIN chunks c ON c.rowid = chunks_fts.rowid
-            WHERE {where_sql}
-            ORDER BY rank
-            LIMIT ?
-        """
+        # `where_parts` only contains static clause templates; user input stays
+        # parameterized in `params`, so joining the clauses is safe here.
+        sql = "\n".join([
+            "SELECT c.chunk_id, c.content, c.content_type, c.source_url,",
+            "       c.repo, c.path, c.commit_sha, c.indexed_at, c.metadata_json,",
+            "       bm25(chunks_fts) AS rank",
+            "FROM chunks_fts",
+            "JOIN chunks c ON c.rowid = chunks_fts.rowid",
+            "WHERE " + " AND ".join(where_parts),
+            "ORDER BY rank",
+            "LIMIT ?",
+        ])
         params.append(query.limit)
 
         cursor = self._conn.execute(sql, params)

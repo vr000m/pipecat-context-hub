@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import statistics
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
+from typing import Literal, TypedDict
 
 import pytest
 
@@ -31,7 +33,15 @@ NOW = datetime.now(tz=timezone.utc)
 _ITERATIONS = 5
 
 
-def _measure(fn, iterations: int = _ITERATIONS) -> dict[str, float]:
+class LatencyStats(TypedDict):
+    warmup_ms: float
+    min_ms: float
+    median_ms: float
+    max_ms: float
+    runs: list[float]
+
+
+def _measure(fn: Callable[[], object], iterations: int = _ITERATIONS) -> LatencyStats:
     """Run *fn* multiple times, return timing stats in milliseconds.
 
     First iteration is treated as warmup and excluded from stats.
@@ -54,7 +64,9 @@ def _measure(fn, iterations: int = _ITERATIONS) -> dict[str, float]:
     }
 
 
-async def _measure_async(fn, iterations: int = _ITERATIONS) -> dict[str, float]:
+async def _measure_async(
+    fn: Callable[[], Awaitable[object]], iterations: int = _ITERATIONS
+) -> LatencyStats:
     """Async variant of _measure."""
     times: list[float] = []
     for _ in range(iterations):
@@ -73,7 +85,7 @@ async def _measure_async(fn, iterations: int = _ITERATIONS) -> dict[str, float]:
     }
 
 
-def _report(name: str, stats: dict[str, float]) -> None:
+def _report(name: str, stats: LatencyStats) -> None:
     """Print a single benchmark result line."""
     print(
         f"  {name:<35} "
@@ -132,7 +144,7 @@ class TestComponentLatency:
 
     def test_rerank_latency(self):
         """rerank() with 20+20 results should be <10ms."""
-        def _make_result(i: int, match_type: str) -> IndexResult:
+        def _make_result(i: int, match_type: Literal["vector", "keyword"]) -> IndexResult:
             return IndexResult(
                 chunk=ChunkedRecord(
                     chunk_id=f"chunk-{match_type}-{i}",

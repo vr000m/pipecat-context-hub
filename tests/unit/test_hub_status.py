@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import MagicMock
 
 import pytest
@@ -38,7 +38,11 @@ def fts_index(tmp_path):
     index.close()
 
 
-def _make_record(content_type: str, chunk_id: str, commit_sha: str | None = "abc123") -> ChunkedRecord:
+def _make_record(
+    content_type: Literal["doc", "code", "readme", "source"],
+    chunk_id: str,
+    commit_sha: str | None = "abc123",
+) -> ChunkedRecord:
     return ChunkedRecord(
         chunk_id=chunk_id,
         content=f"test content for {chunk_id}",
