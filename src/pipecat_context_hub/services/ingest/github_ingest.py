@@ -86,6 +86,9 @@ _BOUNDARY_RE = re.compile(
 )
 
 _HEX_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+_REPO_SLUG_RE = re.compile(
+    r"^[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._-]*$"
+)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -146,6 +149,8 @@ def _resolve_origin_head_commit(git_repo: GitRepo) -> str:
         return git_repo.commit("origin/HEAD").hexsha
     except Exception:
         origin = git_repo.remotes.origin
+        if not origin.refs:
+            raise ValueError("Remote origin has no refs to resolve")
         return origin.refs[0].commit.hexsha
 
 
@@ -915,6 +920,8 @@ class GitHubRepoIngester:
 
         Returns (repo_path, HEAD commit SHA).
         """
+        if not _REPO_SLUG_RE.fullmatch(repo_slug):
+            raise ValueError(f"Invalid repo slug: {repo_slug}")
         # Sanitize slug to prevent path traversal
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", repo_slug)
         repo_path = self._repos_dir / safe_name

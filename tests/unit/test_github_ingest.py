@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from pipecat_context_hub.services.ingest.github_ingest import (
     GitHubRepoIngester,
@@ -19,6 +21,7 @@ from pipecat_context_hub.services.ingest.github_ingest import (
     _iter_code_files,
     _iter_root_level_code_files,
     _make_chunk_id,
+    _resolve_origin_head_commit,
     repo_ref_is_tainted,
 )
 from pipecat_context_hub.shared.config import HubConfig, StorageConfig
@@ -263,6 +266,13 @@ class TestRepoRefIsTainted:
 
 
 class TestCloneOrFetchCheckoutControl:
+    def test_invalid_repo_slug_rejected(self, tmp_path: Path):
+        config = HubConfig(storage=StorageConfig(data_dir=tmp_path / "data"))
+        ingester = GitHubRepoIngester(config, _make_mock_writer())
+
+        with pytest.raises(ValueError, match="Invalid repo slug"):
+            ingester.clone_or_fetch("../evil")
+
     def test_checkout_false_keeps_existing_worktree_and_fetches_tags(self, tmp_path: Path):
         from git import Repo as GitRepo
 
@@ -331,6 +341,18 @@ class TestCloneOrFetchCheckoutControl:
         assert upserted_records
         assert any("print('new')" in record.content for record in upserted_records)
         assert GitRepo(str(clone_dir)).head.commit.hexsha == new_sha
+
+
+class TestResolveOriginHeadCommit:
+    def test_empty_origin_refs_raise_clear_error(self):
+        origin = MagicMock()
+        origin.refs = []
+        git_repo = MagicMock()
+        git_repo.commit.side_effect = ValueError("origin/HEAD missing")
+        git_repo.remotes.origin = origin
+
+        with pytest.raises(ValueError, match="Remote origin has no refs"):
+            _resolve_origin_head_commit(git_repo)
 
 
 # ---------------------------------------------------------------------------

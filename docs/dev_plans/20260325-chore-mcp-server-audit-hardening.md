@@ -144,7 +144,7 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
 - Leak and soak validation are harder to prove in a constrained assistant sandbox than on a normal developer machine or CI runner.
   Solution: add the harness and commands in-repo, then capture local/CI artifacts as part of the review record.
 - `pip-audit` initially failed on transitive runtime/dev dependencies.
-  Solution: pin fixed `requests` and `pyjwt` versions in the project dependency set, and document the remaining `pygments` advisory as an explicit accepted risk until upstream publishes a fix.
+  Solution: move the environment to fixed `requests` and `pyjwt` resolutions during the audit pass, then remove the unused direct pins once the lockfile continued to resolve to the fixed versions. The remaining `pygments` advisory stays documented as an explicit accepted risk until upstream publishes a fix.
 - The first version of the runtime stability benchmark exposed a real concurrency crash during parallel retrieval.
   Solution: add per-process locks around the shared embedding model, Chroma client, and SQLite connection so async fan-out no longer drives unsafe concurrent native calls.
 - The docs fetch path trusted `llms-full.txt` to stay reasonably sized.

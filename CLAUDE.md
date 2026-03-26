@@ -29,6 +29,9 @@ A `justfile` is also available as a task runner:
 ```bash
 just check              # lint + format check + typecheck
 just test               # run tests
+just audit              # pip-audit + bandit
+just sbom               # generate CycloneDX SBOM
+just benchmark-stability  # opt-in refresh/serve/search stability benchmark
 just dashboard-refresh  # refresh index + rebuild all dashboard data
 just dashboard-build    # rebuild dashboard data without re-indexing
 just dashboard-serve    # serve dashboard on localhost:8765
@@ -95,7 +98,7 @@ Cross-encoder reranking is **enabled by default**. It scores query-result pairs
 for semantic relevance after RRF merge, significantly improving result quality
 (especially for `search_examples` and multi-concept queries).
 
-- **First run:** `pipecat-context-hub refresh` downloads the model (~80MB)
+- **First run:** `uv run pipecat-context-hub refresh` downloads the model (~80MB)
 - **Disable:** `PIPECAT_HUB_RERANKER_ENABLED=0` env var
 - **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2` (configurable via `RerankerConfig`)
 - **Latency:** ~50-100ms per query on CPU
