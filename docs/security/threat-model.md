@@ -59,13 +59,12 @@ Current controls:
 
 - fetched content is treated as text and chunked, not executed
 - HTTP client lifetime is explicit and closable
+- `llms-full.txt` is fetched with a maximum payload-size guard
 - docs are stored in the local index, not imported as code
 
 Follow-up checks:
 
-- verify size and failure handling under very large or malformed payloads
-- consider explicit maximum response-size guardrails if real-world corpus growth
-  becomes a pressure point
+- revisit the payload-size cap if real-world corpus growth approaches it
 
 ### Boundary 2: Remote GitHub repos to local clone and index
 

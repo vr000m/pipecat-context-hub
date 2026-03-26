@@ -147,6 +147,8 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
   Solution: pin fixed `requests` and `pyjwt` versions in the project dependency set, and document the remaining `pygments` advisory as an explicit accepted risk until upstream publishes a fix.
 - The first version of the runtime stability benchmark exposed a real concurrency crash during parallel retrieval.
   Solution: add per-process locks around the shared embedding model, Chroma client, and SQLite connection so async fan-out no longer drives unsafe concurrent native calls.
+- The docs fetch path trusted `llms-full.txt` to stay reasonably sized.
+  Solution: stream the response and reject payloads above a fixed safety cap so an unexpectedly large upstream response cannot grow process memory without bound during refresh.
 
 ## Acceptance Criteria
 
@@ -169,6 +171,7 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
   - repo-local CI workflow plus `just` audit/SBOM commands
   - opt-in runtime stability benchmark for repeated `refresh` / `serve` cycles and concurrent retrieval rounds
   - concurrency hardening for shared embedding, Chroma, and SQLite access after the benchmark reproduced a crash under load
+  - bounded streaming fetch for `llms-full.txt` so remote docs ingestion now enforces a maximum payload size
   - repo-wide quality/security gate now passes with one documented `pip-audit` ignore for `pygments` (`CVE-2026-4539`) pending an upstream fixed release
 - Remaining slices:
   - manual high-risk module review and duplication audit

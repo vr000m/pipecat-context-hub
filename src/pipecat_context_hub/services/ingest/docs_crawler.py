@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Rough approximation: 1 token ≈ 4 characters for English text.
 _CHARS_PER_TOKEN = 4
+_MAX_LLMS_TXT_BYTES = 20 * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # Mintlify tag handling
@@ -329,9 +330,19 @@ class DocsCrawler:
     async def fetch_llms_txt(self) -> str:
         """Fetch the llms-full.txt file from docs.pipecat.ai."""
         client = await self._get_client()
-        response = await client.get(self._source.docs_llms_txt_url)
-        response.raise_for_status()
-        return response.text
+        body = bytearray()
+        async with client.stream("GET", self._source.docs_llms_txt_url) as response:
+            response.raise_for_status()
+            async for chunk in response.aiter_bytes():
+                body.extend(chunk)
+                if len(body) > _MAX_LLMS_TXT_BYTES:
+                    raise ValueError(
+                        "llms-full.txt exceeded the safety limit "
+                        f"({_MAX_LLMS_TXT_BYTES} bytes)"
+                    )
+
+            encoding = response.encoding or "utf-8"
+            return body.decode(encoding, errors="replace")
 
     async def ingest(self, prefetched_text: str | None = None) -> IngestResult:
         """Fetch llms-full.txt and ingest all documentation pages.

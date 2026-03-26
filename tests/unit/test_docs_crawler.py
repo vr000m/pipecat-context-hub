@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from datetime import timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
 from pipecat_context_hub.services.ingest.docs_crawler import (
     DocsCrawler,
+    _MAX_LLMS_TXT_BYTES,
     _clean_mintlify_tags,
     _make_chunk_id,
     _split_into_pages,
@@ -489,12 +490,39 @@ class TestDocsCrawlerProtocol:
 
 
 class TestDocsCrawlerFetchLlmsTxt:
+    class _FakeResponse:
+        def __init__(self, request: httpx.Request, chunks: list[bytes], status_code: int = 200) -> None:
+            self._response = httpx.Response(status_code, request=request)
+            self._chunks = chunks
+            self.encoding = "utf-8"
+
+        def raise_for_status(self) -> None:
+            self._response.raise_for_status()
+
+        async def aiter_bytes(self):
+            for chunk in self._chunks:
+                yield chunk
+
+    class _FakeStream:
+        def __init__(self, response: "TestDocsCrawlerFetchLlmsTxt._FakeResponse") -> None:
+            self._response = response
+
+        async def __aenter__(self) -> "TestDocsCrawlerFetchLlmsTxt._FakeResponse":
+            return self._response
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            return False
+
     async def test_fetch_success(self, crawler: DocsCrawler):
         """fetch_llms_txt returns text on success."""
         request = httpx.Request("GET", "https://docs.pipecat.ai/llms-full.txt")
-        mock_response = httpx.Response(200, text="# Page\nSource: url\n\nBody", request=request)
+        mock_response = self._FakeResponse(
+            request,
+            [b"# Page\nSource: url\n\n", b"Body"],
+        )
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.stream = MagicMock(return_value=self._FakeStream(mock_response))
         crawler._client = mock_client
 
         result = await crawler.fetch_llms_txt()
@@ -503,10 +531,24 @@ class TestDocsCrawlerFetchLlmsTxt:
     async def test_fetch_error_raises(self, crawler: DocsCrawler):
         """fetch_llms_txt raises on HTTP errors."""
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
+        mock_client.stream = MagicMock(
             side_effect=httpx.ConnectError("connection refused"),
         )
         crawler._client = mock_client
 
         with pytest.raises(httpx.ConnectError):
+            await crawler.fetch_llms_txt()
+
+    async def test_fetch_rejects_oversized_payload(self, crawler: DocsCrawler):
+        """fetch_llms_txt rejects unexpectedly large responses."""
+        request = httpx.Request("GET", "https://docs.pipecat.ai/llms-full.txt")
+        oversized = self._FakeResponse(
+            request,
+            [b"x" * (_MAX_LLMS_TXT_BYTES + 1)],
+        )
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=self._FakeStream(oversized))
+        crawler._client = mock_client
+
+        with pytest.raises(ValueError, match="exceeded the safety limit"):
             await crawler.fetch_llms_txt()
