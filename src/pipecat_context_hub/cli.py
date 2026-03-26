@@ -269,7 +269,7 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
             stored_sha_key = f"repo:{repo_slug}:commit_sha"
             try:
                 repo_path, commit_sha = await asyncio.to_thread(
-                    github.clone_or_fetch, repo_slug
+                    github.clone_or_fetch, repo_slug, False
                 )
                 repo_shas[repo_slug] = commit_sha
                 prefetched[repo_slug] = (repo_path, commit_sha)
@@ -332,6 +332,21 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
         # the window where a repo's index is empty (crash-safety).
         ingested_repos: set[str] = set()
         for repo_slug in changed_repos:
+            repo_path, commit_sha = prefetched[repo_slug]
+            try:
+                await asyncio.to_thread(github.checkout_commit, repo_path, commit_sha)
+            except Exception as exc:
+                msg = f"Failed to checkout fetched ref for {repo_slug}: {exc}"
+                all_errors.append(msg)
+                logger.error(msg)
+                source_status[repo_slug] = {
+                    "status": "error",
+                    "sha": commit_sha[:8],
+                    "existing": pre_counts.get(repo_slug, 0),
+                    "updated": "—",
+                }
+                continue
+
             await index_store.delete_by_repo(repo_slug)
             logger.info("Deleted stale records for %s", repo_slug)
 

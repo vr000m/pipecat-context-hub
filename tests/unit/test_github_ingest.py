@@ -59,6 +59,48 @@ def _create_fake_repo(tmp_path: Path, repo_name: str, files: dict[str, str]) -> 
     return repo_dir
 
 
+def _create_remote_and_clone(tmp_path: Path, repo_slug: str, files: dict[str, str]) -> tuple[Path, Path]:
+    """Create a source repo with a bare origin and return the local clone path."""
+    from git import Repo as GitRepo
+
+    source_dir = _create_fake_repo(tmp_path, "source_repo", files)
+    source_repo = GitRepo(str(source_dir))
+    bare_remote = tmp_path / "origin.git"
+    GitRepo.clone_from(str(source_dir), str(bare_remote), bare=True)
+    source_repo.create_remote("origin", str(bare_remote))
+    branch = source_repo.active_branch.name
+    source_repo.git.push("origin", branch, "--tags")
+
+    safe_name = repo_slug.replace("/", "_")
+    clone_dir = tmp_path / "data" / "repos" / safe_name
+    clone_dir.parent.mkdir(parents=True, exist_ok=True)
+    GitRepo.clone_from(str(bare_remote), str(clone_dir))
+    return source_dir, clone_dir
+
+
+def _commit_and_push(
+    source_dir: Path,
+    rel_path: str,
+    content: str,
+    *,
+    tag: str | None = None,
+) -> str:
+    """Commit a change in the source repo and push it to origin."""
+    from git import Repo as GitRepo
+
+    repo = GitRepo(str(source_dir))
+    file_path = source_dir / rel_path
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(content, encoding="utf-8")
+    repo.index.add([str(file_path)])
+    repo.index.commit("update")
+    if tag is not None:
+        repo.create_tag(tag, message=f"tag {tag}")
+    branch = repo.active_branch.name
+    repo.git.push("origin", branch, "--tags")
+    return repo.head.commit.hexsha
+
+
 # ---------------------------------------------------------------------------
 # _chunk_code tests
 # ---------------------------------------------------------------------------
@@ -214,6 +256,43 @@ class TestRepoRefIsTainted:
 
         commit_sha = GitRepo(str(repo_dir)).head.commit.hexsha
         assert not repo_ref_is_tainted(repo_dir, commit_sha, {"v9.9.9"})
+
+
+class TestCloneOrFetchCheckoutControl:
+    def test_checkout_false_keeps_existing_worktree_and_fetches_tags(self, tmp_path: Path):
+        from git import Repo as GitRepo
+
+        repo_slug = "test-org/test-repo"
+        source_dir, clone_dir = _create_remote_and_clone(
+            tmp_path,
+            repo_slug,
+            {"main.py": "print('old')\n"},
+        )
+        config = HubConfig(
+            storage=StorageConfig(data_dir=tmp_path / "data"),
+            sources=HubConfig().sources.model_copy(update={"repos": [repo_slug]}),
+        )
+        writer = _make_mock_writer()
+        ingester = GitHubRepoIngester(config, writer)
+
+        local_repo = GitRepo(str(clone_dir))
+        old_sha = local_repo.head.commit.hexsha
+        new_sha = _commit_and_push(
+            source_dir,
+            "main.py",
+            "print('new')\n",
+            tag="v1.2.3",
+        )
+
+        repo_path, fetched_sha = ingester.clone_or_fetch(repo_slug, checkout=False)
+
+        assert repo_path == clone_dir
+        assert fetched_sha == new_sha
+        assert GitRepo(str(clone_dir)).head.commit.hexsha == old_sha
+        assert repo_ref_is_tainted(clone_dir, fetched_sha, {"v1.2.3"})
+
+        ingester.checkout_commit(clone_dir, fetched_sha)
+        assert GitRepo(str(clone_dir)).head.commit.hexsha == new_sha
 
 
 # ---------------------------------------------------------------------------

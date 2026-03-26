@@ -127,6 +127,15 @@ def repo_ref_is_tainted(repo_path: Path, commit_sha: str, tainted_refs: set[str]
     return any(tag_targets.get(ref) == sha for ref in named_refs)
 
 
+def _resolve_origin_head_commit(git_repo: GitRepo) -> str:
+    """Resolve the current commit for the remote default branch."""
+    try:
+        return git_repo.commit("origin/HEAD").hexsha
+    except Exception:
+        origin = git_repo.remotes.origin
+        return origin.refs[0].commit.hexsha
+
+
 def _chunk_code(
     source: str,
     *,
@@ -882,7 +891,7 @@ class GitHubRepoIngester:
             errors=errors,
         )
 
-    def clone_or_fetch(self, repo_slug: str) -> tuple[Path, str]:
+    def clone_or_fetch(self, repo_slug: str, checkout: bool = True) -> tuple[Path, str]:
         """Clone repo if not present, otherwise fetch latest.
 
         Returns (repo_path, HEAD commit SHA).
@@ -896,15 +905,22 @@ class GitHubRepoIngester:
 
         if (repo_path / ".git").is_dir():
             git_repo = GitRepo(str(repo_path))
-            origin = git_repo.remotes.origin
-            origin.fetch()
-            # Update working tree to match fetched remote HEAD
-            remote_ref = origin.refs[0]
-            git_repo.head.reset(remote_ref.commit, index=True, working_tree=True)
+            git_repo.git.fetch("origin", "--tags")
+            commit_sha = _resolve_origin_head_commit(git_repo)
+            if checkout:
+                self.checkout_commit(repo_path, commit_sha)
         else:
-            repo_path.mkdir(parents=True, exist_ok=True)
             clone_url = f"https://github.com/{repo_slug}.git"
-            git_repo = GitRepo.clone_from(clone_url, str(repo_path))
+            git_repo = GitRepo.clone_from(
+                clone_url,
+                str(repo_path),
+                no_checkout=not checkout,
+            )
+            commit_sha = git_repo.head.commit.hexsha
 
-        commit_sha = git_repo.head.commit.hexsha
         return repo_path, commit_sha
+
+    def checkout_commit(self, repo_path: Path, commit_sha: str) -> None:
+        """Reset the local working tree to a specific commit."""
+        git_repo = GitRepo(str(repo_path))
+        git_repo.head.reset(git_repo.commit(commit_sha), index=True, working_tree=True)

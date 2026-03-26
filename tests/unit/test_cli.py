@@ -504,7 +504,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
-        mock_github.clone_or_fetch.side_effect = lambda repo_slug: (
+        mock_github.clone_or_fetch.side_effect = lambda repo_slug, _checkout=False: (
             Path(f"/tmp/{repo_slug.replace('/', '_')}"),
             "badcafe" if repo_slug == "pipecat-ai/pipecat" else "abc123",
         )
@@ -549,7 +549,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
-        mock_github.clone_or_fetch.side_effect = lambda repo_slug: (
+        mock_github.clone_or_fetch.side_effect = lambda repo_slug, _checkout=False: (
             Path(f"/tmp/{repo_slug.replace('/', '_')}"),
             "badcafe" if repo_slug == "pipecat-ai/pipecat" else "abc123",
         )
