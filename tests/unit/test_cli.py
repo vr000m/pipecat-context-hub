@@ -530,6 +530,10 @@ class TestRefreshCommand:
         mock_source.ingest.assert_not_called()
         mock_store.delete_by_repo.assert_not_called()
         mock_store.delete_metadata.assert_not_called()
+        set_calls = {
+            call.args[0] for call in mock_store.set_metadata.call_args_list
+        }
+        assert "repo:pipecat-ai/pipecat:commit_sha" not in set_calls
 
     @patch("pipecat_context_hub.services.index.store.IndexStore")
     @patch("pipecat_context_hub.services.embedding.EmbeddingService")
@@ -575,3 +579,7 @@ class TestRefreshCommand:
         mock_store.delete_metadata.assert_any_call("repo:pipecat-ai/pipecat:commit_sha")
         mock_github.ingest.assert_not_called()
         mock_source.ingest.assert_not_called()
+        set_calls = {
+            call.args[0] for call in mock_store.set_metadata.call_args_list
+        }
+        assert "repo:pipecat-ai/pipecat:commit_sha" not in set_calls

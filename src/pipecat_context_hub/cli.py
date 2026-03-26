@@ -248,6 +248,7 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
         changed_repos: list[str] = []
         repo_shas: dict[str, str] = {}
         prefetched: dict[str, tuple[Path, str]] = {}
+        frozen_sha_repos: set[str] = set()
 
         # Clean up repos removed from configuration (P2: stale data from
         # repos no longer in effective_repos would persist indefinitely).
@@ -311,6 +312,9 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
                         "existing": pre_counts.get(repo_slug, 0),
                         "updated": "—",
                     }
+                # Preserve the last known-good SHA (or lack of one) until this
+                # repo is ingested successfully at a non-tainted ref.
+                frozen_sha_repos.add(repo_slug)
                 continue
 
             if not force and stored_sha == commit_sha:
@@ -400,6 +404,8 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
         # retries them (P1: --force deletes records before ingest, so a failure
         # leaves the repo empty; keeping the old SHA would skip it next time).
         for repo_slug, sha in repo_shas.items():
+            if repo_slug in frozen_sha_repos:
+                continue
             if repo_slug not in changed_repos or repo_slug in ingested_repos:
                 index_store.set_metadata(f"repo:{repo_slug}:commit_sha", sha)
             else:

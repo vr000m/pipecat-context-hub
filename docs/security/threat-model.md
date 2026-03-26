@@ -214,14 +214,13 @@ Current exception:
 
 ## Residual Risks
 
-- no full soak/leak harness yet
+- the runtime stability harness is opt-in rather than CI-enforced or scheduled
 - no immutable upstream pinning yet beyond local taint denylisting
 - no repo-local automation yet for upstream advisory ingestion; operators still
   need to decide which repos or refs to taint
 
 ## Next Hardening Steps
 
-- add CI workflows for the review gates
 - decide whether to run the runtime stability benchmark in scheduled CI or only
   on demand
 - decide whether to add optional ref pinning in addition to denylisting

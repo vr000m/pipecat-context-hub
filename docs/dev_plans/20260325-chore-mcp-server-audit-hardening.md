@@ -18,12 +18,12 @@ That combination means the review needs to cover more than code style or isolate
 
 This plan is intentionally scoped to the MCP server and refresh/runtime surfaces. Static dashboard assets and client config templates are out of scope unless they directly affect the server runtime, ingestion safety, or release documentation for the audited path.
 
-## Initial Findings
+## Initial Findings (Historical Baseline)
 
-- **High:** The current install guidance in [docs/README.md](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/docs/README.md) uses `uv pip install -e ".[dev]"`, while the repo also carries `uv.lock`. That bypasses lockfile-based reproducibility and increases dependency drift risk on developer machines.
-- **High:** The repository does not currently include committed CI/security automation under `.github/workflows/`, and there is no repo-local evidence of automated vulnerability scanning, OSV scanning, SBOM generation, or dependency update policy enforcement.
-- **High:** Existing tests cover correctness and retrieval benchmarks, but there is no dedicated soak or leak harness for repeated `refresh`/`serve` cycles, concurrent tool calls, or RSS/thread/file-descriptor growth over time.
-- **High:** The current refresh path tracks mutable upstream content directly: docs are fetched live, Git repos are reset to remote HEAD, and extra repos can be appended from environment configuration. There is no repo-local policy yet for marking an upstream repo, tag, release, or commit as tainted and skipping it.
+- **High:** Before this branch, the install guidance in [docs/README.md](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/docs/README.md) used `uv pip install -e ".[dev]"`, while the repo also carried `uv.lock`. That bypassed lockfile-based reproducibility and increased dependency drift risk on developer machines.
+- **High:** Before this branch, the repository did not include committed CI/security automation under `.github/workflows/`, and there was no repo-local evidence of automated vulnerability scanning, OSV scanning, SBOM generation, or dependency update policy enforcement.
+- **High:** Before this branch, existing tests covered correctness and retrieval benchmarks, but there was no dedicated soak or leak harness for repeated `refresh`/`serve` cycles, concurrent tool calls, or RSS/thread/file-descriptor growth over time.
+- **High:** Before this branch, the refresh path tracked mutable upstream content directly: docs were fetched live, Git repos were reset to remote HEAD, and extra repos could be appended from environment configuration. There was no repo-local policy for marking an upstream repo, tag, release, or commit as tainted and skipping it.
 - **Medium:** The highest-risk manual review targets are the remote ingestion and local persistence boundaries in [`cli.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/cli.py), [`server/main.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/server/main.py), [`server/transport.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/server/transport.py), [`docs_crawler.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/docs_crawler.py), [`github_ingest.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/github_ingest.py), [`source_ingest.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/source_ingest.py), [`embedding.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/embedding.py), [`cross_encoder.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/retrieval/cross_encoder.py), [`vector.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/index/vector.py), and [`store.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/index/store.py).
 - **Medium:** The repo has useful point defenses already, but they are not yet backed by a documented threat model or release gate. That raises the chance of future regressions in path containment, model loading policy, or resource cleanup.
 
@@ -154,8 +154,8 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
 
 - [x] A written threat model and architecture review exist for the repo's trust boundaries.
 - [x] The repo contains an automated review gate for quality, security, and supply-chain checks.
-- [ ] Install and update documentation use a reproducible, lockfile-based workflow.
-- [ ] Refresh can skip or denylist a tainted upstream repo or specific upstream ref by local policy.
+- [x] Install and update documentation use a reproducible, lockfile-based workflow.
+- [x] Refresh can skip or denylist a tainted upstream repo or specific upstream ref by local policy.
 - [x] The project has repeatable soak/leak validation for the long-lived server and refresh paths.
 - [ ] Critical and high-severity findings are fixed or explicitly accepted and documented.
 - [ ] README, AGENTS, and the active dev plan reflect the final review process and residual risks.
@@ -166,9 +166,11 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
 - In progress.
 - Completed slices:
   - local tainted-upstream denylisting for repos and refs, with pre-checkout enforcement
+  - tainted-ref refresh now preserves last-known-good SHA state instead of writing blocked upstream SHAs into index metadata
+  - tainted tag inspection now fails closed if the local checkout cannot be inspected safely
   - lockfile-based install workflow in docs
   - written MCP server threat model in `docs/security/threat-model.md`
-  - repo-local CI workflow plus `just` audit/SBOM commands
+  - repo-local CI workflow plus `just` audit/SBOM commands, with `uv` bootstrapped through Astral's official `setup-uv` action instead of `pip install`
   - opt-in runtime stability benchmark for repeated `refresh` / `serve` cycles and concurrent retrieval rounds
   - concurrency hardening for shared embedding, Chroma, and SQLite access after the benchmark reproduced a crash under load
   - bounded streaming fetch for `llms-full.txt` so remote docs ingestion now enforces a maximum payload size

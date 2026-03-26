@@ -7,7 +7,6 @@ files, and produces ChunkedRecord objects via an IndexWriter.
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 import hashlib
 import logging
 import re
@@ -116,15 +115,29 @@ def repo_ref_is_tainted(repo_path: Path, commit_sha: str, tainted_refs: set[str]
     try:
         git_repo = GitRepo(str(repo_path))
     except Exception:
-        logger.warning("Failed to open repo for tainted-ref check: %s", repo_path)
-        return False
+        logger.warning(
+            "Failed to open repo for tainted-ref check at %s; treating named refs as tainted",
+            repo_path,
+        )
+        return True
 
-    tag_targets: dict[str, str] = {}
-    for tag in git_repo.tags:
-        with suppress(AttributeError, BadObject, GitCommandError, ValueError):
-            tag_targets[tag.name] = tag.commit.hexsha.lower()
+    tags_by_name = {tag.name: tag for tag in git_repo.tags if tag.name in named_refs}
+    for ref in named_refs:
+        tag = tags_by_name.get(ref)
+        if tag is None:
+            continue
+        try:
+            if tag.commit.hexsha.lower() == sha:
+                return True
+        except (AttributeError, BadObject, GitCommandError, ValueError):
+            logger.warning(
+                "Failed to resolve tainted tag %s in %s; treating ref as tainted",
+                ref,
+                repo_path,
+            )
+            return True
 
-    return any(tag_targets.get(ref) == sha for ref in named_refs)
+    return False
 
 
 def _resolve_origin_head_commit(git_repo: GitRepo) -> str:
@@ -687,6 +700,12 @@ class GitHubRepoIngester:
 
         if prefetched is not None:
             repo_path, commit_sha = prefetched
+            try:
+                await asyncio.to_thread(self.ensure_checkout, repo_path, commit_sha)
+            except Exception as exc:
+                msg = f"Failed to checkout prefetched ref for {repo_slug}: {exc}"
+                logger.error(msg)
+                return IngestResult(source=repo_slug, errors=[msg])
         else:
             try:
                 repo_path, commit_sha = await asyncio.to_thread(self.clone_or_fetch, repo_slug)
@@ -923,4 +942,14 @@ class GitHubRepoIngester:
     def checkout_commit(self, repo_path: Path, commit_sha: str) -> None:
         """Reset the local working tree to a specific commit."""
         git_repo = GitRepo(str(repo_path))
+        git_repo.head.reset(git_repo.commit(commit_sha), index=True, working_tree=True)
+
+    def ensure_checkout(self, repo_path: Path, commit_sha: str) -> None:
+        """Ensure the working tree matches *commit_sha* before reading files."""
+        git_repo = GitRepo(str(repo_path))
+        try:
+            if git_repo.head.commit.hexsha.lower() == commit_sha.lower():
+                return
+        except Exception:
+            logger.debug("HEAD lookup failed for %s; forcing checkout", repo_path, exc_info=True)
         git_repo.head.reset(git_repo.commit(commit_sha), index=True, working_tree=True)

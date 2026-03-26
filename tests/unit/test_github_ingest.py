@@ -257,6 +257,10 @@ class TestRepoRefIsTainted:
         commit_sha = GitRepo(str(repo_dir)).head.commit.hexsha
         assert not repo_ref_is_tainted(repo_dir, commit_sha, {"v9.9.9"})
 
+    def test_repo_open_failure_fails_closed_for_named_refs(self, tmp_path: Path):
+        missing_repo = tmp_path / "missing-repo"
+        assert repo_ref_is_tainted(missing_repo, "deadbeef", {"v1.2.3"})
+
 
 class TestCloneOrFetchCheckoutControl:
     def test_checkout_false_keeps_existing_worktree_and_fetches_tags(self, tmp_path: Path):
@@ -292,6 +296,40 @@ class TestCloneOrFetchCheckoutControl:
         assert repo_ref_is_tainted(clone_dir, fetched_sha, {"v1.2.3"})
 
         ingester.checkout_commit(clone_dir, fetched_sha)
+        assert GitRepo(str(clone_dir)).head.commit.hexsha == new_sha
+
+    async def test_ingest_prefetched_repo_ensures_advertised_checkout(self, tmp_path: Path):
+        from git import Repo as GitRepo
+
+        repo_slug = "test-org/test-repo"
+        source_dir, clone_dir = _create_remote_and_clone(
+            tmp_path,
+            repo_slug,
+            {"main.py": "print('old')\n"},
+        )
+        new_sha = _commit_and_push(
+            source_dir,
+            "main.py",
+            "print('new')\n",
+        )
+        config = HubConfig(
+            storage=StorageConfig(data_dir=tmp_path / "data"),
+            sources=HubConfig().sources.model_copy(update={"repos": [repo_slug]}),
+        )
+        writer = _make_mock_writer()
+        ingester = GitHubRepoIngester(config, writer)
+
+        repo_path, prefetched_sha = ingester.clone_or_fetch(repo_slug, checkout=False)
+
+        result = await ingester.ingest(
+            repos=[repo_slug],
+            prefetched={repo_slug: (repo_path, prefetched_sha)},
+        )
+
+        assert result.errors == []
+        upserted_records = writer.upsert.call_args.args[0]
+        assert upserted_records
+        assert any("print('new')" in record.content for record in upserted_records)
         assert GitRepo(str(clone_dir)).head.commit.hexsha == new_sha
 
 

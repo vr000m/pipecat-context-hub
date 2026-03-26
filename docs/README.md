@@ -200,7 +200,7 @@ The retrieval-quality benchmark is intended for the default corpus:
 - `pipecat-ai/pipecat-examples`
 - No `PIPECAT_HUB_EXTRA_REPOS`
 
-Run it after `pipecat-context-hub refresh`:
+Run it after `uv run pipecat-context-hub refresh`:
 
 ```bash
 just benchmark-quality
@@ -215,7 +215,7 @@ just benchmark-stability
 If the benchmark reports an unhealthy local vector index, rebuild it with:
 
 ```bash
-pipecat-context-hub refresh --force --reset-index
+uv run pipecat-context-hub refresh --force --reset-index
 ```
 
 To persist a versioned report for later comparison:
