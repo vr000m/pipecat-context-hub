@@ -27,20 +27,20 @@ All responses include an `EvidenceReport` with `known`/`unknown` items, confiden
 ## Quick Start
 
 ```bash
-# Install (editable, with dev deps)
-uv pip install -e ".[dev]"
+# Install the project and dev tooling from the lockfile
+uv sync --extra dev --group dev
 
 # Populate the local index (crawls docs + clones repos + computes embeddings)
-pipecat-context-hub refresh
+uv run pipecat-context-hub refresh
 
 # Force full re-ingest, ignoring cached state
-pipecat-context-hub refresh --force
+uv run pipecat-context-hub refresh --force
 
 # Recover from an unhealthy local Chroma index and rebuild from scratch
-pipecat-context-hub refresh --force --reset-index
+uv run pipecat-context-hub refresh --force --reset-index
 
 # Start the MCP server
-pipecat-context-hub serve
+uv run pipecat-context-hub serve
 ```
 
 ## Client Setup
@@ -110,6 +110,8 @@ Retrieval:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PIPECAT_HUB_EXTRA_REPOS` | *(empty)* | Comma-separated repo slugs to ingest alongside defaults |
+| `PIPECAT_HUB_TAINTED_REPOS` | *(empty)* | Comma-separated repo slugs to skip entirely and remove from the active refresh set |
+| `PIPECAT_HUB_TAINTED_REFS` | *(empty)* | Comma-separated `org/repo@ref` entries. `ref` may be a tag or commit SHA/prefix; refresh skips a repo when fetched HEAD matches one of these refs |
 | `PIPECAT_HUB_RERANKER_ENABLED` | `1` (enabled) | Set to `0` to disable cross-encoder reranking |
 
 
@@ -157,7 +159,7 @@ Or use `uv` directly:
 
 ```bash
 # Install dev dependencies
-uv pip install -e ".[dev]"
+uv sync --extra dev --group dev
 
 # Run tests
 uv run pytest tests/ -v

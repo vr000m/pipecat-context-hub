@@ -19,6 +19,7 @@ from pipecat_context_hub.services.ingest.github_ingest import (
     _iter_code_files,
     _iter_root_level_code_files,
     _make_chunk_id,
+    repo_ref_is_tainted,
 )
 from pipecat_context_hub.shared.config import HubConfig, StorageConfig
 from pipecat_context_hub.shared.types import ChunkedRecord
@@ -188,6 +189,31 @@ class TestMakeChunkId:
         key = "repo:path.py:sha:0"
         expected = hashlib.sha256(key.encode()).hexdigest()[:24]
         assert _make_chunk_id("repo", "path.py", "sha", 0) == expected
+
+
+class TestRepoRefIsTainted:
+    def test_matches_commit_prefix(self, tmp_path: Path):
+        repo_dir = _create_fake_repo(tmp_path, "repo", {"main.py": "print('ok')\n"})
+        from git import Repo as GitRepo
+
+        commit_sha = GitRepo(str(repo_dir)).head.commit.hexsha
+        assert repo_ref_is_tainted(repo_dir, commit_sha, {commit_sha[:8]})
+
+    def test_matches_tag_name(self, tmp_path: Path):
+        repo_dir = _create_fake_repo(tmp_path, "repo", {"main.py": "print('ok')\n"})
+        from git import Repo as GitRepo
+
+        git_repo = GitRepo(str(repo_dir))
+        git_repo.create_tag("v1.2.3", message="test tag")
+        commit_sha = git_repo.head.commit.hexsha
+        assert repo_ref_is_tainted(repo_dir, commit_sha, {"v1.2.3"})
+
+    def test_non_matching_tag_returns_false(self, tmp_path: Path):
+        repo_dir = _create_fake_repo(tmp_path, "repo", {"main.py": "print('ok')\n"})
+        from git import Repo as GitRepo
+
+        commit_sha = GitRepo(str(repo_dir)).head.commit.hexsha
+        assert not repo_ref_is_tainted(repo_dir, commit_sha, {"v9.9.9"})
 
 
 # ---------------------------------------------------------------------------

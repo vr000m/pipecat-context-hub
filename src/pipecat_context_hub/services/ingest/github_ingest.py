@@ -84,10 +84,47 @@ _BOUNDARY_RE = re.compile(
     re.MULTILINE,
 )
 
+_HEX_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
 
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 chars per token."""
     return len(text) // 4
+
+
+def repo_ref_is_tainted(repo_path: Path, commit_sha: str, tainted_refs: set[str]) -> bool:
+    """Return True when *commit_sha* matches a tainted commit-ish or tag name.
+
+    Hex refs are treated as commit SHA prefixes. Non-hex refs are matched
+    against local tag names fetched for the repository.
+    """
+    if not tainted_refs:
+        return False
+
+    sha = commit_sha.lower()
+    for ref in tainted_refs:
+        normalized = ref.strip()
+        if normalized and _HEX_SHA_RE.fullmatch(normalized) and sha.startswith(normalized.lower()):
+            return True
+
+    named_refs = [ref.strip() for ref in tainted_refs if ref.strip() and not _HEX_SHA_RE.fullmatch(ref.strip())]
+    if not named_refs:
+        return False
+
+    try:
+        git_repo = GitRepo(str(repo_path))
+    except Exception:
+        logger.warning("Failed to open repo for tainted-ref check: %s", repo_path)
+        return False
+
+    tag_targets: dict[str, str] = {}
+    for tag in git_repo.tags:
+        try:
+            tag_targets[tag.name] = tag.commit.hexsha.lower()
+        except Exception:
+            continue
+
+    return any(tag_targets.get(ref) == sha for ref in named_refs)
 
 
 def _chunk_code(

@@ -1,11 +1,11 @@
 # MCP Server Audit & Hardening
 
 ## Header
-- **Status:** Not Started
+- **Status:** In Progress
 - **Type:** chore
 - **Assignee:** vr000m
 - **Priority:** High
-- **Working Branch:** main (plan authored on `main`; move implementation to `chore/mcp-server-audit` before non-doc changes)
+- **Working Branch:** chore/mcp-server-audit
 - **Created:** 2026-03-25
 - **Target Completion:** 2026-03-31
 - **Objective:** Perform a focused code, architecture, and release-process audit for the MCP server and its refresh/runtime pipeline, then add the missing hardening and review gates for supply chain safety, upstream taint handling, resource lifecycle, and maintainability.
@@ -47,11 +47,11 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
 
 ## Implementation Checklist
 
-- [ ] Create `chore/mcp-server-audit` and keep implementation off `main`.
+- [x] Create `chore/mcp-server-audit` and keep implementation off `main`.
 - [ ] Write a threat model and architecture review covering docs fetch, GitHub ingestion, HuggingFace model handling, local index persistence, CLI entrypoints, and MCP server entrypoints.
 - [ ] Add automated audit commands and CI workflows for `ruff`, `mypy`, `pytest`, dependency audit, static security scan, and SBOM generation.
-- [ ] Normalize the local dependency workflow so lockfile-based setup is explicit and reproducible, then replace lockfile-bypassing install guidance with the supported `uv` commands.
-- [ ] Add upstream taint-handling policy and enforcement for compromised repos, releases, tags, or commits, including a documented local skip path.
+- [x] Normalize the local dependency workflow so lockfile-based setup is explicit and reproducible, then replace lockfile-bypassing install guidance with the supported `uv` commands.
+- [x] Add upstream taint-handling policy and enforcement for compromised repos, releases, tags, or commits, including a documented local skip path.
 - [ ] Add a soak/leak test path for repeated `refresh`/`serve` flows and concurrent retrieval calls, with observable RSS/thread/file-descriptor reporting.
 - [ ] Perform a manual code and architecture review of the high-risk modules listed in this plan and record findings and remediations.
 - [ ] Run a duplication and complexity audit and only consolidate code where the duplication creates real maintenance or correctness risk.
@@ -119,6 +119,11 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
   - Capture RSS, thread count, and file-descriptor growth during the soak run.
   - Use `memray` or `tracemalloc` for targeted profiling if the soak run shows growth.
 - Some of the heavier profiling and security tooling may need to run outside the current read-only Codex sandbox.
+- Completed in this slice:
+  - `uv sync --extra dev --group dev`
+  - `uv run pytest tests/unit/test_config.py tests/unit/test_github_ingest.py tests/unit/test_cli.py -q`
+  - `uv run ruff check src/pipecat_context_hub/shared/config.py src/pipecat_context_hub/services/ingest/github_ingest.py src/pipecat_context_hub/cli.py tests/unit/test_config.py tests/unit/test_github_ingest.py tests/unit/test_cli.py`
+  - `uv run mypy src/pipecat_context_hub/shared/config.py src/pipecat_context_hub/services/ingest/github_ingest.py src/pipecat_context_hub/cli.py tests/unit/test_config.py tests/unit/test_github_ingest.py tests/unit/test_cli.py`
 
 ## Issues & Solutions
 

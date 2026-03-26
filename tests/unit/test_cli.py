@@ -133,9 +133,10 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
     @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     def test_force_flag_bypasses_skip(
-        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
         tmp_path, monkeypatch,
     ):
@@ -145,6 +146,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
 
         # Simulate matching hash/SHA (would skip without --force)
         import hashlib
@@ -173,9 +175,10 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
     @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     def test_skip_when_sha_matches(
-        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
         tmp_path, monkeypatch,
     ):
@@ -185,6 +188,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
 
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
@@ -212,9 +216,10 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
     @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     def test_full_ingest_when_sha_differs(
-        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
         tmp_path, monkeypatch,
     ):
@@ -224,6 +229,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
 
         # Stored SHA is old, current is different
         mock_store.get_metadata = MagicMock(side_effect=lambda key: {
@@ -248,9 +254,10 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
     @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     def test_docs_hash_not_stored_on_ingest_error(
-        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
         tmp_path, monkeypatch,
     ):
@@ -260,6 +267,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
 
         # Docs ingest returns errors (e.g. upsert failure)
         mock_crawler.ingest = AsyncMock(
@@ -288,9 +296,10 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
     @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     def test_repo_sha_not_stored_on_ingest_error(
-        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
         tmp_path, monkeypatch,
     ):
@@ -300,6 +309,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
 
         # GitHub ingest returns errors for any repo
         mock_github.ingest = AsyncMock(
@@ -338,9 +348,10 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
     @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     def test_force_failed_repo_invalidates_cached_sha(
-        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
         tmp_path, monkeypatch,
     ):
@@ -350,6 +361,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
 
         # GitHub ingest fails
         mock_github.ingest = AsyncMock(
@@ -384,9 +396,10 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
     @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     def test_removed_repo_cleaned_up(
-        self, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
         tmp_path, monkeypatch,
     ):
@@ -396,6 +409,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
 
         # Simulate a previously-indexed repo that is no longer configured
         import hashlib
@@ -427,10 +441,11 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
     @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     @patch("pipecat_context_hub.cli._delete_local_index_storage")
     def test_reset_index_forces_full_rebuild(
-        self, mock_delete_storage, mock_si_cls, mock_gh_cls, mock_dc_cls,
+        self, mock_delete_storage, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
         tmp_path, monkeypatch,
     ):
@@ -438,10 +453,16 @@ class TestRefreshCommand:
         events: list[str] = []
         mock_store, mock_crawler, mock_github, mock_source = self._make_mocks()
         mock_delete_storage.side_effect = lambda *_args, **_kwargs: events.append("delete")
-        mock_is_cls.side_effect = lambda *_args, **_kwargs: (events.append("store"), mock_store)[1]
+
+        def _record_store(*_args, **_kwargs):
+            events.append("store")
+            return mock_store
+
+        mock_is_cls.side_effect = _record_store
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
 
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
@@ -464,3 +485,93 @@ class TestRefreshCommand:
         mock_crawler.ingest.assert_called_once()
         assert mock_github.ingest.call_count == 3
         mock_store.close.assert_called_once()
+
+    @patch("pipecat_context_hub.services.index.store.IndexStore")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingService")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
+    @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
+    @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
+    def test_tainted_ref_skips_refresh_and_keeps_last_known_good(
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
+        mock_eiw_cls, mock_es_cls, mock_is_cls,
+        tmp_path, monkeypatch,
+    ):
+        """A tainted upstream HEAD should be skipped without deleting a safe cached SHA."""
+        mock_store, mock_crawler, mock_github, mock_source = self._make_mocks()
+        mock_is_cls.return_value = mock_store
+        mock_dc_cls.return_value = mock_crawler
+        mock_gh_cls.return_value = mock_github
+        mock_si_cls.return_value = mock_source
+        mock_github.clone_or_fetch.side_effect = lambda repo_slug: (
+            Path(f"/tmp/{repo_slug.replace('/', '_')}"),
+            "badcafe" if repo_slug == "pipecat-ai/pipecat" else "abc123",
+        )
+        mock_ref_tainted.side_effect = lambda _repo_path, sha, _refs: sha == "badcafe"
+
+        import hashlib
+        content = "# Page\nSource: https://example.com\nContent here"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
+            "docs:content_hash": content_hash,
+            "repo:pipecat-ai/pipecat:commit_sha": "good123",
+            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
+            "repo:daily-co/daily-python:commit_sha": "abc123",
+        }.get(key))
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PIPECAT_HUB_TAINTED_REFS", "pipecat-ai/pipecat@badcafe")
+        runner = CliRunner()
+        result = runner.invoke(main, ["refresh"])
+
+        assert result.exit_code == 0
+        mock_github.ingest.assert_not_called()
+        mock_source.ingest.assert_not_called()
+        mock_store.delete_by_repo.assert_not_called()
+        mock_store.delete_metadata.assert_not_called()
+
+    @patch("pipecat_context_hub.services.index.store.IndexStore")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingService")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
+    @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
+    @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
+    def test_tainted_ref_removes_indexed_tainted_sha(
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
+        mock_eiw_cls, mock_es_cls, mock_is_cls,
+        tmp_path, monkeypatch,
+    ):
+        """If the cached SHA is also tainted, local records are removed."""
+        mock_store, mock_crawler, mock_github, mock_source = self._make_mocks()
+        mock_is_cls.return_value = mock_store
+        mock_dc_cls.return_value = mock_crawler
+        mock_gh_cls.return_value = mock_github
+        mock_si_cls.return_value = mock_source
+        mock_github.clone_or_fetch.side_effect = lambda repo_slug: (
+            Path(f"/tmp/{repo_slug.replace('/', '_')}"),
+            "badcafe" if repo_slug == "pipecat-ai/pipecat" else "abc123",
+        )
+        mock_ref_tainted.side_effect = lambda _repo_path, sha, _refs: sha == "badcafe"
+
+        import hashlib
+        content = "# Page\nSource: https://example.com\nContent here"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
+            "docs:content_hash": content_hash,
+            "repo:pipecat-ai/pipecat:commit_sha": "badcafe",
+            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
+            "repo:daily-co/daily-python:commit_sha": "abc123",
+        }.get(key))
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PIPECAT_HUB_TAINTED_REFS", "pipecat-ai/pipecat@badcafe")
+        runner = CliRunner()
+        result = runner.invoke(main, ["refresh"])
+
+        assert result.exit_code == 0
+        mock_store.delete_by_repo.assert_any_call("pipecat-ai/pipecat")
+        mock_store.delete_metadata.assert_any_call("repo:pipecat-ai/pipecat:commit_sha")
+        mock_github.ingest.assert_not_called()
+        mock_source.ingest.assert_not_called()

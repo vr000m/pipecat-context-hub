@@ -14,8 +14,51 @@ from pydantic import BaseModel, Field, computed_field
 # Environment variable for adding extra repos (comma-separated).
 _EXTRA_REPOS_ENV = "PIPECAT_HUB_EXTRA_REPOS"
 
+# Environment variable for skipping entire tainted repos (comma-separated).
+_TAINTED_REPOS_ENV = "PIPECAT_HUB_TAINTED_REPOS"
+
+# Environment variable for skipping specific tainted refs.
+# Format: org/repo@ref,org/repo@other-ref
+_TAINTED_REFS_ENV = "PIPECAT_HUB_TAINTED_REFS"
+
 # Environment variable for enabling cross-encoder reranking.
 _RERANKER_ENABLED_ENV = "PIPECAT_HUB_RERANKER_ENABLED"
+
+
+def _split_csv_env(raw: str) -> list[str]:
+    """Split a comma-separated env var into trimmed non-empty entries."""
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    """Deduplicate entries while preserving first-seen order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def _parse_tainted_refs(raw: str) -> dict[str, list[str]]:
+    """Parse org/repo@ref entries from an env var.
+
+    Malformed entries are ignored rather than raising at config-load time.
+    """
+    parsed: dict[str, list[str]] = {}
+    for entry in _split_csv_env(raw):
+        if "@" not in entry:
+            continue
+        repo_slug, ref = entry.rsplit("@", 1)
+        repo_slug = repo_slug.strip()
+        ref = ref.strip()
+        if not repo_slug or not ref:
+            continue
+        refs = parsed.setdefault(repo_slug, [])
+        if ref not in refs:
+            refs.append(ref)
+    return parsed
 
 
 class ChunkingConfig(BaseModel):
@@ -117,6 +160,10 @@ class SourceConfig(BaseModel):
     variable (comma-separated slugs, e.g.
     ``PIPECAT_HUB_EXTRA_REPOS="vr000m/decartai-sidekick,vr000m/pipecat-mcp-server"``).
     They are appended to the default repos list.
+
+    Entire repos can be skipped via ``PIPECAT_HUB_TAINTED_REPOS`` and
+    specific upstream refs can be skipped via ``PIPECAT_HUB_TAINTED_REFS``
+    using ``org/repo@ref`` entries where ``ref`` is a tag or commit SHA/prefix.
     """
 
     docs_url: str = Field(
@@ -135,19 +182,26 @@ class SourceConfig(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def effective_repos(self) -> list[str]:
-        """Repos list with any ``PIPECAT_HUB_EXTRA_REPOS`` entries appended."""
-        extra = os.environ.get(_EXTRA_REPOS_ENV, "").strip()
-        if not extra:
-            return list(self.repos)
-        extra_slugs = [s.strip() for s in extra.split(",") if s.strip()]
-        # Deduplicate while preserving order.
-        seen = set(self.repos)
-        result = list(self.repos)
-        for slug in extra_slugs:
-            if slug not in seen:
-                seen.add(slug)
-                result.append(slug)
-        return result
+        """Repos list with extra repos appended and tainted repos removed."""
+        result = _dedupe_preserve_order(
+            list(self.repos) + _split_csv_env(os.environ.get(_EXTRA_REPOS_ENV, ""))
+        )
+        tainted = set(self.tainted_repos)
+        return [slug for slug in result if slug not in tainted]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def tainted_repos(self) -> list[str]:
+        """Repos explicitly blocked from refresh by local policy."""
+        return _dedupe_preserve_order(
+            _split_csv_env(os.environ.get(_TAINTED_REPOS_ENV, ""))
+        )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def tainted_refs_by_repo(self) -> dict[str, list[str]]:
+        """Mapping of repo slug to tainted upstream refs to skip."""
+        return _parse_tainted_refs(os.environ.get(_TAINTED_REFS_ENV, ""))
 
 
 class HubConfig(BaseModel):

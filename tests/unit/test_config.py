@@ -14,6 +14,8 @@ from pipecat_context_hub.shared.config import (
     SourceConfig,
     StorageConfig,
     _EXTRA_REPOS_ENV,
+    _TAINTED_REFS_ENV,
+    _TAINTED_REPOS_ENV,
 )
 
 
@@ -144,6 +146,33 @@ class TestSourceConfig:
         with patch.dict(os.environ, {_EXTRA_REPOS_ENV: "  "}):
             s = SourceConfig()
             assert s.effective_repos == s.repos
+
+    def test_effective_repos_excludes_tainted_repos(self):
+        """Tainted repos are removed from the effective refresh list."""
+        with patch.dict(
+            os.environ,
+            {
+                _EXTRA_REPOS_ENV: "org/repo-a",
+                _TAINTED_REPOS_ENV: "pipecat-ai/pipecat,org/repo-a",
+            },
+        ):
+            s = SourceConfig()
+            assert s.effective_repos == [
+                "pipecat-ai/pipecat-examples",
+                "daily-co/daily-python",
+            ]
+            assert s.tainted_repos == ["pipecat-ai/pipecat", "org/repo-a"]
+
+    def test_tainted_refs_by_repo_parses_env(self):
+        """Tainted refs are parsed from org/repo@ref entries."""
+        with patch.dict(
+            os.environ,
+            {_TAINTED_REFS_ENV: "pipecat-ai/pipecat@v0.0.9,pipecat-ai/pipecat@deadbeef,broken-entry"},
+        ):
+            s = SourceConfig()
+            assert s.tainted_refs_by_repo == {
+                "pipecat-ai/pipecat": ["v0.0.9", "deadbeef"],
+            }
 
 
 class TestHubConfig:

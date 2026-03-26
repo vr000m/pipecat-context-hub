@@ -3,7 +3,7 @@
 ## Current Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
-| 2026-03-25 | chore | MCP Server Audit & Hardening | Not Started | vr000m | `main` | `20260325-chore-mcp-server-audit-hardening.md` |
+| 2026-03-25 | chore | MCP Server Audit & Hardening | In Progress | vr000m | `chore/mcp-server-audit` | `20260325-chore-mcp-server-audit-hardening.md` |
 
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
