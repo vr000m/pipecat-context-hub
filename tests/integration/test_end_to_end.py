@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 
@@ -207,7 +208,9 @@ class TestHybridRetrieverE2E:
         assert result.evidence.confidence > 0.0
         # Top hit should be about creating a bot
         top = result.hits[0]
-        assert top.citation.source_url.startswith("https://docs.pipecat.ai")
+        source_url = urlparse(top.citation.source_url)
+        assert source_url.scheme == "https"
+        assert source_url.hostname == "docs.pipecat.ai"
 
     async def test_search_examples(self, retriever: HybridRetriever):
         result = await retriever.search_examples(

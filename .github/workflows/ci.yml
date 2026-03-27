@@ -10,6 +10,9 @@ on:
       - "refactor/**"
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   quality:
     name: Quality
