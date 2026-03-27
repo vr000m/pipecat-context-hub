@@ -133,7 +133,11 @@ Retrieval:
 
 ## Dashboard
 
-The project includes an interactive dashboard for understanding the index — what's
+<h1><div align="left">
+ <img alt="pipecat" width="400px" height="auto" src="./dashboard-example.jpg">
+</div></h1>
+
+The project includes an interactive dashboard for understanding the index —  what's
 in it, how chunks distribute across repos and content types, and how concepts
 relate in embedding space. We built it because tuning retrieval quality requires
 seeing the data: which repos dominate, where docs and source code overlap
@@ -151,6 +155,9 @@ groupings.
   additive blending so overlapping content types produce mixed colours.
 
 ```bash
+# Install just
+uv pip install rust-just
+
 # Rebuild dashboard data from the current index
 just dashboard-build
 
