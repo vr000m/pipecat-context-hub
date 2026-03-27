@@ -252,16 +252,20 @@ class HybridRetriever:
             )
             results = await self._index.keyword_search(query)
         elif input.path is not None:
-            # Path-based lookup: filter-only (no FTS MATCH — paths aren't keywords)
+            # Path-based lookup: get ALL chunks for this path and concatenate
+            # into a full page. Use a high limit to capture multi-chunk pages.
             lookup_key = input.path
             filters = {"content_type": "doc", "path": input.path}
             query = IndexQuery(
                 query_text="",
                 filters=filters,
                 filter_only=True,
-                limit=1,
+                limit=200,
             )
             results = await self._index.keyword_search(query)
+            # Filter to exact path match (not prefix) to avoid pulling
+            # chunks from sibling pages like /transports-overview
+            results = [r for r in results if r.chunk.path == input.path]
         else:
             results = []
 
@@ -280,12 +284,22 @@ class HybridRetriever:
                 evidence=evidence,
             )
 
+        # For path-based lookups, concatenate all chunks into the full page
+        if input.path is not None and len(results) > 1:
+            content = "\n\n".join(r.chunk.content for r in results)
+            # Collect sections from all chunks
+            all_sections: list[str] = []
+            for r in results:
+                all_sections.extend(r.chunk.metadata.get("sections", []))
+            sections = all_sections
+        else:
+            sections = result.chunk.metadata.get("sections", [])
+            content = result.chunk.content
+
         chunk = result.chunk
-        sections: list[str] = chunk.metadata.get("sections", [])
-        content = chunk.content
 
         # If a specific section was requested, try to extract it
-        if input.section and sections:
+        if input.section:
             section_content = _extract_section(content, input.section)
             if section_content:
                 content = section_content

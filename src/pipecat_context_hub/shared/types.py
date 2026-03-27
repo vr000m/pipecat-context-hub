@@ -262,7 +262,9 @@ class GetDocInput(BaseModel):
 
     @model_validator(mode="after")
     def _require_doc_id_or_path(self) -> "GetDocInput":
-        if self.doc_id is None and self.path is None:
+        has_doc_id = self.doc_id is not None and self.doc_id.strip()
+        has_path = self.path is not None and self.path.strip()
+        if not has_doc_id and not has_path:
             raise ValueError("Either doc_id or path must be provided.")
         return self
 

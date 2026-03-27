@@ -359,7 +359,7 @@ class FTSIndex:
             "       c.repo, c.path, c.commit_sha, c.indexed_at, c.metadata_json",
             "FROM chunks c",
             "WHERE " + " AND ".join(filter_clauses),
-            "ORDER BY length(c.path)",
+            "ORDER BY c.rowid",
             "LIMIT ?",
         ])
         filter_params.append(query.limit)
