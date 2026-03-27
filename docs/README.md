@@ -168,7 +168,7 @@ just dashboard-serve
 
 ## Development
 
-A `justfile` provides common tasks. Run `just` to see all recipes.
+A [`justfile`](https://github.com/casey/just) provides common tasks. Install with `brew install just` ([other platforms](https://github.com/casey/just#installation)). Run `just` to see all recipes.
 
 ```bash
 just check    # lint + format check + typecheck
