@@ -7,6 +7,7 @@ from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -75,6 +76,24 @@ class TestVectorIndex:
         index = VectorIndex(tmp_path / "chroma")
         yield index
         index.close()
+
+    def test_disables_chroma_telemetry(self, tmp_path: Path):
+        mock_client = Mock()
+        mock_client.get_or_create_collection.return_value = Mock()
+        mock_client._identifier = "mock-client"
+
+        with patch(
+            "pipecat_context_hub.services.index.vector.chromadb.PersistentClient",
+            return_value=mock_client,
+        ) as persistent_client:
+            index = VectorIndex(tmp_path / "chroma")
+            index.close()
+
+        settings = persistent_client.call_args.kwargs["settings"]
+        assert settings.anonymized_telemetry is False
+        assert settings.chroma_product_telemetry_impl == (
+            "pipecat_context_hub.services.index.vector.NoOpProductTelemetryClient"
+        )
 
     def test_upsert_and_search(self, vector_index: VectorIndex):
         records = _make_records(3)

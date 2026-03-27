@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import chromadb
+from chromadb.telemetry.product import ProductTelemetryClient, ProductTelemetryEvent
+from overrides import override
 
 from pipecat_context_hub.shared.types import ChunkedRecord, IndexQuery, IndexResult
 
@@ -26,6 +28,14 @@ COLLECTION_NAME = "latest"
 
 # ChromaDB limits batch operations to ~5,461 embeddings. Use a safe limit.
 _CHROMA_BATCH_SIZE = 5000
+
+
+class NoOpProductTelemetryClient(ProductTelemetryClient):
+    """Disable Chroma product telemetry cleanly for local clients."""
+
+    @override
+    def capture(self, event: ProductTelemetryEvent) -> None:
+        return
 
 
 def _record_to_metadata(
@@ -260,7 +270,15 @@ class VectorIndex:
     def _open_client(self) -> None:
         """Open the persistent Chroma client and register a local reference."""
         self._chroma_path.mkdir(parents=True, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=str(self._chroma_path))
+        self._client = chromadb.PersistentClient(
+            path=str(self._chroma_path),
+            settings=chromadb.Settings(
+                anonymized_telemetry=False,
+                chroma_product_telemetry_impl=(
+                    "pipecat_context_hub.services.index.vector.NoOpProductTelemetryClient"
+                ),
+            ),
+        )
         self._collection = self._client.get_or_create_collection(
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},
