@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import chromadb
+from chromadb.config import Settings as ChromaSettings
 from chromadb.telemetry.product import ProductTelemetryClient, ProductTelemetryEvent
 from overrides import override
 
@@ -272,7 +273,7 @@ class VectorIndex:
         self._chroma_path.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(
             path=str(self._chroma_path),
-            settings=chromadb.Settings(
+            settings=ChromaSettings(
                 anonymized_telemetry=False,
                 chroma_product_telemetry_impl=(
                     "pipecat_context_hub.services.index.vector.NoOpProductTelemetryClient"
