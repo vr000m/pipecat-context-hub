@@ -470,10 +470,15 @@ class FTSIndex:
                 clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
                 params.append(f'%"{key}": "{esc(filters[key])}"%')
         # Source API metadata filters (exact match)
-        for key in ("class_name", "chunk_type", "method_name"):
+        for key in ("chunk_type", "method_name"):
             if key in filters:
                 clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
                 params.append(f'%"{key}": "{esc(filters[key])}"%')
+        # class_name is a prefix filter so "DailyTransport" matches
+        # "DailyTransport", "DailyTransportClient", "DailyTransportParams"
+        if "class_name" in filters:
+            clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")
+            params.append(f'%"class_name": "{esc(filters["class_name"])}%')
         # module_path is a prefix filter (e.g. "pipecat.services" matches "pipecat.services.tts")
         if "module_path" in filters:
             clauses.append("c.metadata_json LIKE ? ESCAPE '\\'")

@@ -239,22 +239,38 @@ class HybridRetriever:
     # -----------------------------------------------------------------
 
     async def get_doc(self, input: GetDocInput) -> GetDocOutput:
-        """Get a specific document by ID (direct lookup)."""
-        filters: dict[str, Any] = {"chunk_id": input.doc_id}
-        query = IndexQuery(
-            query_text=input.doc_id,
-            filters=filters,
-            limit=1,
-        )
+        """Get a specific document by ID or path (direct lookup)."""
+        lookup_key = input.doc_id or ""
 
-        results = await self._index.keyword_search(query)
+        if input.doc_id:
+            # Direct chunk_id lookup
+            filters: dict[str, Any] = {"chunk_id": input.doc_id}
+            query = IndexQuery(
+                query_text=input.doc_id,
+                filters=filters,
+                limit=1,
+            )
+            results = await self._index.keyword_search(query)
+        elif input.path:
+            # Path-based lookup: find doc chunks matching this path prefix
+            lookup_key = input.path
+            filters = {"content_type": "doc", "path": input.path}
+            query = IndexQuery(
+                query_text=input.path,
+                filters=filters,
+                limit=1,
+            )
+            results = await self._index.keyword_search(query)
+        else:
+            results = []
+
         result = results[0] if results else None
-        evidence = build_single_item_evidence(result, input.doc_id, "document")
+        evidence = build_single_item_evidence(result, lookup_key, "document")
 
         if result is None:
-            logger.debug("get_doc: doc_id=%r not found", input.doc_id)
+            logger.debug("get_doc: %r not found", lookup_key)
             return GetDocOutput(
-                doc_id=input.doc_id,
+                doc_id=lookup_key,
                 title="Not Found",
                 content="",
                 source_url="",
@@ -273,7 +289,7 @@ class HybridRetriever:
             if section_content:
                 content = section_content
 
-        logger.debug("get_doc: doc_id=%r found, sections=%d", input.doc_id, len(sections))
+        logger.debug("get_doc: %r found, sections=%d", lookup_key, len(sections))
         return GetDocOutput(
             doc_id=chunk.chunk_id,
             title=chunk.metadata.get("title", chunk.path),

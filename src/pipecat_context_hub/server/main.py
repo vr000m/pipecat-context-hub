@@ -43,8 +43,8 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
     ),
     (
         "get_doc",
-        "Retrieve a specific Pipecat documentation page by its chunk ID. "
-        "Use after search_docs to get full page content. "
+        "Retrieve a specific Pipecat documentation page by chunk ID or path. "
+        "Use `doc_id` (from a search_docs result) or `path` (e.g. '/guides/learn/transports') for direct lookup. "
         "Use `section` to extract a specific heading; falls back to full document if not found.",
         GetDocInput.model_json_schema(),
     ),
