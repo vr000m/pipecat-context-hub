@@ -16,6 +16,16 @@ This project uses [Semantic Versioning](https://semver.org/).
 - **Local upstream taint controls** — `PIPECAT_HUB_TAINTED_REPOS` and
   `PIPECAT_HUB_TAINTED_REFS` let operators skip compromised repos, tags, or
   commit SHAs locally without waiting for upstream removal
+- **Path-based `get_doc` lookup** — `get_doc(path="/guides/learn/transports")`
+  returns the full assembled page without requiring a prior `search_docs` call.
+  Multi-chunk pages are concatenated in insertion order with section extraction
+  working on the assembled content.
+- **`class_name` prefix matching** — `search_api` and `get_code_snippet` now
+  match `class_name` as a prefix: `DailyTransport` finds `DailyTransport`,
+  `DailyTransportClient`, `DailyTransportParams`. Both FTS and Vector backends
+  updated consistently.
+- **Pre-merge live MCP smoke test** — 10-item checklist in AGENTS.md for
+  verifying retrieval correctness against the live local index before merging
 
 ### Changed
 
@@ -35,6 +45,8 @@ This project uses [Semantic Versioning](https://semver.org/).
   when refresh skips a compromised ref
 - `llms-full.txt` is now streamed with a fixed size cap so an unexpectedly
   large upstream docs payload cannot grow refresh memory without bound
+- Chroma product telemetry disabled via `NoOpProductTelemetryClient` —
+  local dev tool should not phone home
 
 ## [0.0.10] - 2026-03-25
 
