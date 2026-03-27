@@ -2,6 +2,27 @@
 
 Project conventions and decisions for AI coding agents working on this codebase.
 
+## Pre-Merge Live MCP Smoke Test
+
+Before merging any PR that touches retrieval, tool handlers, index backends,
+or types, reconnect the MCP server and run these queries against the live
+local index. Unit tests mock the retrieval layer and cannot catch page
+assembly, filter semantics, or schema issues that only surface against real
+indexed data.
+
+1. `get_doc(path="/server/frames/system-frames")` — returns full multi-chunk
+   page (not a single 500-char chunk), confidence 1.0
+2. `get_doc(path="/server/frames/system-frames", section="StartFrame")` —
+   returns only the StartFrame section from the assembled page
+3. `get_doc(doc_id=<id from a search_docs result>)` — existing lookup works
+4. `search_api("send_dtmf", class_name="DailyTransport")` — returns
+   `DailyTransportClient.send_dtmf` (prefix match)
+5. `search_examples("TTS pipeline", domain="backend")` — domain filter works
+6. `search_docs("TTS + STT")` — multi-concept returns hits for both concepts
+
+If any of these fail, investigate before merging — the unit test suite will
+not catch the regression.
+
 ## Review Checklist
 
 Findings that have been reviewed and deliberately accepted. Do not re-flag these
