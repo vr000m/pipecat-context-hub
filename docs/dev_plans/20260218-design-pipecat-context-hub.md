@@ -1337,3 +1337,138 @@ subclass name.
   manual annotation layer.
 
 **Test results:** 680 passed, 0 failed, lint clean
+
+## RST Type Documentation Indexing (planned)
+
+### Problem
+
+The `daily-co/daily-python` `.pyi` stub uses `Mapping[str, Any]` for dict
+parameters throughout: `send_dtmf(settings: Mapping[str, Any])`,
+`join(settings: Mapping[str, Any])`, `start_dialout(settings: Mapping[str, Any])`,
+etc. Agents see the method exists but cannot see what keys the dict accepts
+(`tones`, `sessionId`, `digitDurationMs`, `method`).
+
+The actual dict schemas are documented in `docs/src/types.rst` within the
+`daily-co/daily-python` repo — 72 type definitions, 1307 lines. This is
+structured RST using `.. list-table::` directives with Key/Value columns,
+inline union literals, and cross-references between types.
+
+### Data Available
+
+Three RST type patterns in `types.rst`:
+
+1. **Dict types** (most common) — `.. list-table::` with Key/Value header:
+   ```rst
+   .. _DialoutSendDtmfSettings:
+
+   DialoutSendDtmfSettings
+   -----------------------------------
+
+   .. list-table::
+      :widths: 25 75
+      :header-rows: 1
+
+      * - Key
+        - Value
+      * - "sessionId"
+        - string
+      * - "tones"
+        - string
+      * - "method"
+        - "sip-info" | "telephone-event" | "auto"
+      * - "digitDurationMs"
+        - number
+   ```
+
+2. **Enum/union types** — inline literal:
+   ```rst
+   CallState
+   -----------------------------------
+
+   "initialized" | "joining" | "joined" | "leaving" | "left"
+   ```
+
+3. **Simple aliases** — prose:
+   ```rst
+   CallClientError
+   -----------------------------------
+
+   A string with an error message or *None*.
+   ```
+
+Also: `api_reference.rst` uses `.. autoclass::` directives (Sphinx autodoc)
+which reference the same `.pyi` classes. Less useful since we already index
+the stubs directly.
+
+### Approach
+
+Add RST type parsing to `SourceIngester` as a fallback alongside the existing
+`.pyi` fallback. When a repo has `.rst` files in `docs/` containing
+`.. list-table::` type definitions, parse them into structured chunks.
+
+**Why SourceIngester, not DocsCrawler?** These are API type definitions (like
+class/struct definitions), not conceptual documentation. They should appear in
+`search_api` results alongside the method signatures that reference them.
+
+### Chunk Design
+
+Each RST type definition becomes a `content_type="source"` chunk with:
+
+- `chunk_type="type_definition"` (new chunk type)
+- `class_name` = type name (e.g. `DialoutSendDtmfSettings`)
+- `module_path` = derived from repo (e.g. `daily`)
+- `content` = human-readable rendering of the type:
+  ```
+  # Type: DialoutSendDtmfSettings
+  Module: daily
+
+  Dict type with fields:
+  - "sessionId": string
+  - "tones": string
+  - "method": "sip-info" | "telephone-event" | "auto"
+  - "digitDurationMs": number
+  ```
+- `metadata.fields` = JSON list of `{key, value_type}` for structured access
+- `metadata.rst_refs` = cross-referenced type names (e.g. `DialoutCodecs`)
+
+### What This Enables
+
+- `search_api("send_dtmf settings")` → returns both the method signature AND
+  `DialoutSendDtmfSettings` type definition
+- `search_api("DialoutSendDtmfSettings")` → direct lookup of the dict schema
+- `get_code_snippet(symbol="DialoutSendDtmfSettings")` → full type definition
+- `search_api("join settings", class_name="CallClient")` → method signature +
+  `MeetingTokenProperties` / `ClientSettings` types in results
+
+### Implementation Checklist
+
+- [ ] Add `_parse_rst_types()` to `SourceIngester` — extract type definitions
+      from `.rst` files found in `docs/` within cloned repos
+- [ ] Handle all three RST type patterns (dict/list-table, enum/union, alias)
+- [ ] Add `chunk_type="type_definition"` to the chunk type enum in types.py
+      and to filter handling in FTS/Vector backends
+- [ ] Build chunks with `content_type="source"` so they appear in `search_api`
+- [ ] Cross-reference: when a `.pyi` method has `Mapping[str, Any]`, try to
+      link the parameter name to an RST type name (heuristic: method name
+      substring matching, e.g. `send_dtmf` → `DialoutSendDtmfSettings`)
+- [ ] Add RST type names to `companion_snippets` on the linked `.pyi` method
+      chunks, so `get_code_snippet(symbol="CallClient.send_dtmf")` suggests
+      the type definition
+- [ ] Tests for RST parsing (unit) + live MCP verification
+- [ ] Update `SearchApiInput.chunk_type` Literal to include `type_definition`
+
+### Scope Constraints
+
+- Only parse `.. list-table::` and inline union/alias patterns — no general
+  RST rendering engine needed
+- Only runs on repos that have `.rst` files in `docs/` — no impact on other repos
+- Cross-referencing is best-effort via naming heuristics, not guaranteed
+- `api_reference.rst` (Sphinx autodoc) is skipped — we already have the `.pyi`
+
+### Files to Modify
+
+- `src/pipecat_context_hub/services/ingest/source_ingest.py` — RST parsing + chunk building
+- `src/pipecat_context_hub/shared/types.py` — `chunk_type` Literal update
+- `src/pipecat_context_hub/services/index/fts.py` — filter support for new chunk type
+- `src/pipecat_context_hub/services/index/vector.py` — filter support for new chunk type
+- `tests/unit/test_source_ingest.py` — RST parsing tests
