@@ -75,9 +75,3 @@ ALL_METHOD_TYPES: dict[str, list[str]] = {
 }
 
 
-def get_related_types(method_name: str) -> list[str]:
-    """Look up RST type names related to a Daily SDK method.
-
-    Returns an empty list if no mapping exists.
-    """
-    return ALL_METHOD_TYPES.get(method_name, [])

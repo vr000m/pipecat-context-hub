@@ -561,6 +561,7 @@ class HybridRetriever:
             if line_sliced or chunk_type == "module_overview":
                 imports_raw: list[str] = []
                 companion: list[str] = []
+                related_types: list[str] = []
                 expectations: list[str] = []
             else:
                 imports_raw = _parse_metadata_list(r.chunk.metadata, "imports")
@@ -573,8 +574,6 @@ class HybridRetriever:
                     else c
                     for c in calls_raw
                 ]
-                # Merge related type definitions into companion snippets
-                companion.extend(related_types)
 
                 yields_raw = _parse_metadata_list(r.chunk.metadata, "yields")
                 base_classes = _parse_metadata_list(r.chunk.metadata, "base_classes")
@@ -594,6 +593,7 @@ class HybridRetriever:
                     citation=citation,
                     dependency_notes=imports_raw,
                     companion_snippets=companion,
+                    related_type_defs=related_types,
                     interface_expectations=expectations,
                 )
             )

@@ -160,6 +160,12 @@ class SourceIngester:
                 records.extend(file_records)
 
         # 4b. Index .pyi stubs (fallback path for repos without Python packages)
+        # Resolve type map once before the loop (only for known repos)
+        pyi_type_map: dict[str, list[str]] | None = None
+        if self._repo_slug == "daily-co/daily-python":
+            from pipecat_context_hub.services.ingest.daily_type_map import ALL_METHOD_TYPES
+            pyi_type_map = ALL_METHOD_TYPES
+
         for pyi_file in pyi_files:
             total_files += 1
             try:
@@ -180,12 +186,6 @@ class SourceIngester:
             except Exception as exc:
                 errors.append(f"AST error in {rel_path}: {exc}")
                 continue
-
-            # Build type map for .pyi methods if this is a known repo
-            pyi_type_map: dict[str, list[str]] | None = None
-            if "daily-co/daily-python" in self._repo_slug:
-                from pipecat_context_hub.services.ingest.daily_type_map import ALL_METHOD_TYPES
-                pyi_type_map = ALL_METHOD_TYPES
 
             file_records = _build_chunks(
                 module_info=module_info,
