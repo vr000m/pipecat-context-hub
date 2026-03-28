@@ -28,7 +28,12 @@ surface against real indexed data.
    backend-style example paths, not unrelated frontend/client files
 9. `search_docs("TTS + STT")` — multi-concept returns hits for both concepts
 10. `list_tools()` — `get_doc` mentions path lookup, and `get_code_snippet` /
-    `search_api` describe `class_name` as a prefix match
+    `search_api` describe `class_name` as a prefix match and list
+    `type_definition` in chunk_type
+11. `search_api("DialoutSendDtmfSettings", chunk_type="type_definition")` —
+    returns the Daily SDK dict schema with field keys
+12. `search_api("send_dtmf settings")` — returns both the `.pyi` method
+    signature AND the `DialoutSendDtmfSettings` type definition
 
 If any of these fail, investigate before merging — the unit test suite will
 not catch the regression.

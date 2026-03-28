@@ -102,6 +102,7 @@ Retrieval:
   - Discovered via root-level directory scanning (no `examples/` dir required)
 - `daily-co/daily-python` — Daily Python SDK (`.pyi` type stub AST-indexed for `search_api`)
   - Indexes `CallClient`, `EventHandler`, 87 types, all method signatures via `daily.pyi`
+  - Indexes type definitions from `docs/src/types.rst` (72 dict schemas, enums, aliases) as `type_definition` chunks for `search_api`
   - Demos indexed as code examples
 - Additional repos via `PIPECAT_HUB_EXTRA_REPOS` env var (comma-separated slugs)
   - Supports single-project repos (`src/`-layout, root-level entry scripts)

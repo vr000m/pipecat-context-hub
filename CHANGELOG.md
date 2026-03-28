@@ -24,6 +24,11 @@ This project uses [Semantic Versioning](https://semver.org/).
   match `class_name` as a prefix: `DailyTransport` finds `DailyTransport`,
   `DailyTransportClient`, `DailyTransportParams`. Both FTS and Vector backends
   updated consistently.
+- **RST type documentation indexing** — `search_api` now indexes type
+  definitions from `.rst` files (e.g. `types.rst` in `daily-co/daily-python`).
+  Filter with `chunk_type="type_definition"` to find dict schemas, enums, and
+  aliases alongside method signatures. Parses 72 Daily SDK type definitions
+  including `DialoutSendDtmfSettings`, `ClientSettings`, `RecordingStreamingSettings`.
 - **Pre-merge live MCP smoke test** — 10-item checklist in AGENTS.md for
   verifying retrieval correctness against the live local index before merging
 - **Security policy** — `SECURITY.md` added with vulnerability reporting

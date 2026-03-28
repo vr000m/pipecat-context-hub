@@ -23,6 +23,8 @@ _RST_EMPHASIS_RE = re.compile(r"\*([^*]+)\*")  # *italic*
 _MAX_TYPE_NAME_LEN = 128
 _MAX_FIELD_KEY_LEN = 64
 _MAX_VALUE_TYPE_LEN = 256
+_MAX_DESCRIPTION_LEN = 2048
+_MAX_RST_REFS = 50
 
 
 @dataclass
@@ -86,10 +88,12 @@ def _extract_rst_refs(text: str) -> list[str]:
     """Extract cross-referenced type names from RST text."""
     refs: list[str] = []
     for match in _RST_REF_RE.finditer(text):
-        ref = match.group(1).strip()
+        ref = _sanitize_name(match.group(1).strip(), _MAX_TYPE_NAME_LEN)
         # Skip external links (contain <url>)
         if "<" not in ref and ref not in refs:
             refs.append(ref)
+            if len(refs) >= _MAX_RST_REFS:
+                break
     return refs
 
 
@@ -210,7 +214,7 @@ def parse_rst_types(rst_path: Path) -> list[RstTypeDefinition]:
         else:
             # Non-table content: enum/union or prose alias
             content = section_text.strip()
-            stripped = _strip_rst_markup(content)
+            stripped = _sanitize_name(_strip_rst_markup(content), _MAX_DESCRIPTION_LEN)
             refs = _extract_rst_refs(raw_section_text)
 
             if "|" in stripped and not stripped.startswith("A "):
@@ -293,6 +297,10 @@ def _parse_list_table(
             current_value_lines.append(stripped[2:].strip())
             i += 1
             continue
+
+        # Bare "or" line separates alternative tables — end this table
+        if stripped.lower() == "or":
+            break
 
         # Continuation of value on next line (indented)
         if current_value_lines and stripped and not stripped.startswith(".."):

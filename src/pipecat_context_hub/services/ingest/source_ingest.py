@@ -90,7 +90,7 @@ class SourceIngester:
         # 2b. Check for RST type docs in docs/
         rst_files: list[Path] = []
         docs_dir = clone_dir / "docs"
-        if docs_dir.is_dir():
+        if docs_dir.is_dir() and not docs_dir.is_symlink():
             rst_files = sorted(
                 f for f in docs_dir.rglob("*.rst")
                 if f.is_file() and not f.is_symlink()
@@ -205,7 +205,10 @@ class SourceIngester:
 
             total_files += 1
             rel_path = rst_file.relative_to(clone_dir).as_posix()
-            # Derive module_path from repo slug (e.g. "daily-co/daily-python" → "daily")
+            # Derive module_path from repo slug (e.g. "daily-co/daily-python" → "daily").
+            # This is intentionally approximate for RST sources — unlike AST chunks
+            # where module_path is a dotted Python import path, RST files have no
+            # Python import path. The derived name is used for module prefix filtering.
             module_path = self._repo_slug.split("/")[-1].replace("-", "_")
             # Strip common suffixes like "_python" for cleaner module names
             for suffix in ("_python", "_sdk", "_client"):
@@ -237,7 +240,7 @@ class SourceIngester:
                         {"key": f.key, "value_type": f.value_type}
                         for f in typedef.fields
                     ]
-                if typedef.alternatives:
+                elif typedef.alternatives:
                     # Flatten all alternative fields for search
                     all_fields: list[dict[str, str]] = []
                     for alt in typedef.alternatives:
