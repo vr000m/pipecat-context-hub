@@ -500,7 +500,7 @@ class SearchApiInput(BaseModel):
         max_length=256,
         description="Filter by class name prefix, e.g. 'DailyTransport' matches DailyTransport, DailyTransportClient, etc.",
     )
-    chunk_type: Literal["module_overview", "class_overview", "method", "function"] | None = Field(
+    chunk_type: Literal["module_overview", "class_overview", "method", "function", "type_definition"] | None = Field(
         default=None,
         description="Filter by chunk type.",
     )

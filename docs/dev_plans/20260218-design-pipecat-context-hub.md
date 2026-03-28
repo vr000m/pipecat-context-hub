@@ -1337,3 +1337,202 @@ subclass name.
   manual annotation layer.
 
 **Test results:** 680 passed, 0 failed, lint clean
+
+## RST Type Documentation Indexing (in progress)
+
+### Problem
+
+The `daily-co/daily-python` `.pyi` stub uses `Mapping[str, Any]` for dict
+parameters throughout: `send_dtmf(settings: Mapping[str, Any])`,
+`join(settings: Mapping[str, Any])`, `start_dialout(settings: Mapping[str, Any])`,
+etc. Agents see the method exists but cannot see what keys the dict accepts
+(`tones`, `sessionId`, `digitDurationMs`, `method`).
+
+The actual dict schemas are documented in `docs/src/types.rst` within the
+`daily-co/daily-python` repo — 72 type definitions, 1307 lines. This is
+structured RST using `.. list-table::` directives with Key/Value columns,
+inline union literals, and cross-references between types.
+
+### Data Available
+
+Three RST type patterns in `types.rst`:
+
+1. **Dict types** (most common) — `.. list-table::` with Key/Value header:
+   ```rst
+   .. _DialoutSendDtmfSettings:
+
+   DialoutSendDtmfSettings
+   -----------------------------------
+
+   .. list-table::
+      :widths: 25 75
+      :header-rows: 1
+
+      * - Key
+        - Value
+      * - "sessionId"
+        - string
+      * - "tones"
+        - string
+      * - "method"
+        - "sip-info" | "telephone-event" | "auto"
+      * - "digitDurationMs"
+        - number
+   ```
+
+2. **Enum/union types** — inline literal:
+   ```rst
+   CallState
+   -----------------------------------
+
+   "initialized" | "joining" | "joined" | "leaving" | "left"
+   ```
+
+3. **Simple aliases** — prose:
+   ```rst
+   CallClientError
+   -----------------------------------
+
+   A string with an error message or *None*.
+   ```
+
+4. **"Or" alternates** — two `.. list-table::` blocks under the same heading
+   separated by a bare `or` line (exactly 2 instances: `AudioInputSettings`,
+   `VideoInputSettings`). Parser must merge as alternative shapes.
+
+Also: `api_reference.rst` uses `.. autoclass::` directives (Sphinx autodoc)
+which reference the same `.pyi` classes. Less useful since we already index
+the stubs directly.
+
+### Approach
+
+Add RST type parsing as a new module alongside `SourceIngester`. When a repo
+has `.rst` files in `docs/` containing `.. list-table::` type definitions,
+parse them into structured chunks.
+
+**Why SourceIngester, not DocsCrawler?** These are API type definitions (like
+class/struct definitions), not conceptual documentation. They should appear in
+`search_api` results alongside the method signatures that reference them.
+
+**v1 simplification:** No explicit cross-referencing or companion_snippets
+linkage. Embedding similarity at query time will naturally surface type
+definitions alongside method signatures when users search for e.g.
+"send_dtmf settings". This avoids the fragile method-name-to-type-name
+heuristic problem (e.g. `join()` maps to `MeetingTokenProperties`, not
+`JoinSettings`).
+
+### Chunk Design
+
+Each RST type definition becomes a `content_type="source"` chunk with:
+
+- `chunk_type="type_definition"` (new chunk type)
+- `class_name` = type name (e.g. `DialoutSendDtmfSettings`)
+- `module_path` = derived from repo (e.g. `daily`)
+- `path` = `docs/src/types.rst`
+- `content` = human-readable rendering of the type:
+  ```
+  # Type: DialoutSendDtmfSettings
+  Module: daily
+
+  Dict type with fields:
+  - "sessionId": string
+  - "tones": string
+  - "method": "sip-info" | "telephone-event" | "auto"
+  - "digitDurationMs": number
+  ```
+- `metadata.fields` = JSON list of `{key, value_type}` for structured access
+- `metadata.rst_refs` = cross-referenced type names (e.g. `DialoutCodecs`)
+
+RST inline markup (backtick cross-refs, external hyperlinks, parenthetical
+descriptions) is stripped during parsing. Compound value types like
+`[ "PCMU" | "OPUS" ]` and `bool | number` are stored as raw type strings
+after markup removal — no attempt to parse compound types into structured form.
+
+Type names, field keys, and refs are normalized and length-limited before
+indexing per the AGENTS.md security constraint (non-AST ingestion source).
+
+### What This Enables (v1)
+
+- `search_api("send_dtmf settings")` → returns both the method signature AND
+  `DialoutSendDtmfSettings` type definition (via embedding similarity)
+- `search_api("DialoutSendDtmfSettings")` → direct lookup of the dict schema
+- `search_api("DialoutSendDtmfSettings", chunk_type="type_definition")` →
+  filtered to type definitions only
+- `get_code_snippet(symbol="DialoutSendDtmfSettings")` → full type definition
+
+### Implementation Checklist
+
+- [x] Create `src/pipecat_context_hub/services/ingest/rst_type_parser.py` —
+      extract type definitions from `.rst` files (keeps `source_ingest.py`
+      focused on orchestration)
+- [x] Handle all four RST type patterns: dict/list-table, enum/union, alias,
+      and "or" alternates (merge as alternative shapes)
+- [x] Strip RST inline markup: backtick cross-refs, external hyperlinks,
+      parenthetical descriptions, Sphinx roles (`:class:`, `:func:`),
+      and control characters
+- [x] Normalize and length-limit type names, field keys, refs, and
+      descriptions before indexing (security: non-AST ingestion source)
+- [x] Wire into `SourceIngester.ingest()` — scan `docs/` for `.rst` files,
+      call parser, build `content_type="source"` chunks
+- [x] Set `path = "docs/src/types.rst"` and verify `_make_source_url` produces
+      valid GitHub URLs with line ranges for RST files
+- [x] Add `chunk_type="type_definition"` to `SearchApiInput.chunk_type` Literal
+- [x] Add `fields` and `rst_refs` metadata serialization to
+      `_record_to_metadata` and `_metadata_to_record_fields` in `vector.py`
+- [x] Update `search_api` tool description in `server/main.py` to mention
+      `type_definition` as a valid `chunk_type` filter
+- [x] Update `type_definition` in reranking chunk-type preference in `rerank.py`
+- [x] Unit tests for RST parsing (all 4 patterns + edge cases)
+- [ ] Test `.rst` discovery and combined `.pyi` + `.rst` ingestion in
+      `test_source_ingest.py` — verify the `source_ingest.py` early-return
+      gate does not block `.rst` discovery
+- [ ] Update `test_mcp_tools.py` with `type_definition` filter test
+- [ ] Live MCP smoke test — mixed-query retrieval regression:
+      `search_api("send_dtmf settings")` returns both the `.pyi` method
+      signature AND `DialoutSendDtmfSettings` type definition
+- [ ] Live MCP smoke test — direct lookup:
+      `search_api("DialoutSendDtmfSettings", chunk_type="type_definition")`
+      returns the dict schema
+- [ ] Run full AGENTS.md pre-merge smoke suite (all 12 items)
+
+### Scope Constraints
+
+- Only parse `.. list-table::` and inline union/alias patterns — no general
+  RST rendering engine needed
+- Only runs on repos that have `.rst` files in `docs/` — no impact on other repos
+- `api_reference.rst` (Sphinx autodoc) is skipped — we already have the `.pyi`
+- **No cross-referencing in v1** — rely on embedding similarity to surface
+  type definitions alongside method signatures at query time
+- **No companion_snippets linkage in v1** — adding `related_types` metadata
+  and retrieval-layer changes deferred to v2
+
+### Future Enhancements (v2)
+
+These were identified during review but deferred to keep v1 focused on the
+core value (making dict schemas discoverable):
+
+- **Explicit cross-referencing** — link `.pyi` methods to their RST type
+  definitions via a `related_types` metadata field. Requires either a manual
+  mapping table (~15-20 methods) or parsing `api_reference.rst` for
+  parameter-to-type cross-references. Method-name substring matching has
+  low recall (`join()` → `MeetingTokenProperties`, not `JoinSettings`).
+- **companion_snippets linkage** — merge `related_types` into
+  `companion_snippets` at retrieval time in `hybrid.py`. Requires a new
+  metadata field and retrieval-layer changes. Currently `companion_snippets`
+  is derived only from `calls` metadata (AGENTS.md documents this separation).
+- **Two-stage search_api retrieval** — when `class_name` filter is set,
+  expand results to include related type definitions that wouldn't pass the
+  class_name prefix filter. E.g. `search_api("join", class_name="CallClient")`
+  returns both `CallClient.join` AND `ClientSettings` / `MeetingTokenProperties`.
+
+### Files to Modify
+
+- `src/pipecat_context_hub/services/ingest/rst_type_parser.py` — new file, RST parsing
+- `src/pipecat_context_hub/services/ingest/source_ingest.py` — wire RST parser
+- `src/pipecat_context_hub/shared/types.py` — `chunk_type` Literal update
+- `src/pipecat_context_hub/services/index/vector.py` — `fields`/`rst_refs` metadata serialization
+- `src/pipecat_context_hub/services/retrieval/rerank.py` — chunk-type preference for `type_definition`
+- `src/pipecat_context_hub/server/main.py` — tool description update
+- `tests/unit/test_rst_type_parser.py` — new file, RST parsing tests
+- `tests/unit/test_source_ingest.py` — `.rst` discovery + combined ingestion test
+- `tests/unit/test_mcp_tools.py` — `type_definition` filter test

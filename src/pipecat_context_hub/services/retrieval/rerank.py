@@ -183,7 +183,7 @@ def apply_code_intent_heuristics(
 _MAX_SAME_SOURCE = 3
 
 # Chunk-type preference order for search_api results (lower index = higher preference).
-_CHUNK_TYPE_PREFERENCE = {"method": 0, "function": 1, "class_overview": 2, "module_overview": 3}
+_CHUNK_TYPE_PREFERENCE = {"method": 0, "function": 1, "type_definition": 2, "class_overview": 3, "module_overview": 4}
 
 
 def _apply_diversity(
