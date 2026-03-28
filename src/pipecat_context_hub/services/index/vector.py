@@ -93,6 +93,12 @@ def _record_to_metadata(
     calls = record.metadata.get("calls")
     if calls and isinstance(calls, list):
         meta["calls"] = json.dumps(calls)
+    fields = record.metadata.get("fields")
+    if fields and isinstance(fields, list):
+        meta["fields"] = json.dumps(fields)
+    rst_refs = record.metadata.get("rst_refs")
+    if rst_refs and isinstance(rst_refs, list):
+        meta["rst_refs"] = json.dumps(rst_refs)
     return meta
 
 
@@ -148,6 +154,18 @@ def _metadata_to_record_fields(
             extra_meta["calls"] = json.loads(calls_str)
         except (json.JSONDecodeError, TypeError):
             extra_meta["calls"] = []
+    fields_str = meta.get("fields", "")
+    if fields_str:
+        try:
+            extra_meta["fields"] = json.loads(fields_str)
+        except (json.JSONDecodeError, TypeError):
+            extra_meta["fields"] = []
+    rst_refs_str = meta.get("rst_refs", "")
+    if rst_refs_str:
+        try:
+            extra_meta["rst_refs"] = json.loads(rst_refs_str)
+        except (json.JSONDecodeError, TypeError):
+            extra_meta["rst_refs"] = []
 
     return ChunkedRecord(
         chunk_id=chunk_id,

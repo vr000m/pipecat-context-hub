@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from git import Repo as GitRepo
 
+from pipecat_context_hub.services.ingest.rst_type_parser import parse_rst_types
 from pipecat_context_hub.services.ingest.ast_extractor import (
     ClassInfo,
     FunctionInfo,
@@ -86,8 +87,17 @@ class SourceIngester:
                 if d.is_dir() and (d / "__init__.py").is_file()
             )
 
+        # 2b. Check for RST type docs in docs/
+        rst_files: list[Path] = []
+        docs_dir = clone_dir / "docs"
+        if docs_dir.is_dir():
+            rst_files = sorted(
+                f for f in docs_dir.rglob("*.rst")
+                if f.is_file() and not f.is_symlink()
+            )
+
         # Nothing to index
-        if not pkg_dirs and not pyi_files:
+        if not pkg_dirs and not pyi_files and not rst_files:
             return IngestResult(source=f"source:{self._repo_slug}")
 
         if pyi_files and not pkg_dirs:
@@ -180,6 +190,81 @@ class SourceIngester:
                 repo_slug=self._repo_slug,
             )
             records.extend(file_records)
+
+        # 4c. Index RST type definitions from docs/
+        for rst_file in rst_files:
+            try:
+                rst_file.resolve().relative_to(clone_dir.resolve())
+            except ValueError:
+                errors.append(f"RST file escapes repo: {rst_file}")
+                continue
+
+            type_defs = parse_rst_types(rst_file)
+            if not type_defs:
+                continue
+
+            total_files += 1
+            rel_path = rst_file.relative_to(clone_dir).as_posix()
+            # Derive module_path from repo slug (e.g. "daily-co/daily-python" → "daily")
+            module_path = self._repo_slug.split("/")[-1].replace("-", "_")
+            # Strip common suffixes like "_python" for cleaner module names
+            for suffix in ("_python", "_sdk", "_client"):
+                if module_path.endswith(suffix):
+                    module_path = module_path[: -len(suffix)]
+                    break
+
+            for typedef in type_defs:
+                chunk_id = hashlib.sha256(
+                    f"{self._repo_slug}:{rel_path}:{typedef.name}".encode()
+                ).hexdigest()[:24]
+
+                source_url = _make_source_url(
+                    self._repo_slug, rel_path, commit_sha,
+                    typedef.line_start, typedef.line_end,
+                )
+
+                content = typedef.render_content(module_path)
+
+                metadata: dict[str, object] = {
+                    "chunk_type": "type_definition",
+                    "class_name": typedef.name,
+                    "module_path": module_path,
+                    "line_start": typedef.line_start,
+                    "line_end": typedef.line_end,
+                }
+                if typedef.fields:
+                    metadata["fields"] = [
+                        {"key": f.key, "value_type": f.value_type}
+                        for f in typedef.fields
+                    ]
+                if typedef.alternatives:
+                    # Flatten all alternative fields for search
+                    all_fields: list[dict[str, str]] = []
+                    for alt in typedef.alternatives:
+                        all_fields.extend(
+                            {"key": f.key, "value_type": f.value_type}
+                            for f in alt
+                        )
+                    metadata["fields"] = all_fields
+                if typedef.rst_refs:
+                    metadata["rst_refs"] = typedef.rst_refs
+
+                records.append(ChunkedRecord(
+                    chunk_id=chunk_id,
+                    content=content,
+                    content_type="source",
+                    source_url=source_url,
+                    repo=self._repo_slug,
+                    path=rel_path,
+                    commit_sha=commit_sha,
+                    indexed_at=now,
+                    metadata=metadata,
+                ))
+
+            logger.info(
+                "RST type ingest (%s): file=%s types=%d",
+                self._repo_slug, rel_path, len(type_defs),
+            )
 
         # 5. Batch upsert
         upserted = 0

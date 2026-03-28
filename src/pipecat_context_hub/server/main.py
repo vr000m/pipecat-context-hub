@@ -80,7 +80,7 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "base classes, and frame types. Use when you need implementation details, type information, "
         "or inheritance hierarchies. "
         "Filter by `module` (path prefix, e.g. 'pipecat.services'), `class_name` (prefix match, e.g. 'DailyTransport' matches DailyTransportClient), "
-        "`chunk_type` ('module_overview', 'class_overview', 'method', 'function'), or `is_dataclass`. "
+        "`chunk_type` ('module_overview', 'class_overview', 'method', 'function', 'type_definition'), or `is_dataclass`. "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'BaseTransport + WebSocketTransport').",
         SearchApiInput.model_json_schema(),
     ),

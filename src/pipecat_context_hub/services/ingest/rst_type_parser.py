@@ -138,8 +138,7 @@ def parse_rst_types(rst_path: Path) -> list[RstTypeDefinition]:
         if i >= len(lines):
             break
 
-        # Expect the type name as a heading
-        heading_line = i
+        # Expect the type name as a heading — skip it
         i += 1
 
         # Skip the underline (dashes)
