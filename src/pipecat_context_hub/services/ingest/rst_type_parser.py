@@ -216,19 +216,27 @@ def parse_rst_types(rst_path: Path) -> list[RstTypeDefinition]:
                 )
             types.append(typedef)
         else:
-            # Non-table content: enum/union or prose alias
+            # Non-table content: enum/union or prose alias.
+            # Split into headline (first non-empty line — the type definition)
+            # and prose (remaining lines — untrusted explanatory text).
+            # Only the headline goes into indexed content; prose is metadata-only.
             content = section_text.strip()
-            stripped = _sanitize_name(_strip_rst_markup(content), _MAX_DESCRIPTION_LEN)
+            stripped = _strip_rst_markup(content)
+            content_lines = [ln for ln in stripped.splitlines() if ln.strip()]
+            headline = _sanitize_name(content_lines[0], _MAX_DESCRIPTION_LEN) if content_lines else ""
+            prose = _sanitize_name(
+                "\n".join(content_lines[1:]).strip(), _MAX_DESCRIPTION_LEN
+            ) if len(content_lines) > 1 else ""
             refs = _extract_rst_refs(raw_section_text)
 
-            if "|" in stripped and not stripped.startswith("A "):
+            if "|" in headline:
                 # Looks like an enum/union: "value1" | "value2" | ...
                 typedef = RstTypeDefinition(
                     name=type_name,
                     line_start=anchor_line + 1,
                     line_end=section_end,
                     kind="enum",
-                    description=stripped,
+                    description=headline,
                     rst_refs=refs,
                 )
             else:
@@ -238,7 +246,7 @@ def parse_rst_types(rst_path: Path) -> list[RstTypeDefinition]:
                     line_start=anchor_line + 1,
                     line_end=section_end,
                     kind="alias",
-                    description=stripped,
+                    description=headline or prose,  # use prose if headline is empty
                     rst_refs=refs,
                 )
             types.append(typedef)
