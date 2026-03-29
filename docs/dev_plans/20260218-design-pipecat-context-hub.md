@@ -1414,12 +1414,13 @@ parse them into structured chunks.
 class/struct definitions), not conceptual documentation. They should appear in
 `search_api` results alongside the method signatures that reference them.
 
-**v1 simplification:** No explicit cross-referencing or companion_snippets
-linkage. Embedding similarity at query time will naturally surface type
-definitions alongside method signatures when users search for e.g.
-"send_dtmf settings". This avoids the fragile method-name-to-type-name
-heuristic problem (e.g. `join()` maps to `MeetingTokenProperties`, not
-`JoinSettings`).
+**Cross-referencing:** Explicit method-to-type linkage is implemented via a
+static mapping table (`daily_type_map.py`) that populates `related_types`
+metadata on `.pyi` method chunks at ingestion time. Surfaced as
+`related_type_defs` on `get_code_snippet` results and `related_types` on
+`search_api` results. The static table sidesteps the fragile
+method-name-to-type-name heuristic problem (e.g. `join()` →
+`MeetingTokenProperties`, not `JoinSettings`).
 
 ### Chunk Design
 
@@ -1501,25 +1502,22 @@ indexing per the AGENTS.md security constraint (non-AST ingestion source).
   RST rendering engine needed
 - Only runs on repos that have `.rst` files in `docs/` — no impact on other repos
 - `api_reference.rst` (Sphinx autodoc) is skipped — we already have the `.pyi`
-- **No cross-referencing in v1** — rely on embedding similarity to surface
-  type definitions alongside method signatures at query time
-- **No companion_snippets linkage in v1** — adding `related_types` metadata
-  and retrieval-layer changes deferred to v2
+- ~~**No cross-referencing in v1**~~ ✅ Done. Static `daily_type_map.py`
+  populates `related_types` metadata on `.pyi` method chunks. Surfaced via
+  `related_type_defs` (CodeSnippet) and `related_types` (ApiHit) at
+  retrieval time in `hybrid.py`.
 
 ### Future Enhancements (v2)
 
 These were identified during review but deferred to keep v1 focused on the
 core value (making dict schemas discoverable):
 
-- **Explicit cross-referencing** — link `.pyi` methods to their RST type
-  definitions via a `related_types` metadata field. Requires either a manual
-  mapping table (~15-20 methods) or parsing `api_reference.rst` for
-  parameter-to-type cross-references. Method-name substring matching has
-  low recall (`join()` → `MeetingTokenProperties`, not `JoinSettings`).
-- **companion_snippets linkage** — merge `related_types` into
-  `companion_snippets` at retrieval time in `hybrid.py`. Requires a new
-  metadata field and retrieval-layer changes. Currently `companion_snippets`
-  is derived only from `calls` metadata (AGENTS.md documents this separation).
+- ~~**Explicit cross-referencing**~~ ✅ Done. Implemented via
+  `daily_type_map.py` (46 static mappings) + `related_types` metadata +
+  `related_type_defs` / `related_types` output fields.
+- ~~**companion_snippets linkage**~~ ✅ Done. `related_types` is surfaced as
+  a dedicated `related_type_defs` field on `CodeSnippet` (separate from
+  `companion_snippets` which remains derived from `calls`).
 - **Two-stage search_api retrieval** — when `class_name` filter is set,
   expand results to include related type definitions that wouldn't pass the
   class_name prefix filter. E.g. `search_api("join", class_name="CallClient")`

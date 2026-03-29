@@ -43,6 +43,30 @@ _SKIP_DIRS: frozenset[str] = frozenset({
 # Minimum body lines for a method/function to get its own chunk.
 _MIN_METHOD_LINES = 3
 
+# Repo slug → lazy-loaded method-to-type mapping for .pyi cross-referencing.
+# Each entry's value is a module attribute path that resolves to a
+# dict[str, list[str]].  Add new repos here as static type maps are created.
+_REPO_TYPE_MAP_MODULES: dict[str, tuple[str, str]] = {
+    "daily-co/daily-python": (
+        "pipecat_context_hub.services.ingest.daily_type_map",
+        "ALL_METHOD_TYPES",
+    ),
+}
+
+
+def _load_type_map(repo_slug: str) -> dict[str, list[str]] | None:
+    """Load the static method-to-type map for *repo_slug*, if one exists."""
+    entry = _REPO_TYPE_MAP_MODULES.get(repo_slug)
+    if entry is None:
+        return None
+    mod_path, attr = entry
+    import importlib
+    mod = importlib.import_module(mod_path)
+    result = getattr(mod, attr)
+    if not isinstance(result, dict):
+        raise TypeError(f"{mod_path}.{attr} is not a dict: {type(result)}")
+    return result
+
 
 def _sanitize_slug(slug: str) -> str:
     """Sanitize a repo slug to a safe directory name.
@@ -160,6 +184,9 @@ class SourceIngester:
                 records.extend(file_records)
 
         # 4b. Index .pyi stubs (fallback path for repos without Python packages)
+        # Resolve type map once before the loop.
+        pyi_type_map = _load_type_map(self._repo_slug)
+
         for pyi_file in pyi_files:
             total_files += 1
             try:
@@ -188,6 +215,8 @@ class SourceIngester:
                 commit_sha=commit_sha,
                 now=now,
                 repo_slug=self._repo_slug,
+                type_map=pyi_type_map,
+                is_stub=True,
             )
             records.extend(file_records)
 
@@ -340,6 +369,8 @@ def _build_chunks(
     commit_sha: str,
     now: datetime,
     repo_slug: str,
+    type_map: dict[str, list[str]] | None = None,
+    is_stub: bool = False,
 ) -> list[ChunkedRecord]:
     """Build ChunkedRecord list from extracted module info."""
     records: list[ChunkedRecord] = []
@@ -410,10 +441,11 @@ def _build_chunks(
             },
         ))
 
-        # Method chunks (only for non-trivial methods)
+        # Method chunks (only for non-trivial methods; .pyi stubs are
+        # always single-line and must be indexed for related_types linkage)
         for method in cls.methods:
             body_lines = method.line_end - method.line_start + 1
-            if body_lines < _MIN_METHOD_LINES:
+            if not is_stub and body_lines < _MIN_METHOD_LINES:
                 continue
             method_content = _build_method_chunk(cls, method, mp)
             sig = build_signature(method.name, method.parameters, method.return_type)
@@ -444,13 +476,15 @@ def _build_chunks(
                     "yields": method.yields,
                     "calls": method.calls,
                     "imports": method.imports,
+                    **({"related_types": type_map[method.name]}
+                       if type_map and method.name in type_map else {}),
                 },
             ))
 
     # --- Top-level function chunks ---
     for func in module_info.functions:
         body_lines = func.line_end - func.line_start + 1
-        if body_lines < _MIN_METHOD_LINES:
+        if not is_stub and body_lines < _MIN_METHOD_LINES:
             continue
         func_content = _build_function_chunk(func, mp)
         sig = build_signature(func.name, func.parameters, func.return_type)
@@ -479,6 +513,8 @@ def _build_chunks(
                 "yields": func.yields,
                 "calls": func.calls,
                 "imports": func.imports,
+                **({"related_types": type_map[func.name]}
+                   if type_map and func.name in type_map else {}),
             },
         ))
 

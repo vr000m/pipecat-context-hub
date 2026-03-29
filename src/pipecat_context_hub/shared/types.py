@@ -443,6 +443,10 @@ class CodeSnippet(BaseModel):
         default_factory=list,
         description="Qualified method names called by the containing method (e.g. 'TTSService.push_frame'). May cover more than the visible lines when content is truncated by max_lines.",
     )
+    related_type_defs: list[str] = Field(
+        default_factory=list,
+        description="RST type definition names related to this method's parameters (e.g. 'DialoutSendDtmfSettings' for send_dtmf). Look up with search_api(query=name, chunk_type='type_definition').",
+    )
     interface_expectations: list[str] = Field(
         default_factory=list,
         description="Frame types yielded and base classes implemented by the containing method/class. May cover more than the visible lines when content is truncated by max_lines.",
@@ -541,6 +545,10 @@ class ApiHit(BaseModel):
     calls: list[str] = Field(
         default_factory=list,
         description="Methods called by this method (self.X, Class.X).",
+    )
+    related_types: list[str] = Field(
+        default_factory=list,
+        description="RST type definition names for this method's parameters. Look up with search_api(query=name, chunk_type='type_definition').",
     )
     citation: Citation
     score: float

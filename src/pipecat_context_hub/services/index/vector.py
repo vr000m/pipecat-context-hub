@@ -99,6 +99,9 @@ def _record_to_metadata(
     rst_refs = record.metadata.get("rst_refs")
     if rst_refs and isinstance(rst_refs, list):
         meta["rst_refs"] = json.dumps(rst_refs)
+    related_types = record.metadata.get("related_types")
+    if related_types and isinstance(related_types, list):
+        meta["related_types"] = json.dumps(related_types)
     return meta
 
 
@@ -166,6 +169,12 @@ def _metadata_to_record_fields(
             extra_meta["rst_refs"] = json.loads(rst_refs_str)
         except (json.JSONDecodeError, TypeError):
             extra_meta["rst_refs"] = []
+    related_types_str = meta.get("related_types", "")
+    if related_types_str:
+        try:
+            extra_meta["related_types"] = json.loads(related_types_str)
+        except (json.JSONDecodeError, TypeError):
+            extra_meta["related_types"] = []
 
     return ChunkedRecord(
         chunk_id=chunk_id,

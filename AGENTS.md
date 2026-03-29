@@ -34,8 +34,11 @@ surface against real indexed data.
     returns the Daily SDK dict schema with field keys
 12. `search_api("send_dtmf settings")` — returns method signatures.
     Note: `DialoutSendDtmfSettings` type_definition does not yet surface
-    in mixed queries via embedding similarity alone (v2 cross-referencing
-    follow-up). Use `chunk_type="type_definition"` for direct lookup.
+    in mixed queries via embedding similarity alone. Use
+    `chunk_type="type_definition"` for direct lookup.
+13. `get_code_snippet(symbol="CallClient.send_dtmf")` — returns method
+    signature with `related_type_defs: ["DialoutSendDtmfSettings"]` linking
+    to the dict schema
 
 If any of these fail, investigate before merging — the unit test suite will
 not catch the regression.

@@ -561,10 +561,12 @@ class HybridRetriever:
             if line_sliced or chunk_type == "module_overview":
                 imports_raw: list[str] = []
                 companion: list[str] = []
+                related_types: list[str] = []
                 expectations: list[str] = []
             else:
                 imports_raw = _parse_metadata_list(r.chunk.metadata, "imports")
                 calls_raw = _parse_metadata_list(r.chunk.metadata, "calls")
+                related_types = _parse_metadata_list(r.chunk.metadata, "related_types")
                 class_name = r.chunk.metadata.get("class_name", "")
                 companion = [
                     f"{class_name}.{c}"
@@ -591,6 +593,9 @@ class HybridRetriever:
                     citation=citation,
                     dependency_notes=imports_raw,
                     companion_snippets=companion,
+                    # Metadata key is "related_types"; enriched output field is
+                    # "related_type_defs" (same pattern as calls → companion_snippets).
+                    related_type_defs=related_types,
                     interface_expectations=expectations,
                 )
             )
@@ -628,6 +633,7 @@ class HybridRetriever:
             imports_raw = _parse_metadata_list(r.chunk.metadata, "imports")
             yields_raw = _parse_metadata_list(r.chunk.metadata, "yields")
             calls_raw = _parse_metadata_list(r.chunk.metadata, "calls")
+            related_types_raw = _parse_metadata_list(r.chunk.metadata, "related_types")
             hits.append(
                 ApiHit(
                     chunk_id=r.chunk.chunk_id,
@@ -642,6 +648,7 @@ class HybridRetriever:
                     imports=imports_raw,
                     yields=yields_raw,
                     calls=calls_raw,
+                    related_types=related_types_raw,
                     citation=citation,
                     score=r.score,
                 )
