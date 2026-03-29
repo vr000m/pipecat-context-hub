@@ -1644,8 +1644,15 @@ Chunk type mapping (TS → existing `chunk_type` values):
 - TS `class` → `class_overview`
 - TS `type` alias → `type_definition`
 - TS exported `function` → `function`
-- TS class `method` → `method`
 - TS `enum` → `type_definition`
+
+Method extraction is deferred to Phase 2 (tree-sitter). Regex-based method
+extraction from class bodies is brittle — TS classes use complex signatures
+with generics, overloads, and decorators that regex cannot reliably parse.
+Phase 1a produces `class_overview` chunks that include the full class body
+as snippet (including method signatures), which is sufficient for
+`search_api` discoverability. Phase 2 tree-sitter will emit individual
+`method` chunks with proper `method_name` and `method_signature` metadata.
 
 Python-specific fields that remain empty for TS chunks:
 - `is_dataclass`: always `False`
@@ -1678,8 +1685,9 @@ code chunks.
 Repos with 0 code chunks (Swift, some Kotlin) should at minimum have their
 README indexed so `search_docs` can find them.
 
-- Create standalone `ChunkedRecord` objects with `content_type="readme"`
-  (valid per `types.py` line 25), not just metadata enrichment
+- Create standalone `ChunkedRecord` objects with `content_type="doc"`
+  (NOT `"readme"` — `search_docs` in `hybrid.py` hard-filters to
+  `content_type="doc"`, so `"readme"` chunks would be invisible)
 - Check if README is already indexed by `GitHubRepoIngester` — may need
   to add `.md` to `_CODE_EXTENSIONS` or handle separately
 
@@ -1729,7 +1737,7 @@ Phase 1:
 - [ ] Wire TS parser into `source_ingest.py` — TS repo detection, source
       root discovery, module path derivation
 - [ ] Doc comment extraction (regex-based, language-agnostic)
-- [ ] README indexing for zero-chunk repos (standalone `content_type="readme"`)
+- [ ] README indexing for zero-chunk repos (standalone `content_type="doc"`)
 - [ ] Unit tests for TS parser (interfaces, classes, types, functions, generics)
 - [ ] MCP smoke tests: `search_api("PipecatClient")`,
       `search_api("WebSocketTransport")`, `search_api("Transport")` must
