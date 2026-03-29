@@ -175,7 +175,18 @@ class SourceConfig(BaseModel):
         description="URL for the pre-rendered llms-full.txt docs file.",
     )
     repos: list[str] = Field(
-        default=["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples", "daily-co/daily-python"],
+        default=[
+            "pipecat-ai/pipecat",
+            "pipecat-ai/pipecat-examples",
+            "daily-co/daily-python",
+            # Core TypeScript SDKs
+            "pipecat-ai/pipecat-client-web",
+            "pipecat-ai/pipecat-client-web-transports",
+            "pipecat-ai/voice-ui-kit",
+            "pipecat-ai/pipecat-flows-editor",
+            "pipecat-ai/web-client-ui",
+            "pipecat-ai/small-webrtc-prebuilt",
+        ],
         description="GitHub repos to ingest.",
     )
 

@@ -95,7 +95,17 @@ class TestSourceConfig:
         s = SourceConfig()
         assert s.docs_url == "https://docs.pipecat.ai/"
         assert s.docs_llms_txt_url == "https://docs.pipecat.ai/llms-full.txt"
-        assert s.repos == ["pipecat-ai/pipecat", "pipecat-ai/pipecat-examples", "daily-co/daily-python"]
+        assert s.repos == [
+            "pipecat-ai/pipecat",
+            "pipecat-ai/pipecat-examples",
+            "daily-co/daily-python",
+            "pipecat-ai/pipecat-client-web",
+            "pipecat-ai/pipecat-client-web-transports",
+            "pipecat-ai/voice-ui-kit",
+            "pipecat-ai/pipecat-flows-editor",
+            "pipecat-ai/web-client-ui",
+            "pipecat-ai/small-webrtc-prebuilt",
+        ]
 
     def test_custom_llms_txt_url(self):
         s = SourceConfig(docs_llms_txt_url="https://example.com/docs.txt")
@@ -115,24 +125,13 @@ class TestSourceConfig:
         """Env var appends extra repos to defaults."""
         with patch.dict(os.environ, {_EXTRA_REPOS_ENV: "org/repo-a,org/repo-b"}):
             s = SourceConfig()
-            assert s.effective_repos == [
-                "pipecat-ai/pipecat",
-                "pipecat-ai/pipecat-examples",
-                "daily-co/daily-python",
-                "org/repo-a",
-                "org/repo-b",
-            ]
+            assert s.effective_repos == s.repos + ["org/repo-a", "org/repo-b"]
 
     def test_effective_repos_deduplicates(self):
         """Env var duplicates of default repos are ignored."""
         with patch.dict(os.environ, {_EXTRA_REPOS_ENV: "pipecat-ai/pipecat,org/new"}):
             s = SourceConfig()
-            assert s.effective_repos == [
-                "pipecat-ai/pipecat",
-                "pipecat-ai/pipecat-examples",
-                "daily-co/daily-python",
-                "org/new",
-            ]
+            assert s.effective_repos == s.repos + ["org/new"]
 
     def test_effective_repos_strips_whitespace(self):
         """Whitespace around slugs is trimmed."""
@@ -157,10 +156,8 @@ class TestSourceConfig:
             },
         ):
             s = SourceConfig()
-            assert s.effective_repos == [
-                "pipecat-ai/pipecat-examples",
-                "daily-co/daily-python",
-            ]
+            expected = [r for r in s.repos if r != "pipecat-ai/pipecat"]
+            assert s.effective_repos == expected
             assert s.tainted_repos == ["pipecat-ai/pipecat", "org/repo-a"]
 
     def test_tainted_refs_by_repo_parses_env(self):
