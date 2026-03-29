@@ -1534,3 +1534,162 @@ core value (making dict schemas discoverable):
 - `tests/unit/test_rst_type_parser.py` — new file, RST parsing tests
 - `tests/unit/test_source_ingest.py` — `.rst` discovery + combined ingestion test
 - `tests/unit/test_mcp_tools.py` — `type_definition` filter test
+
+## Multi-Language API Extraction (planned)
+
+### Problem
+
+The hub only extracts API metadata (classes, methods, signatures) from Python
+via `ast_extractor.py`. TypeScript, Swift, Kotlin, and C++ repos are indexed
+as raw code chunks but have no structured API surface in `search_api`. This
+means:
+
+- **TypeScript** client SDKs (`pipecat-client-web`, `pipecat-client-web-transports`,
+  `voice-ui-kit`) — 900+ chunks as code but zero API extraction
+- **Swift** iOS SDKs (7 repos) — 0 chunks total
+- **Kotlin** Android SDKs (3 repos) — 2-3 chunks (READMEs only)
+- **C++** native SDKs (`pipecat-client-cxx`, `pipecat-esp32`) — 2-3 chunks
+
+### Architecture
+
+Three-layer ingestion stack per language, each adding value independently:
+
+```
+┌─────────────────────────────────────────┐
+│ Layer 3: Doc comments (///, /** */)     │  ← language-specific regex
+│ Layer 2: Interface files (.d.ts, .h)    │  ← stub/header parser
+│ Layer 1: Tree-sitter AST               │  ← full API extraction
+│ Layer 0: Code chunks (existing)         │  ← GitHubRepoIngester
+└─────────────────────────────────────────┘
+```
+
+**Current state per language:**
+
+| Language | Layer 0 | Layer 1 | Layer 2 | Layer 3 |
+|----------|---------|---------|---------|---------|
+| Python | ✅ | ✅ `ast_extractor.py` | ✅ `.pyi` stubs | ✅ docstrings via AST |
+| TypeScript | ✅ | ❌ | ❌ `.d.ts` not parsed | ❌ JSDoc not extracted |
+| Swift | ❌ 0 chunks | ❌ | ❌ | ❌ |
+| Kotlin | ❌ 2-3 chunks | ❌ | ❌ | ❌ |
+| C++ | ❌ 2-3 chunks | ❌ | ❌ | ❌ |
+
+### Phased Approach
+
+#### Phase 1: Quick wins without tree-sitter
+
+Lightweight parsers using regex and file-type detection. No new dependencies.
+
+**1a. `.d.ts` declaration file parsing (TypeScript)**
+
+Same approach as `.pyi` stubs — TypeScript declaration files contain the
+public API surface with full type information. Parse exported interfaces,
+classes, type aliases, and function signatures.
+
+- Repos: `pipecat-client-web`, `pipecat-client-web-transports`, `voice-ui-kit`
+- Pattern: look for `.d.ts` files in `dist/`, `lib/`, or root
+- Chunk type: reuse `content_type="source"` with existing metadata fields
+- File: new `ts_declaration_parser.py` alongside `rst_type_parser.py`
+
+**1b. Doc comment extraction (all languages)**
+
+Language-agnostic regex extraction of `///`, `/** */`, and `#` doc comments
+above class/function declarations. Store as enrichment metadata, not
+separate chunks.
+
+- `///` — Swift, C++, Rust
+- `/** ... */` — TypeScript (JSDoc), Kotlin (KDoc), Java
+- `"""..."""` — Python (already extracted by AST)
+
+**1c. README indexing for zero-chunk repos**
+
+Repos with 0 code chunks (Swift, some Kotlin) should at minimum have their
+README indexed as a doc chunk so `search_docs` can find them.
+
+- Check if README is already indexed by `GitHubRepoIngester` — may need
+  to add `.md` to `_CODE_EXTENSIONS` or handle separately
+
+#### Phase 2: Tree-sitter for TypeScript
+
+Add `tree-sitter` and `tree-sitter-typescript` as dependencies. Build a
+language-agnostic extraction framework that replaces language-specific parsers.
+
+- **New dependency**: `tree-sitter` + `tree-sitter-typescript`
+- **New module**: `src/pipecat_context_hub/services/ingest/ts_extractor.py`
+  or a generic `tree_sitter_extractor.py`
+- **Extracts**: classes, interfaces, type aliases, exported functions,
+  method signatures with parameter types, return types, generics
+- **Biggest impact**: `pipecat-client-web` (core RTVI SDK), `voice-ui-kit`
+  (React components), `pipecat-flows-editor` (visual editor)
+
+#### Phase 3: Tree-sitter for Swift
+
+Add `tree-sitter-swift`. Extract protocols, structs, classes, enums,
+functions, and `public` access control.
+
+- 7 iOS SDK repos go from 0 → hundreds of API chunks
+- Protocol conformance maps to `base_classes` metadata
+- `@objc` / `@available` decorators inform API stability
+
+#### Phase 4: Migrate Python from `ast` to tree-sitter
+
+Replace `ast_extractor.py` with tree-sitter-based extraction. Benefits:
+- Unified parser infrastructure for all languages
+- Better error recovery on malformed files
+- Consistent metadata format across languages
+
+Risk: `ast_extractor.py` is battle-tested with 700+ tests. Migration must
+be backward-compatible — same chunks, same metadata, same test results.
+
+#### Phase 5: Tree-sitter for Kotlin and C++
+
+Add `tree-sitter-kotlin` and `tree-sitter-cpp`. Smallest user base,
+lowest priority.
+
+### Implementation Checklist
+
+Phase 1:
+- [ ] `.d.ts` declaration file parser for TypeScript
+- [ ] Doc comment extraction (regex-based, language-agnostic)
+- [ ] README indexing for zero-chunk repos
+- [ ] Tests for each parser
+
+Phase 2:
+- [ ] Add `tree-sitter` + `tree-sitter-typescript` dependencies
+- [ ] Build TypeScript AST extractor
+- [ ] Index `pipecat-client-web`, `voice-ui-kit`, `pipecat-flows-editor`
+- [ ] Live MCP smoke tests for TypeScript API search
+
+Phase 3:
+- [ ] Add `tree-sitter-swift`
+- [ ] Build Swift AST extractor
+- [ ] Index iOS SDK repos
+- [ ] Live MCP smoke tests for Swift API search
+
+Phase 4:
+- [ ] Migrate Python `ast_extractor.py` to tree-sitter
+- [ ] Backward-compatibility validation (same chunks, same metadata)
+- [ ] Performance comparison
+
+Phase 5:
+- [ ] Add `tree-sitter-kotlin` + `tree-sitter-cpp`
+- [ ] Build Kotlin and C++ AST extractors
+- [ ] Index Android and native SDK repos
+
+### Scope Constraints
+
+- Phase 1 has zero new dependencies — regex/file-type detection only
+- Tree-sitter phases add one dependency per language grammar
+- Each phase is independently shippable and releasable
+- Python AST migration (Phase 4) is optional — only if tree-sitter proves
+  better on the TS/Swift phases first
+- `search_api` filters (`module`, `class_name`, `chunk_type`) work unchanged
+  for all languages — the metadata schema is language-agnostic
+
+### Files to Modify (Phase 1)
+
+- `src/pipecat_context_hub/services/ingest/ts_declaration_parser.py` — new
+- `src/pipecat_context_hub/services/ingest/doc_comment_extractor.py` — new
+- `src/pipecat_context_hub/services/ingest/source_ingest.py` — wire parsers
+- `src/pipecat_context_hub/services/ingest/github_ingest.py` — README handling
+- `tests/unit/test_ts_declaration_parser.py` — new
+- `tests/unit/test_doc_comment_extractor.py` — new
