@@ -1740,6 +1740,12 @@ Phase 1:
       from `.ts`/`.tsx` files, with JSDoc comment inclusion in snippets
 - [ ] Wire TS parser into `source_ingest.py` — TS repo detection, source
       root discovery, module path derivation
+- [ ] Add core TS SDK repos to default `sources.repos` in `config.py`:
+      `pipecat-ai/pipecat-client-web`, `pipecat-ai/pipecat-client-web-transports`,
+      `pipecat-ai/voice-ui-kit`, `pipecat-ai/pipecat-flows-editor`,
+      `pipecat-ai/web-client-ui`, `pipecat-ai/small-webrtc-prebuilt`
+      (these are official Pipecat SDKs — smoke tests must not depend on
+      user-specific `PIPECAT_HUB_EXTRA_REPOS` configuration)
 - [ ] README indexing for zero-chunk repos (standalone `content_type="doc"`)
 - [ ] Unit tests for TS parser (interfaces, classes, types, functions,
       typed const exports, generics, JSDoc extraction)
@@ -1795,6 +1801,8 @@ Phase 5:
 
 ### Files to Modify (Phase 1)
 
+- `src/pipecat_context_hub/shared/config.py` — add core TS SDK repos to
+  default `sources.repos`
 - `src/pipecat_context_hub/services/ingest/ts_source_parser.py` — new,
   regex-based extraction of TS exported declarations + JSDoc comments
 - `src/pipecat_context_hub/services/ingest/source_ingest.py` — add TS repo
