@@ -5,7 +5,7 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.0.12] - 2026-03-30
 
 ### Added
 
