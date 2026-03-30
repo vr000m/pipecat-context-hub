@@ -56,6 +56,7 @@ Each concept is searched independently and results are interleaved for balanced 
 - `domain="backend"` — Python pipeline/bot code only
 - `domain="frontend"` — JS/TS client code only
 - `language="python"` — filter by programming language
+- `language="typescript"` — filter by programming language
 - Combine: `search_examples("TTS pipeline", domain="backend", language="python")`
 
 ## Versioning
@@ -75,7 +76,7 @@ src/pipecat_context_hub/
 ├── shared/                   # Types, interfaces, config
 ├── services/
 │   ├── embedding.py          # EmbeddingService
-│   ├── ingest/               # Docs crawler, GitHub ingester, AST, taxonomy
+│   ├── ingest/               # Docs crawler, GitHub ingester, Python AST, TS regex, taxonomy
 │   ├── index/                # ChromaDB vector, SQLite FTS5, IndexStore
 │   └── retrieval/            # HybridRetriever, decompose, rerank, evidence
 └── server/

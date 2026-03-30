@@ -5,6 +5,21 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **TypeScript source parsing (Phase 1a)** — regex-based extraction of
+  exported interfaces, classes, type aliases, functions, enums, and typed
+  const exports from `.ts`/`.tsx` files with JSDoc comment inclusion
+- **6 core TS SDK repos added to default ingestion** —
+  `pipecat-client-web`, `pipecat-client-web-transports`, `voice-ui-kit`,
+  `pipecat-flows-editor`, `web-client-ui`, `small-webrtc-prebuilt`
+- **`language="typescript"` metadata** on all TS source chunks for
+  language-aware filtering in `search_api`
+- **Swift, Kotlin, C++ extension mappings** in `_EXTENSION_TO_LANGUAGE`
+  for correct language metadata on code chunks
+
 ## [0.0.11] - 2026-03-29
 
 ### Added

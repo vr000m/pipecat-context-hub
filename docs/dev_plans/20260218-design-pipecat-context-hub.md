@@ -1534,3 +1534,283 @@ core value (making dict schemas discoverable):
 - `tests/unit/test_rst_type_parser.py` — new file, RST parsing tests
 - `tests/unit/test_source_ingest.py` — `.rst` discovery + combined ingestion test
 - `tests/unit/test_mcp_tools.py` — `type_definition` filter test
+
+## Multi-Language API Extraction (planned)
+
+### Problem
+
+The hub only extracts API metadata (classes, methods, signatures) from Python
+via `ast_extractor.py`. TypeScript, Swift, Kotlin, and C++ repos are indexed
+as raw code chunks but have no structured API surface in `search_api`. This
+means:
+
+- **TypeScript** client SDKs (`pipecat-client-web`, `pipecat-client-web-transports`,
+  `voice-ui-kit`) — 900+ chunks as code but zero API extraction
+- **Swift** iOS SDKs (7 repos) — 0 chunks total
+- **Kotlin** Android SDKs (3 repos) — 2-3 chunks (READMEs only)
+- **C++** native SDKs (`pipecat-client-cxx`, `pipecat-esp32`) — 2-3 chunks
+
+### Architecture
+
+Three-layer ingestion stack per language, each adding value independently:
+
+```
+┌─────────────────────────────────────────┐
+│ Layer 3: Doc comments (///, /** */)     │  ← language-specific regex
+│ Layer 2: Tree-sitter AST               │  ← full API extraction
+│ Layer 1: Regex source parsing           │  ← lightweight extraction
+│ Layer 0: Code chunks (existing)         │  ← GitHubRepoIngester
+└─────────────────────────────────────────┘
+```
+
+**Current state per language:**
+
+| Language | Layer 0 | Layer 1 | Layer 2 | Layer 3 |
+|----------|---------|---------|---------|---------|
+| Python | ✅ | ✅ `ast_extractor.py` | N/A (uses `ast`) | ✅ docstrings via AST |
+| TypeScript | ✅ (859+ chunks) | ❌ | ❌ | ❌ JSDoc not extracted |
+| Swift | ❌ 0 chunks | ❌ | ❌ | ❌ |
+| Kotlin | ❌ 2-3 chunks | ❌ | ❌ | ❌ |
+| C++ | ❌ 2-3 chunks | ❌ | ❌ | ❌ |
+
+### Review Findings (2026-03-29)
+
+Two independent reviews (Claude + Codex) identified these issues with the
+original plan. All findings have been incorporated into the revised plan below.
+
+**Critical — `.d.ts` files do not exist in checked-out repos:**
+The original Phase 1a assumed `.d.ts` declaration files would be available.
+Investigation of the actual cloned repos found:
+- `pipecat-client-web`: 0 `.d.ts` files (only `.ts` source in `client-js/`)
+- `pipecat-client-web-transports`: 1 file (`vite-env.d.ts` — boilerplate)
+- `voice-ui-kit`: 2 files (`vite-env.d.ts` — boilerplate)
+`.d.ts` files are build artifacts generated to `dist/`, which is in
+`_SKIP_DIRS` and not committed to source repos. Phase 1a is re-scoped to
+parse TypeScript source (`.ts`/`.tsx`) directly using regex extraction.
+
+**Important — metadata schema needs non-Python mappings:**
+`SearchApiInput.chunk_type` is a strict Literal enum (`module_overview`,
+`class_overview`, `method`, `function`, `type_definition`). Fields like
+`is_dataclass`, `yields`, and `calls` are Python-specific. Plan now includes
+explicit TS→chunk_type mapping and documents which fields remain empty.
+
+**Important — `SourceIngester` hardcoded for Python:**
+`source_ingest.py` only discovers root `.pyi`, `src/` Python packages, and
+`docs/*.rst`. TS repos use different layouts (`client-js/`, `client-react/`,
+`package/src/`, `transports/*/src/`). Plan now includes a concrete TS
+discovery contract.
+
+**Important — `metadata["language"]` hardcoded to `"python"`:**
+Every metadata dict in `_build_chunks()` has `"language": "python"`. New
+parsers must set this correctly.
+
+### Phased Approach
+
+#### Phase 1: Quick wins without tree-sitter
+
+Lightweight parsers using regex and file-type detection. No new dependencies.
+
+**1a. TypeScript source parsing (regex-based)**
+
+Parse exported declarations from `.ts`/`.tsx` source files using regex.
+NOT `.d.ts` declaration files (see review findings above — these are build
+artifacts not present in source repos).
+
+Target constructs:
+- `export interface Foo { ... }` / `export default interface`
+- `export class Bar extends Baz { ... }` / `export abstract class`
+- `export type Qux = ...`
+- `export function doSomething(...): ReturnType`
+- `export type Callback = (...) => ReturnType`
+- `export const thing: Type = ...` (only typed exports, e.g.,
+  `PipecatClientProvider`, `ConversationProvider`)
+
+Repos and their source layouts (verified from local clones):
+- `pipecat-client-web`: monorepo with `client-js/` (core SDK: `client/`,
+  `rtvi/`) and `client-react/` (React hooks: `src/`)
+- `pipecat-client-web-transports`: `transports/*/src/` (Daily, WebSocket,
+  WebRTC, Gemini) + `lib/` (shared utilities)
+- `voice-ui-kit`: `package/src/` (components, visualizers, stores)
+
+TS source discovery contract for `source_ingest.py`:
+1. Detect TS repos: presence of `package.json` or `tsconfig.json` at root
+2. Find TS roots: scan for directories containing `.ts`/`.tsx` files,
+   excluding `node_modules/`, `dist/`, `build/`, `tests/`, `examples/`
+3. Module path derivation: repo-relative path with `/` separator,
+   e.g., `client-js/client/client` for `client-js/client/client.ts`
+4. Only parse files with `export` statements (skip internal modules)
+
+Chunk type mapping (TS → existing `chunk_type` values):
+- TS `interface` → `class_overview` (closest semantic match)
+- TS `class` → `class_overview`
+- TS `type` alias → `type_definition`
+- TS exported `function` → `function`
+- TS `enum` → `type_definition`
+- TS `export const name: Type` → `function` (closest match for named
+  exports like React providers/hooks that are const arrow functions)
+
+Method extraction is deferred to Phase 2 (tree-sitter). Regex-based method
+extraction from class bodies is brittle — TS classes use complex signatures
+with generics, overloads, and decorators that regex cannot reliably parse.
+Phase 1a produces `class_overview` chunks that include the full class body
+as snippet (including method signatures), which is sufficient for
+`search_api` discoverability. Phase 2 tree-sitter will emit individual
+`method` chunks with proper `method_name` and `method_signature` metadata.
+
+Python-specific fields that remain empty for TS chunks:
+- `is_dataclass`: always `False`
+- `yields`: always `[]`
+- `calls`: always `[]` (could be populated in Phase 2 with tree-sitter)
+- `decorators`: always `[]` (TS decorators are rare in these repos)
+
+All TS chunks MUST use `content_type="source"` (required by `search_api`
+filter in `hybrid.py` line 612) and `metadata["language"] = "typescript"`.
+
+File: new `ts_source_parser.py` alongside `rst_type_parser.py`
+
+**1b. Doc comment extraction (JSDoc → TS source chunks)**
+
+Extract `/** ... */` JSDoc comments immediately above exported declarations
+and include them in the `snippet` field of the Phase 1a `source` chunks.
+This makes doc comments visible in `search_api` results without requiring
+any retrieval-layer changes — the comments become part of the indexed
+content, not dead metadata on code chunks that no tool reads.
+
+- Phase 1b is tightly coupled to 1a: the JSDoc extractor runs as part of
+  the TS source parser, not as a standalone enrichment pass
+- `///` (Swift, C++) and KDoc (Kotlin) extraction deferred to their
+  respective tree-sitter phases, since those languages have zero `source`
+  chunks to attach to today
+- Python docstrings are already extracted by `ast_extractor.py`
+
+**1c. README indexing for zero-chunk repos**
+
+Repos with 0 code chunks (Swift, some Kotlin) should at minimum have their
+README indexed so `search_docs` can find them.
+
+- Create standalone `ChunkedRecord` objects with `content_type="doc"`
+  (NOT `"readme"` — `search_docs` in `hybrid.py` hard-filters to
+  `content_type="doc"`, so `"readme"` chunks would be invisible)
+- Check if README is already indexed by `GitHubRepoIngester` — may need
+  to add `.md` to `_CODE_EXTENSIONS` or handle separately
+
+#### Phase 2: Tree-sitter for TypeScript
+
+Add `tree-sitter` and `tree-sitter-typescript` as dependencies. Build a
+language-agnostic extraction framework that replaces the Phase 1a regex parser.
+
+- **New dependency**: `tree-sitter` + `tree-sitter-typescript`
+- **New module**: `src/pipecat_context_hub/services/ingest/ts_extractor.py`
+  or a generic `tree_sitter_extractor.py`
+- **Extracts**: classes, interfaces, type aliases, exported functions,
+  method signatures with parameter types, return types, generics
+- **Biggest impact**: `pipecat-client-web` (core RTVI SDK), `voice-ui-kit`
+  (React components), `pipecat-flows-editor` (visual editor)
+
+#### Phase 3: Tree-sitter for Swift
+
+Add `tree-sitter-swift`. Extract protocols, structs, classes, enums,
+functions, and `public` access control.
+
+- 7 iOS SDK repos go from 0 → hundreds of API chunks
+- Protocol conformance maps to `base_classes` metadata
+- `@objc` / `@available` decorators inform API stability
+
+#### Phase 4: Migrate Python from `ast` to tree-sitter
+
+Replace `ast_extractor.py` with tree-sitter-based extraction. Benefits:
+- Unified parser infrastructure for all languages
+- Better error recovery on malformed files
+- Consistent metadata format across languages
+
+Risk: `ast_extractor.py` is well-tested (verify actual count with
+`pytest --collect-only tests/unit/test_ast_extractor.py`). Migration must
+be backward-compatible — same chunks, same metadata, same test results.
+
+#### Phase 5: Tree-sitter for Kotlin and C++
+
+Add `tree-sitter-kotlin` and `tree-sitter-cpp`. Smallest user base,
+lowest priority.
+
+### Implementation Checklist
+
+Phase 1:
+- [x] TS source parser (`ts_source_parser.py`) — regex-based extraction of
+      exported interfaces, classes, types, functions, and typed const exports
+      from `.ts`/`.tsx` files, with JSDoc comment inclusion in snippets
+- [x] Wire TS parser into `source_ingest.py` — TS repo detection, source
+      root discovery, module path derivation
+- [x] Add core TS SDK repos to default `sources.repos` in `config.py`:
+      `pipecat-ai/pipecat-client-web`, `pipecat-ai/pipecat-client-web-transports`,
+      `pipecat-ai/voice-ui-kit`, `pipecat-ai/pipecat-flows-editor`,
+      `pipecat-ai/web-client-ui`, `pipecat-ai/small-webrtc-prebuilt`
+      (these are official Pipecat SDKs — smoke tests must not depend on
+      user-specific `PIPECAT_HUB_EXTRA_REPOS` configuration)
+- [x] README indexing for zero-chunk repos (standalone `content_type="doc"`)
+- [x] Unit tests for TS parser (interfaces, classes, types, functions,
+      typed const exports, generics, JSDoc extraction)
+- [x] MCP smoke tests — each must return ≥1 TS hit (`language="typescript"`,
+      `content_type="source"`) from the correct repo, not Python-only hits:
+      - `search_api("PipecatClient")` → pipecat-client-web
+      - `search_api("WebSocketTransport")` → pipecat-client-web-transports
+      - `search_api("Transport abstract class")` → pipecat-client-web
+      - `search_api("RTVIEvent")` → pipecat-client-web
+      - `search_api("VoiceVisualizer")` → voice-ui-kit
+      - `search_api("SmallWebRTCTransport")` → pipecat-client-web-transports
+      - `search_api("PipecatClientOptions")` → pipecat-client-web
+      - `search_api("FlowEditor")` → pipecat-flows-editor
+      - `search_api("DailyTransport client")` → pipecat-client-web-transports
+      - `search_api("prebuilt UI component")` → web-client-ui or
+        small-webrtc-prebuilt
+
+Phase 2:
+- [ ] Add `tree-sitter` + `tree-sitter-typescript` dependencies
+- [ ] Build TypeScript AST extractor (replaces Phase 1a regex parser)
+- [ ] Index `pipecat-client-web`, `voice-ui-kit`, `pipecat-flows-editor`
+- [ ] Live MCP smoke tests for TypeScript API search
+
+Phase 3:
+- [ ] Add `tree-sitter-swift`
+- [ ] Build Swift AST extractor
+- [ ] Index iOS SDK repos
+- [ ] Live MCP smoke tests for Swift API search
+
+Phase 4:
+- [ ] Migrate Python `ast_extractor.py` to tree-sitter
+- [ ] Backward-compatibility validation (same chunks, same metadata)
+- [ ] Performance comparison
+
+Phase 5:
+- [ ] Add `tree-sitter-kotlin` + `tree-sitter-cpp`
+- [ ] Build Kotlin and C++ AST extractors
+- [ ] Index Android and native SDK repos
+
+### Scope Constraints
+
+- Phase 1 has zero new dependencies — regex/file-type detection only
+- Tree-sitter phases add one dependency per language grammar
+- Each phase is independently shippable and releasable
+- Python AST migration (Phase 4) is optional — only if tree-sitter proves
+  better on the TS/Swift phases first
+- `search_api` filters (`module`, `class_name`, `chunk_type`) work unchanged
+  for all languages — TS constructs map to existing chunk_type values (see
+  mapping above). Python-specific fields (`is_dataclass`, `yields`, `calls`)
+  remain empty for non-Python chunks.
+- All non-Python API chunks MUST use `content_type="source"` and set
+  `metadata["language"]` correctly (not hardcoded to `"python"`)
+
+### Files to Modify (Phase 1)
+
+- `src/pipecat_context_hub/shared/config.py` — add core TS SDK repos to
+  default `sources.repos`
+- `src/pipecat_context_hub/services/ingest/ts_source_parser.py` — new,
+  regex-based extraction of TS exported declarations + JSDoc comments
+- `src/pipecat_context_hub/services/ingest/source_ingest.py` — add TS repo
+  detection, TS source root discovery, wire `ts_source_parser`, parameterize
+  `metadata["language"]`
+- `src/pipecat_context_hub/services/ingest/github_ingest.py` — README
+  handling for zero-chunk repos, add missing extensions to
+  `_EXTENSION_TO_LANGUAGE` (`.swift`, `.kt`, `.cpp`, `.h`, `.hpp`)
+- `tests/unit/test_ts_source_parser.py` — new, parser unit tests
+  (includes JSDoc extraction and typed const export coverage)
+- `tests/unit/test_source_ingest.py` — add TS repo discovery tests

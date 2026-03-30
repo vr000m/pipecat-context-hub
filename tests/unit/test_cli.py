@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from click.testing import CliRunner
 
 from pipecat_context_hub.cli import _load_dotenv, main
+from pipecat_context_hub.shared.config import HubConfig
 
 
 class TestLoadDotenv:
@@ -94,6 +95,16 @@ class TestLoadDotenv:
         assert os.environ["PIPECAT_HUB_EXTRA_REPOS"] == "org/repo-a,org/repo-b"
 
 
+_DEFAULT_REPOS = HubConfig().sources.repos
+_DEFAULT_REPO_COUNT = len(_DEFAULT_REPOS)
+
+
+def _sha_metadata(sha: str = "abc123", repos: list[str] | None = None) -> dict[str, str]:
+    """Build commit_sha metadata dict for all default repos."""
+    repos = repos or _DEFAULT_REPOS
+    return {f"repo:{r}:commit_sha": sha for r in repos}
+
+
 class TestRefreshCommand:
     """Tests for the refresh command's incremental skip logic."""
 
@@ -152,12 +163,8 @@ class TestRefreshCommand:
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "docs:content_hash": content_hash,
-            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:daily-co/daily-python:commit_sha": "abc123",
-        }.get(key))
+        meta = {"docs:content_hash": content_hash, **_sha_metadata("abc123")}
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
 
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -167,8 +174,7 @@ class TestRefreshCommand:
         # With --force, docs should be re-ingested despite matching hash
         mock_crawler.ingest.assert_called_once()
         # With --force, repos should be re-ingested despite matching SHA
-        # Ingest is called once per changed repo (3 default repos)
-        assert mock_github.ingest.call_count == 3
+        assert mock_github.ingest.call_count == _DEFAULT_REPO_COUNT
 
     @patch("pipecat_context_hub.services.index.store.IndexStore")
     @patch("pipecat_context_hub.services.embedding.EmbeddingService")
@@ -193,12 +199,8 @@ class TestRefreshCommand:
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "docs:content_hash": content_hash,
-            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:daily-co/daily-python:commit_sha": "abc123",
-        }.get(key))
+        meta = {"docs:content_hash": content_hash, **_sha_metadata("abc123")}
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
 
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -232,12 +234,8 @@ class TestRefreshCommand:
         mock_ref_tainted.return_value = False
 
         # Stored SHA is old, current is different
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "docs:content_hash": "old-hash",
-            "repo:pipecat-ai/pipecat:commit_sha": "old-sha",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "old-sha",
-            "repo:daily-co/daily-python:commit_sha": "old-sha",
-        }.get(key))
+        meta = {"docs:content_hash": "old-hash", **_sha_metadata("old-sha")}
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
 
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -247,7 +245,7 @@ class TestRefreshCommand:
         # Different hash → docs re-ingested
         mock_crawler.ingest.assert_called_once()
         # Different SHA → repos re-ingested (once per changed repo)
-        assert mock_github.ingest.call_count == 3
+        assert mock_github.ingest.call_count == _DEFAULT_REPO_COUNT
 
     @patch("pipecat_context_hub.services.index.store.IndexStore")
     @patch("pipecat_context_hub.services.embedding.EmbeddingService")
@@ -274,11 +272,7 @@ class TestRefreshCommand:
             return_value=MagicMock(records_upserted=0, errors=["Upsert failed"]),
         )
         # Repos unchanged so they don't interfere
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:daily-co/daily-python:commit_sha": "abc123",
-        }.get(key))
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: _sha_metadata("abc123").get(key))
 
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -332,16 +326,14 @@ class TestRefreshCommand:
         set_calls = {
             call.args[0] for call in mock_store.set_metadata.call_args_list
         }
-        assert "repo:pipecat-ai/pipecat:commit_sha" not in set_calls
-        assert "repo:pipecat-ai/pipecat-examples:commit_sha" not in set_calls
-        assert "repo:daily-co/daily-python:commit_sha" not in set_calls
+        for repo in _DEFAULT_REPOS:
+            assert f"repo:{repo}:commit_sha" not in set_calls
         # Failed repos should have their cached SHA deleted (P1)
         delete_calls = {
             call.args[0] for call in mock_store.delete_metadata.call_args_list
         }
-        assert "repo:pipecat-ai/pipecat:commit_sha" in delete_calls
-        assert "repo:pipecat-ai/pipecat-examples:commit_sha" in delete_calls
-        assert "repo:daily-co/daily-python:commit_sha" in delete_calls
+        for repo in _DEFAULT_REPOS:
+            assert f"repo:{repo}:commit_sha" in delete_calls
 
     @patch("pipecat_context_hub.services.index.store.IndexStore")
     @patch("pipecat_context_hub.services.embedding.EmbeddingService")
@@ -371,12 +363,8 @@ class TestRefreshCommand:
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "docs:content_hash": content_hash,
-            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:daily-co/daily-python:commit_sha": "abc123",
-        }.get(key))
+        meta = {"docs:content_hash": content_hash, **_sha_metadata("abc123")}
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
 
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -387,9 +375,8 @@ class TestRefreshCommand:
         delete_calls = {
             call.args[0] for call in mock_store.delete_metadata.call_args_list
         }
-        assert "repo:pipecat-ai/pipecat:commit_sha" in delete_calls
-        assert "repo:pipecat-ai/pipecat-examples:commit_sha" in delete_calls
-        assert "repo:daily-co/daily-python:commit_sha" in delete_calls
+        for repo in _DEFAULT_REPOS:
+            assert f"repo:{repo}:commit_sha" in delete_calls
 
     @patch("pipecat_context_hub.services.index.store.IndexStore")
     @patch("pipecat_context_hub.services.embedding.EmbeddingService")
@@ -415,17 +402,10 @@ class TestRefreshCommand:
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        mock_store.get_all_metadata = MagicMock(return_value={
-            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:old-org/removed-repo:commit_sha": "def456",
-        })
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "docs:content_hash": content_hash,
-            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:old-org/removed-repo:commit_sha": "def456",
-        }.get(key))
+        all_meta = {**_sha_metadata("abc123"), "repo:old-org/removed-repo:commit_sha": "def456"}
+        mock_store.get_all_metadata = MagicMock(return_value=all_meta)
+        meta = {"docs:content_hash": content_hash, **all_meta}
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
 
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -467,12 +447,8 @@ class TestRefreshCommand:
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "docs:content_hash": content_hash,
-            "repo:pipecat-ai/pipecat:commit_sha": "abc123",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:daily-co/daily-python:commit_sha": "abc123",
-        }.get(key))
+        meta = {"docs:content_hash": content_hash, **_sha_metadata("abc123")}
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
 
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -483,7 +459,7 @@ class TestRefreshCommand:
         assert events[:2] == ["delete", "store"]
         mock_store.reset.assert_not_called()
         mock_crawler.ingest.assert_called_once()
-        assert mock_github.ingest.call_count == 3
+        assert mock_github.ingest.call_count == _DEFAULT_REPO_COUNT
         mock_store.close.assert_called_once()
 
     @patch("pipecat_context_hub.services.index.store.IndexStore")
@@ -513,12 +489,10 @@ class TestRefreshCommand:
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "docs:content_hash": content_hash,
-            "repo:pipecat-ai/pipecat:commit_sha": "good123",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:daily-co/daily-python:commit_sha": "abc123",
-        }.get(key))
+        meta = {"docs:content_hash": content_hash, **_sha_metadata("abc123")}
+        # Override pipecat with a good known SHA (not the tainted one)
+        meta["repo:pipecat-ai/pipecat:commit_sha"] = "good123"
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("PIPECAT_HUB_TAINTED_REFS", "pipecat-ai/pipecat@badcafe")
@@ -562,12 +536,10 @@ class TestRefreshCommand:
         import hashlib
         content = "# Page\nSource: https://example.com\nContent here"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        mock_store.get_metadata = MagicMock(side_effect=lambda key: {
-            "docs:content_hash": content_hash,
-            "repo:pipecat-ai/pipecat:commit_sha": "badcafe",
-            "repo:pipecat-ai/pipecat-examples:commit_sha": "abc123",
-            "repo:daily-co/daily-python:commit_sha": "abc123",
-        }.get(key))
+        meta = {"docs:content_hash": content_hash, **_sha_metadata("abc123")}
+        # Override pipecat with the tainted SHA to trigger removal
+        meta["repo:pipecat-ai/pipecat:commit_sha"] = "badcafe"
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("PIPECAT_HUB_TAINTED_REFS", "pipecat-ai/pipecat@badcafe")

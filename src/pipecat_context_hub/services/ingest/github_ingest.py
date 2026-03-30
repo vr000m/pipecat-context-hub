@@ -72,6 +72,11 @@ _EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".yaml": "yaml",
     ".yml": "yaml",
     ".toml": "toml",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".cpp": "cpp",
+    ".h": "cpp",
+    ".hpp": "cpp",
 }
 
 
@@ -565,6 +570,61 @@ def _infer_domain(rel_path: str, language: str | None) -> str:
     return "backend"
 
 
+def _build_readme_chunk(
+    repo_path: Path,
+    repo_slug: str,
+    commit_sha: str,
+    now: datetime,
+) -> ChunkedRecord | None:
+    """Build a doc chunk from the repo README for zero-code-chunk repos.
+
+    Returns ``None`` if no README is found or if it is empty.
+    """
+    for name in ("README.md", "readme.md", "README.rst", "README.txt", "README"):
+        readme_path = repo_path / name
+        if readme_path.is_file() and not readme_path.is_symlink():
+            break
+    else:
+        return None
+
+    try:
+        content = readme_path.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception:
+        return None
+
+    if not content:
+        return None
+
+    # Truncate very long READMEs to keep chunk size reasonable
+    max_chars = 8000
+    if len(content) > max_chars:
+        content = content[:max_chars] + "\n\n[Truncated — see full README on GitHub]"
+
+    chunk_id = hashlib.sha256(
+        f"readme:{repo_slug}:{commit_sha}".encode()
+    ).hexdigest()[:24]
+
+    source_url = f"https://github.com/{repo_slug}/blob/{commit_sha}/{readme_path.name}"
+
+    return ChunkedRecord(
+        chunk_id=chunk_id,
+        content=content,
+        content_type="doc",
+        source_url=source_url,
+        repo=repo_slug,
+        path=readme_path.name,
+        commit_sha=commit_sha,
+        indexed_at=now,
+        metadata={
+            "repo": repo_slug,
+            "commit_sha": commit_sha,
+            "chunk_index": 0,
+            "language": None,
+            "is_readme_fallback": True,
+        },
+    )
+
+
 def _build_chunk_metadata(
     *,
     repo_slug: str,
@@ -901,6 +961,18 @@ class GitHubRepoIngester:
                             metadata=meta,
                         )
                     )
+
+        # Fallback: index README as a doc chunk for repos with zero code chunks.
+        # This ensures repos like iOS/Android SDKs (no code files matching
+        # _CODE_EXTENSIONS) are still discoverable via search_docs.
+        if not records:
+            readme_record = _build_readme_chunk(repo_path, repo_slug, commit_sha, now)
+            if readme_record:
+                records.append(readme_record)
+                logger.info(
+                    "Zero code chunks for %s — indexed README as doc chunk",
+                    repo_slug,
+                )
 
         upserted = 0
         if records:

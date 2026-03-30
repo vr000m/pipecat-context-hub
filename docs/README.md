@@ -74,7 +74,7 @@ be tainted:
 Ingestion:
   DocsCrawler (llms-full.txt)    ──┐
   GitHubRepoIngester (N repos)   ──┤→ EmbeddingIndexWriter → IndexStore
-  SourceIngester (per-repo AST)  ──┤   (sentence-transformers)   (ChromaDB + FTS5)
+  SourceIngester (AST + TS regex)──┤   (sentence-transformers)   (ChromaDB + FTS5)
   TaxonomyBuilder (auto-infer)   ──┘
     ↑                                         ↑
     Per-file taxonomy enrichment:             Metadata stored per chunk:
@@ -104,10 +104,19 @@ Retrieval:
   - Indexes `CallClient`, `EventHandler`, 87 types, all method signatures via `daily.pyi`
   - Indexes type definitions from `docs/src/types.rst` (72 dict schemas, enums, aliases) as `type_definition` chunks for `search_api`
   - Demos indexed as code examples
+- **TypeScript SDK repos** (default since v0.0.12):
+  - `pipecat-ai/pipecat-client-web` — core JS/React SDK (interfaces, classes, types)
+  - `pipecat-ai/pipecat-client-web-transports` — WebSocket, WebRTC, Daily transports
+  - `pipecat-ai/voice-ui-kit` — React components (VoiceVisualizer, etc.)
+  - `pipecat-ai/pipecat-flows-editor` — visual flow editor
+  - `pipecat-ai/web-client-ui`, `pipecat-ai/small-webrtc-prebuilt` — prebuilt UI
+  - TS exported declarations (interfaces, classes, types, functions, enums, const exports)
+    are regex-extracted and indexed as `content_type="source"` with `language="typescript"`
 - Additional repos via `PIPECAT_HUB_EXTRA_REPOS` env var (comma-separated slugs)
   - Supports single-project repos (`src/`-layout, root-level entry scripts)
   - Repos with `src/` layouts are AST-indexed for `search_api` (class definitions, method signatures)
   - Repos with `.pyi` stubs at root (no Python in `src/`) are also AST-indexed
+  - Repos with `package.json`/`tsconfig.json` are TS-regex-indexed for `search_api`
   - See `.env.example` for usage and copy-ready curated repo bundles
 
 ### Technology

@@ -39,6 +39,30 @@ surface against real indexed data.
 13. `get_code_snippet(symbol="CallClient.send_dtmf")` — returns method
     signature with `related_type_defs: ["DialoutSendDtmfSettings"]` linking
     to the dict schema
+14. `search_api("PipecatClient")` — returns TS hits from
+    `pipecat-ai/pipecat-client-web` (not only Python module overviews)
+15. `search_api("WebSocketTransport")` — returns TS class extending
+    `Transport` from `pipecat-ai/pipecat-client-web-transports`
+16. `search_api("RTVIEvent")` — returns TS type/enum from
+    `pipecat-ai/pipecat-client-web`
+17. `search_api("VoiceVisualizer React component typescript")` — returns TS
+    React component from `pipecat-ai/voice-ui-kit` or `pipecat-ai/pipecat-client-web`.
+    Also try bare `search_api("VoiceVisualizer")` — currently requires the
+    qualifier to rank above Python hits, but should improve as retrieval
+    quality improves (cross-encoder, corpus weighting). If the bare query
+    starts passing, that's a positive signal.
+18. `search_api("PipecatClientOptions")` — returns TS interface from
+    `pipecat-ai/pipecat-client-web` with `language="typescript"` metadata
+19. `search_api("SmallWebRTCTransport")` — returns TS hits from
+    `pipecat-ai/pipecat-client-web-transports` or `pipecat-ai/voice-ui-kit`
+20. `search_docs("pipecat-client-ios")` — returns at least one hit from an
+    iOS SDK repo (README fallback for zero-code-chunk repos)
+21. `search_api("PipecatClientProvider")` — returns TS const export from
+    `pipecat-ai/pipecat-client-web` with full arrow-function body (not
+    truncated at the parameter list)
+22. `search_api("SmallWebRTCTransport", class_name="SmallWebRTCTransport")` —
+    returns TS class from `pipecat-ai/pipecat-client-web-transports` (verifies
+    nested-package TS detection for `small-webrtc-prebuilt`)
 
 If any of these fail, investigate before merging — the unit test suite will
 not catch the regression.
@@ -63,7 +87,7 @@ in future reviews unless the underlying circumstances change.
 
 - **[Architecture] won't-fix**: `get_code_snippet` enrichment logic (line_sliced detection, module_overview guard, metadata mapping) is inline in the method rather than extracted into helpers. The method is ~50 lines with clear comments. Extract helpers if enrichment gains more suppression conditions or new enrichment fields. (2026-03-22)
 
-- **[Security] won't-fix**: Chunk metadata values (class_name, calls, yields, etc.) flow unsanitized into MCP JSON-RPC responses. The AST ingester constrains these to valid Python identifiers, so there is no executable sink. Add input validation if non-AST ingestion sources (e.g., user-supplied metadata, external APIs) are introduced. (2026-03-22)
+- **[Security] won't-fix**: Chunk metadata values (class_name, calls, yields, etc.) flow unsanitized into MCP JSON-RPC responses. The AST ingester constrains these to valid Python identifiers; the TS regex parser extracts names from cloned GitHub repo source (not user input). No executable sink exists. Add input validation if user-supplied metadata or external API sources are introduced. (2026-03-22, updated 2026-03-30)
 
 - **[Architecture] won't-fix**: `ApiHit.imports` has mixed precision by chunk type — per-method for method/function chunks, module-level pipecat imports for class_overview, full imports (including stdlib) for module_overview. This is a deliberate layering: `source_ingest._build_chunks` populates each chunk type differently, and `hybrid.py` passes the field through unchanged. The `ApiHit.imports` description documents the per-chunk-type semantics. Revisit only if a consumer needs uniform precision across chunk types. (2026-03-23)
 
