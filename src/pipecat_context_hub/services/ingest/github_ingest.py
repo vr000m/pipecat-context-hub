@@ -72,6 +72,11 @@ _EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".yaml": "yaml",
     ".yml": "yaml",
     ".toml": "toml",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".cpp": "cpp",
+    ".h": "cpp",
+    ".hpp": "cpp",
 }
 
 
