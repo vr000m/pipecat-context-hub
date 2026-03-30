@@ -17,6 +17,9 @@ This project uses [Semantic Versioning](https://semver.org/).
   `pipecat-flows-editor`, `web-client-ui`, `small-webrtc-prebuilt`
 - **`language="typescript"` metadata** on all TS source chunks for
   language-aware filtering in `search_api`
+- **README fallback for zero-chunk repos (Phase 1c)** — repos with no code
+  files (e.g. iOS/Android SDKs) now have their README indexed as
+  `content_type="doc"` so they're discoverable via `search_docs`
 - **Swift, Kotlin, C++ extension mappings** in `_EXTENSION_TO_LANGUAGE`
   for correct language metadata on code chunks
 
