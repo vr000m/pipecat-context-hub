@@ -51,6 +51,14 @@ surface against real indexed data.
     `pipecat-ai/pipecat-client-web` with `language="typescript"` metadata
 19. `search_api("SmallWebRTCTransport")` — returns TS hits from
     `pipecat-ai/pipecat-client-web-transports` or `pipecat-ai/voice-ui-kit`
+20. `search_docs("pipecat-client-ios")` — returns at least one hit from an
+    iOS SDK repo (README fallback for zero-code-chunk repos)
+21. `search_api("PipecatClientProvider")` — returns TS const export from
+    `pipecat-ai/pipecat-client-web` with full arrow-function body (not
+    truncated at the parameter list)
+22. `search_api("SmallWebRTCTransport", class_name="SmallWebRTCTransport")` —
+    returns TS class from `pipecat-ai/pipecat-client-web-transports` (verifies
+    nested-package TS detection for `small-webrtc-prebuilt`)
 
 If any of these fail, investigate before merging — the unit test suite will
 not catch the regression.
