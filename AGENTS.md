@@ -45,8 +45,8 @@ surface against real indexed data.
     `Transport` from `pipecat-ai/pipecat-client-web-transports`
 16. `search_api("RTVIEvent")` — returns TS type/enum from
     `pipecat-ai/pipecat-client-web`
-17. `search_api("VoiceVisualizer")` — returns TS React component from
-    `pipecat-ai/pipecat-client-web` or `pipecat-ai/voice-ui-kit`
+17. `search_api("VoiceVisualizer React component typescript")` — returns TS
+    React component from `pipecat-ai/voice-ui-kit` or `pipecat-ai/pipecat-client-web`
 18. `search_api("PipecatClientOptions")` — returns TS interface from
     `pipecat-ai/pipecat-client-web` with `language="typescript"` metadata
 19. `search_api("SmallWebRTCTransport")` — returns TS hits from
