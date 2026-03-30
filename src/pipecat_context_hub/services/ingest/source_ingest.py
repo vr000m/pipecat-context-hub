@@ -1,8 +1,9 @@
-"""Source ingester using Python AST extraction.
+"""Source ingester using Python AST and TypeScript regex extraction.
 
 Walks a cloned repo's ``src/`` packages (from GitHubRepoIngester's clone),
-extracts API metadata via AST, and produces ChunkedRecord objects with
-content_type="source".  One SourceIngester instance per repo slug.
+extracts API metadata via AST (Python) or regex (TypeScript), and produces
+ChunkedRecord objects with content_type="source".
+One SourceIngester instance per repo slug.
 """
 
 from __future__ import annotations
@@ -18,6 +19,10 @@ from typing import TYPE_CHECKING
 from git import Repo as GitRepo
 
 from pipecat_context_hub.services.ingest.rst_type_parser import parse_rst_types
+from pipecat_context_hub.services.ingest.ts_source_parser import (
+    TsDeclaration,
+    parse_ts_source,
+)
 from pipecat_context_hub.services.ingest.ast_extractor import (
     ClassInfo,
     FunctionInfo,
@@ -39,6 +44,16 @@ _SKIP_DIRS: frozenset[str] = frozenset({
     "__pycache__", ".git", "tests", "test", ".mypy_cache",
     ".pytest_cache", ".ruff_cache",
 })
+
+# Directories to skip when walking TypeScript repos.
+_TS_SKIP_DIRS: frozenset[str] = frozenset({
+    "node_modules", "dist", "build", ".git", "tests", "test",
+    "__tests__", "__mocks__", "examples", ".next", ".turbo",
+    "coverage",
+})
+
+# File extensions treated as TypeScript source.
+_TS_EXTENSIONS: frozenset[str] = frozenset({".ts", ".tsx"})
 
 # Minimum body lines for a method/function to get its own chunk.
 _MIN_METHOD_LINES = 3
@@ -120,8 +135,17 @@ class SourceIngester:
                 if f.is_file() and not f.is_symlink()
             )
 
+        # 2c. Detect TypeScript repo (package.json or tsconfig.json at root)
+        ts_files: list[Path] = []
+        is_ts_repo = (
+            (clone_dir / "package.json").is_file()
+            or (clone_dir / "tsconfig.json").is_file()
+        )
+        if is_ts_repo:
+            ts_files = _find_ts_files(clone_dir)
+
         # Nothing to index
-        if not pkg_dirs and not pyi_files and not rst_files:
+        if not pkg_dirs and not pyi_files and not rst_files and not ts_files:
             return IngestResult(source=f"source:{self._repo_slug}")
 
         if pyi_files and not pkg_dirs:
@@ -301,6 +325,47 @@ class SourceIngester:
                 self._repo_slug, rel_path, len(type_defs),
             )
 
+        # 4d. Index TypeScript source files
+        if ts_files:
+            logger.info(
+                "Found %d TypeScript files in %s",
+                len(ts_files), self._repo_slug,
+            )
+            total_files += len(ts_files)
+            for ts_file in ts_files:
+                try:
+                    ts_file.resolve().relative_to(clone_dir.resolve())
+                    ts_source = ts_file.read_text(encoding="utf-8", errors="replace")
+                except Exception as exc:
+                    rel = ts_file.relative_to(clone_dir).as_posix()
+                    errors.append(f"Error reading TS file {rel}: {exc}")
+                    continue
+
+                declarations = parse_ts_source(ts_source)
+                if not declarations:
+                    continue
+
+                rel_path = ts_file.relative_to(clone_dir).as_posix()
+                # Module path: strip extension, use / separator
+                module_path = rel_path.removesuffix(ts_file.suffix).replace("/", ".")
+
+                ts_records = _build_ts_chunks(
+                    declarations=declarations,
+                    source=ts_source,
+                    rel_path=rel_path,
+                    module_path=module_path,
+                    commit_sha=commit_sha,
+                    now=now,
+                    repo_slug=self._repo_slug,
+                )
+                records.extend(ts_records)
+
+            logger.info(
+                "TypeScript source ingest (%s): files=%d chunks=%d",
+                self._repo_slug, len(ts_files),
+                sum(1 for r in records if r.metadata.get("language") == "typescript"),
+            )
+
         # 5. Batch upsert
         upserted = 0
         if records:
@@ -337,6 +402,28 @@ def _find_python_files(src_dir: Path) -> list[Path]:
         if any(part in _SKIP_DIRS for part in p.relative_to(src_dir).parts):
             continue
         files.append(p)
+    return files
+
+
+def _find_ts_files(clone_dir: Path) -> list[Path]:
+    """Find TypeScript source files in a repo, skipping non-source dirs.
+
+    Discovers ``.ts`` and ``.tsx`` files, excluding node_modules, dist,
+    build, tests, and examples directories.  Only returns files that
+    contain at least one ``export`` statement.
+    """
+    files: list[Path] = []
+    for ext in (".ts", ".tsx"):
+        for p in sorted(clone_dir.rglob(f"*{ext}")):
+            if p.is_symlink():
+                continue
+            rel_parts = p.relative_to(clone_dir).parts
+            if any(part in _TS_SKIP_DIRS for part in rel_parts):
+                continue
+            # Skip .d.ts files (type declarations — usually boilerplate)
+            if p.name.endswith(".d.ts"):
+                continue
+            files.append(p)
     return files
 
 
@@ -603,3 +690,66 @@ def _build_function_chunk(func: FunctionInfo, module_path: str) -> str:
     if func.calls:
         parts.append(f"\n## Calls\n{', '.join(func.calls)}")
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# TypeScript chunk builders
+# ---------------------------------------------------------------------------
+
+def _build_ts_chunks(
+    *,
+    declarations: list[TsDeclaration],
+    source: str,
+    rel_path: str,
+    module_path: str,
+    commit_sha: str,
+    now: datetime,
+    repo_slug: str,
+) -> list[ChunkedRecord]:
+    """Build ChunkedRecord list from parsed TypeScript declarations."""
+    records: list[ChunkedRecord] = []
+
+    for decl in declarations:
+        content = decl.render_snippet(module_path)
+        chunk_type = decl.chunk_type
+        class_name = decl.name if chunk_type == "class_overview" else ""
+        method_name = decl.name if chunk_type != "class_overview" else ""
+
+        chunk_id = _make_chunk_id(
+            repo_slug, module_path, chunk_type,
+            class_name, method_name, commit_sha,
+            line_start=decl.line_start,
+        )
+        source_url = _make_source_url(
+            repo_slug, rel_path, commit_sha,
+            decl.line_start, decl.line_end,
+        )
+
+        records.append(ChunkedRecord(
+            chunk_id=chunk_id,
+            content=content,
+            content_type="source",
+            source_url=source_url,
+            repo=repo_slug,
+            path=rel_path,
+            commit_sha=commit_sha,
+            indexed_at=now,
+            metadata={
+                "module_path": module_path,
+                "chunk_type": chunk_type,
+                "class_name": class_name or decl.name,
+                "method_name": method_name,
+                "base_classes": decl.base_classes,
+                "method_signature": "",
+                "is_dataclass": False,
+                "is_abstract": decl.is_abstract,
+                "language": "typescript",
+                "line_start": decl.line_start,
+                "line_end": decl.line_end,
+                "imports": [],
+                "yields": [],
+                "calls": [],
+            },
+        ))
+
+    return records
