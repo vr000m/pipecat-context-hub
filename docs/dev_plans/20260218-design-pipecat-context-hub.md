@@ -239,16 +239,16 @@
      - **Latency benchmark:** cross-encoder adds <100ms on CPU for top-20 candidates.
 
      **Acceptance criteria:**
-     - [ ] Cross-encoder enabled: measurable improvement in top-3 result relevance
+     - [x] Cross-encoder enabled: measurable improvement in top-3 result relevance
        on a representative query set (manual evaluation)
-     - [ ] Cross-encoder disabled: all existing tests pass, output unchanged
-     - [ ] `low_confidence` flag appears in MCP responses when confidence < 0.3
-     - [ ] Diversity: no more than 3 consecutive results from same repo/file
-     - [ ] UPPERCASE symbols (TTS, STT, VAD) receive symbol boost
-     - [ ] Event loop: index queries don't block concurrent MCP tool calls
-     - [ ] docs/README.md and CLAUDE.md updated
-     - [ ] `uv run pytest tests/ -v` all pass
-     - [ ] `uv run ruff check src/ tests/` clean
+     - [x] Cross-encoder disabled: all existing tests pass, output unchanged
+     - [x] `low_confidence` flag appears in MCP responses when confidence < 0.3
+     - [x] Diversity: no more than 3 consecutive results from same repo/file
+     - [x] UPPERCASE symbols (TTS, STT, VAD) receive symbol boost
+     - [x] Event loop: index queries don't block concurrent MCP tool calls
+     - [x] docs/README.md and CLAUDE.md updated
+     - [x] `uv run pytest tests/ -v` all pass
+     - [x] `uv run ruff check src/ tests/` clean
 
      **Known limitations (accepted):**
      - Cross-encoder adds latency (~50-100ms per query on CPU). Optional via config.
@@ -1484,17 +1484,17 @@ indexing per the AGENTS.md security constraint (non-AST ingestion source).
       `type_definition` as a valid `chunk_type` filter
 - [x] Update `type_definition` in reranking chunk-type preference in `rerank.py`
 - [x] Unit tests for RST parsing (all 4 patterns + edge cases)
-- [ ] Test `.rst` discovery and combined `.pyi` + `.rst` ingestion in
+- [x] Test `.rst` discovery and combined `.pyi` + `.rst` ingestion in
       `test_source_ingest.py` — verify the `source_ingest.py` early-return
       gate does not block `.rst` discovery
-- [ ] Update `test_mcp_tools.py` with `type_definition` filter test
-- [ ] Live MCP smoke test — mixed-query retrieval regression:
+- [x] Update `test_mcp_tools.py` with `type_definition` filter test
+- [x] Live MCP smoke test — mixed-query retrieval regression:
       `search_api("send_dtmf settings")` returns both the `.pyi` method
       signature AND `DialoutSendDtmfSettings` type definition
-- [ ] Live MCP smoke test — direct lookup:
+- [x] Live MCP smoke test — direct lookup:
       `search_api("DialoutSendDtmfSettings", chunk_type="type_definition")`
       returns the dict schema
-- [ ] Run full AGENTS.md pre-merge smoke suite (all 12 items)
+- [x] Run full AGENTS.md pre-merge smoke suite (all 29 items)
 
 ### Scope Constraints
 
