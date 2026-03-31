@@ -7,6 +7,7 @@ Local-first MCP server providing Pipecat docs, examples, and API context.
 - **Python 3.11+**, `uv` package manager, `hatchling` build
 - **Embeddings:** `all-MiniLM-L6-v2` (sentence-transformers, local)
 - **Vector store:** ChromaDB | **Keyword index:** SQLite FTS5
+- **AST parsing:** Python `ast` module + `tree-sitter` (TypeScript/TSX)
 - **Transport:** stdio (MCP JSON-RPC)
 
 ## Commands
@@ -76,7 +77,7 @@ src/pipecat_context_hub/
 ├── shared/                   # Types, interfaces, config
 ├── services/
 │   ├── embedding.py          # EmbeddingService
-│   ├── ingest/               # Docs crawler, GitHub ingester, Python AST, TS regex, taxonomy
+│   ├── ingest/               # Docs crawler, GitHub ingester, Python AST, TS tree-sitter, taxonomy
 │   ├── index/                # ChromaDB vector, SQLite FTS5, IndexStore
 │   └── retrieval/            # HybridRetriever, decompose, rerank, evidence
 └── server/

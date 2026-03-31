@@ -5,6 +5,25 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Tree-sitter TypeScript extraction (Phase 2)** — replaced the regex
+  parser with tree-sitter-based AST extraction. Individual method chunks
+  with full typed signatures now indexed for classes and interfaces.
+  Supports `.ts` and `.tsx` files with separate grammar selection.
+- **Method-level search** — `search_api("connect", class_name="PipecatClient")`
+  now returns the individual method chunk with signature and body
+- **Enhanced metadata** — `method_signature`, `return_type`, `imports`,
+  and `calls` populated for TS function and method chunks
+- **Removed regex parser** — `ts_source_parser.py` deleted, fully replaced
+  by `ts_tree_sitter_parser.py`
+
+### Added
+
+- `tree-sitter` and `tree-sitter-typescript` runtime dependencies
+
 ## [0.0.12] - 2026-03-30
 
 ### Added

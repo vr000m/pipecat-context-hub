@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import textwrap
 
-from pipecat_context_hub.services.ingest.ts_source_parser import (
+from pipecat_context_hub.services.ingest.ts_tree_sitter_parser import (
     TsDeclaration,
     parse_ts_source,
 )
@@ -77,8 +77,9 @@ class TestInterfaceParsing:
             }
         """)
         decls = parse_ts_source(source)
-        assert len(decls) == 1
-        assert "name: string" in decls[0].body
+        top = [d for d in decls if not d.class_name]
+        assert len(top) == 1
+        assert "name: string" in top[0].body
 
 
 # ---------------------------------------------------------------------------
@@ -97,12 +98,16 @@ class TestClassParsing:
             }
         """)
         decls = parse_ts_source(source)
-        assert len(decls) == 1
-        d = decls[0]
+        top = [d for d in decls if not d.class_name]
+        methods = [d for d in decls if d.class_name]
+        assert len(top) == 1
+        d = top[0]
         assert d.name == "PipecatClient"
         assert d.kind == "class"
         assert _TS_KIND_TO_CHUNK_TYPE[d.kind] == "class_overview"
         assert d.is_abstract is False
+        # Tree-sitter also extracts the constructor
+        assert any(m.kind == "constructor" for m in methods)
 
     def test_abstract_class(self) -> None:
         source = textwrap.dedent("""\
@@ -112,8 +117,13 @@ class TestClassParsing:
             }
         """)
         decls = parse_ts_source(source)
-        assert len(decls) == 1
-        assert decls[0].is_abstract is True
+        top = [d for d in decls if not d.class_name]
+        methods = [d for d in decls if d.class_name]
+        assert len(top) == 1
+        assert top[0].is_abstract is True
+        # Abstract methods extracted
+        assert len(methods) == 2
+        assert all(m.is_abstract for m in methods)
 
     def test_class_extends_implements(self) -> None:
         source = textwrap.dedent("""\
@@ -122,8 +132,9 @@ class TestClassParsing:
             }
         """)
         decls = parse_ts_source(source)
-        assert len(decls) == 1
-        assert decls[0].base_classes == ["Transport", "Serializable"]
+        top = [d for d in decls if not d.class_name]
+        assert len(top) == 1
+        assert top[0].base_classes == ["Transport", "Serializable"]
 
     def test_class_extends_with_generics(self) -> None:
         source = textwrap.dedent("""\
@@ -132,9 +143,10 @@ class TestClassParsing:
             }
         """)
         decls = parse_ts_source(source)
-        assert len(decls) == 1
-        assert decls[0].name == "RTVIEventEmitter"
-        assert decls[0].base_classes == ["EventEmitter"]
+        top = [d for d in decls if not d.class_name]
+        assert len(top) == 1
+        assert top[0].name == "RTVIEventEmitter"
+        assert top[0].base_classes == ["EventEmitter"]
 
 
 # ---------------------------------------------------------------------------
@@ -501,14 +513,18 @@ class TestMixedFile:
             };
         """)
         decls = parse_ts_source(source)
-        names = [d.name for d in decls]
+        top = [d for d in decls if not d.class_name]
+        names = [d.name for d in top]
         assert "ClientOptions" in names
         assert "State" in names
         assert "Client" in names
         assert "createClient" in names
         assert "LogLevel" in names
         assert "DEFAULT_OPTIONS" in names
-        assert len(decls) == 6
+        assert len(top) == 6
+        # Also has constructor method from Client class
+        methods = [d for d in decls if d.class_name]
+        assert any(m.kind == "constructor" and m.class_name == "Client" for m in methods)
 
     def test_declarations_sorted_by_position(self) -> None:
         source = textwrap.dedent("""\
@@ -548,5 +564,10 @@ class TestEdgeCases:
             }
         """)
         decls = parse_ts_source(source)
-        assert len(decls) == 1
-        assert decls[0].name == "Parser"
+        top = [d for d in decls if not d.class_name]
+        assert len(top) == 1
+        assert top[0].name == "Parser"
+        # Method also extracted
+        methods = [d for d in decls if d.class_name == "Parser"]
+        assert len(methods) == 1
+        assert methods[0].name == "parse"

@@ -1,4 +1,4 @@
-"""Source ingester using Python AST and TypeScript regex extraction.
+"""Source ingester using Python AST and TypeScript tree-sitter extraction.
 
 Walks a cloned repo's ``src/`` packages (from GitHubRepoIngester's clone),
 extracts API metadata via AST (Python) or regex (TypeScript), and produces
@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from git import Repo as GitRepo
 
 from pipecat_context_hub.services.ingest.rst_type_parser import parse_rst_types
-from pipecat_context_hub.services.ingest.ts_source_parser import (
+from pipecat_context_hub.services.ingest.ts_tree_sitter_parser import (
     TsDeclaration,
     parse_ts_source,
 )
@@ -346,7 +346,9 @@ class SourceIngester:
                     errors.append(f"Error reading TS file {rel}: {exc}")
                     continue
 
-                declarations = parse_ts_source(ts_source)
+                declarations = parse_ts_source(
+                    ts_source, is_tsx=ts_file.suffix == ".tsx",
+                )
                 if not declarations:
                     continue
 
@@ -728,6 +730,10 @@ _TS_KIND_TO_CHUNK_TYPE: dict[str, str] = {
     "function": "function",
     "enum": "type_definition",
     "const": "function",
+    "method": "method",
+    "constructor": "method",
+    "getter": "method",
+    "setter": "method",
 }
 
 # TS kind → human-readable label for snippets
@@ -738,21 +744,37 @@ _TS_KIND_LABEL: dict[str, str] = {
     "function": "Function",
     "enum": "Enum",
     "const": "Const",
+    "method": "Method",
+    "constructor": "Constructor",
+    "getter": "Getter",
+    "setter": "Setter",
 }
 
 
 def _render_ts_snippet(decl: TsDeclaration, module_path: str) -> str:
     """Render a human-readable content string for a TS declaration."""
-    parts: list[str] = [
-        f"# {_TS_KIND_LABEL[decl.kind]}: {decl.name}",
-        f"Module: {module_path}",
-    ]
+    kind_label = _TS_KIND_LABEL[decl.kind]
 
-    if decl.base_classes:
+    # Method-specific heading: "Class.method" instead of just "method"
+    if decl.class_name:
+        heading = f"# {decl.class_name}.{decl.name}"
+    else:
+        heading = f"# {kind_label}: {decl.name}"
+
+    parts: list[str] = [heading, f"Module: {module_path}"]
+
+    if decl.class_name:
+        parts.append(f"Class: {decl.class_name}")
+        parts.append(f"Kind: {kind_label}")
+
+    if decl.base_classes and not decl.class_name:
         parts.append(f"Extends: {', '.join(decl.base_classes)}")
 
     if decl.is_abstract:
         parts.append("Abstract: yes")
+
+    if decl.method_signature:
+        parts.append(f"\nSignature: `{decl.method_signature}`")
 
     if decl.jsdoc:
         parts.append(f"\n{decl.jsdoc}")
@@ -779,13 +801,20 @@ def _build_ts_chunks(
         content = _render_ts_snippet(decl, module_path)
         chunk_type = _TS_KIND_TO_CHUNK_TYPE[decl.kind]
 
-        # class_name holds the symbol name for class-like chunks;
-        # for non-class chunks (functions, types, enums, consts),
-        # method_name holds the symbol name — consistent with the
-        # Python convention in _build_chunks.
+        # For methods: class_name from enclosing class, method_name is the method.
+        # For class-like: class_name is the declaration name, no method_name.
+        # For top-level functions/types: no class_name, method_name is the name.
         is_class_like = chunk_type == "class_overview"
-        class_name = decl.name if is_class_like else ""
-        method_name = "" if is_class_like else decl.name
+        is_method = chunk_type == "method"
+        if is_method:
+            class_name = decl.class_name
+            method_name = decl.name
+        elif is_class_like:
+            class_name = decl.name
+            method_name = ""
+        else:
+            class_name = ""
+            method_name = decl.name
 
         chunk_id = _make_chunk_id(
             repo_slug, module_path, chunk_type,
@@ -812,15 +841,16 @@ def _build_ts_chunks(
                 "class_name": class_name,
                 "method_name": method_name,
                 "base_classes": decl.base_classes,
-                "method_signature": "",
+                "method_signature": decl.method_signature,
+                "return_type": decl.return_type,
                 "is_dataclass": False,
                 "is_abstract": decl.is_abstract,
                 "language": "typescript",
                 "line_start": decl.line_start,
                 "line_end": decl.line_end,
-                "imports": [],
+                "imports": decl.imports,
                 "yields": [],
-                "calls": [],
+                "calls": decl.calls,
             },
         ))
 

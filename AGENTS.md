@@ -63,6 +63,33 @@ surface against real indexed data.
 22. `search_api("SmallWebRTCTransport", class_name="SmallWebRTCTransport")` —
     returns TS class from `pipecat-ai/pipecat-client-web-transports` (verifies
     nested-package TS detection for `small-webrtc-prebuilt`)
+23. `search_api("connect", class_name="PipecatClient")` — returns TS method
+    chunk with `method_signature` from `pipecat-ai/pipecat-client-web`
+    (Phase 2 tree-sitter method extraction)
+24. `search_api("initialize", class_name="Transport")` — returns TS abstract
+    method from `pipecat-ai/pipecat-client-web` (verifies abstract method
+    extraction and no _MIN_METHOD_LINES filtering)
+25. `search_api("WebSocketTransport", chunk_type="class_overview")` — returns
+    the TS class declaration (not just method chunks). Verifies class-level
+    chunks still rank when method extraction adds many per-class hits.
+26. `search_api("PipecatClientOptions", chunk_type="class_overview")` —
+    returns the TS interface declaration from `pipecat-ai/pipecat-client-web`.
+    Same ranking-stability check as test 25.
+27. `get_code_snippet(symbol="PipecatClient.connect")` — returns the TS
+    method snippet with full `method_signature` (end-to-end symbol lookup
+    for TS method chunks, not just search_api ranking)
+28. `search_api("connected", class_name="PipecatClient")` — returns the TS
+    getter chunk from `pipecat-ai/pipecat-client-web` (verifies getter
+    extraction — a separate code path from regular methods)
+29. `search_api("constructor", class_name="PipecatClient")` — returns the
+    constructor chunk with full signature `(options: PipecatClientOptions)`
+
+Note on bare TS symbol queries (e.g., `search_api("WebSocketTransport")`
+without `chunk_type` or `class_name` filters): after Phase 2 method
+extraction, method/getter chunks may rank ahead of the class declaration.
+This is expected — don't treat "class is not top result" as a hard blocker.
+Use `chunk_type="class_overview"` (tests 25-26) when class-level ranking
+matters.
 
 If any of these fail, investigate before merging — the unit test suite will
 not catch the regression.
@@ -87,10 +114,16 @@ in future reviews unless the underlying circumstances change.
 
 - **[Architecture] won't-fix**: `get_code_snippet` enrichment logic (line_sliced detection, module_overview guard, metadata mapping) is inline in the method rather than extracted into helpers. The method is ~50 lines with clear comments. Extract helpers if enrichment gains more suppression conditions or new enrichment fields. (2026-03-22)
 
-- **[Security] won't-fix**: Chunk metadata values (class_name, calls, yields, etc.) flow unsanitized into MCP JSON-RPC responses. The AST ingester constrains these to valid Python identifiers; the TS regex parser extracts names from cloned GitHub repo source (not user input). No executable sink exists. Add input validation if user-supplied metadata or external API sources are introduced. (2026-03-22, updated 2026-03-30)
+- **[Security] won't-fix**: Chunk metadata values (class_name, calls, yields, etc.) flow unsanitized into MCP JSON-RPC responses. The AST ingester constrains these to valid Python identifiers; the TS tree-sitter parser extracts names from cloned GitHub repo source (not user input). No executable sink exists. Add input validation if user-supplied metadata or external API sources are introduced. (2026-03-22, updated 2026-03-30)
 
 - **[Architecture] won't-fix**: `ApiHit.imports` has mixed precision by chunk type — per-method for method/function chunks, module-level pipecat imports for class_overview, full imports (including stdlib) for module_overview. This is a deliberate layering: `source_ingest._build_chunks` populates each chunk type differently, and `hybrid.py` passes the field through unchanged. The `ApiHit.imports` description documents the per-chunk-type semantics. Revisit only if a consumer needs uniform precision across chunk types. (2026-03-23)
 
 - **[Logic] won't-fix**: Confidence scores are optimistic on weak `search_examples` results — noisy keyword matches from large repos (e.g., gradient-bang frontend files) score high via RRF + dual-hit bonus, driving confidence to ~0.95 even when results are semantically irrelevant. This is a retrieval quality issue, not a confidence calibration bug. The cross-encoder (Phase 1, disabled by default) directly addresses this by scoring query-result *pairs* for semantic relevance. Without cross-encoder, confidence reflects score distribution, not true relevance. Follow-up: example corpus weighting / repo scoring to reduce noise from non-pipeline code. (2026-03-24)
 
-- **[Security] accepted-risk**: `pip-audit` reports `pygments 2.19.2` for `CVE-2026-4539`, but as of March 25, 2026 it does not provide a fixed PyPI version. The package is currently present transitively via `rich`/`pytest`, so the repo-local audit gate ignores this single CVE with an explicit `--ignore-vuln` entry rather than disabling `pip-audit` more broadly. Revisit as soon as upstream publishes a fixed release or the advisory guidance changes. (2026-03-25)
+- **[Security] resolved**: `pygments` CVE-2026-4539 resolved by upgrading to 2.20.0 via PR #34 (2026-03-31). The `--ignore-vuln` entry in the audit gate can be removed if still present.
+
+- **[Architecture] won't-fix**: Removing `pipecat_context_hub.services.ingest.ts_source_parser` is intentional. The module is treated as internal implementation detail, not supported public API, and no external consumers are expected to import it directly. Revisit only if ingestion parser modules become documented extension points. (2026-03-30)
+
+- **[Security] won't-fix**: TypeScript import metadata currently stores raw `import_statement` text from indexed repos. This matches the existing model where source-derived metadata is returned verbatim and no executable sink exists. Revisit if user-supplied repos or prompt-sensitive metadata consumers are introduced. (2026-03-30)
+
+- **[Architecture] won't-fix**: The TypeScript parser-to-chunk contract is intentionally direct for Phase 2: `ts_tree_sitter_parser.py` emits the declaration/member fields that `source_ingest._build_ts_chunks` needs, mirroring the current Python `_build_chunks` pattern. Extract a normalization layer only if later language phases need a shared intermediate representation. (2026-03-30)
