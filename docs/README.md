@@ -56,6 +56,10 @@ Add the server to your IDE's MCP config. Pre-built templates are in `config/clie
 
 See [docs/setup/README.md](setup/README.md) for the full setup overview.
 
+> **Tip:** Add a `CLAUDE.md` snippet to your project (or `~/.claude/CLAUDE.md` globally) so Claude
+> prefers the MCP tools for Pipecat questions. See [docs/setup/claude-code.md](setup/claude-code.md#recommended-claudemd-instructions)
+> for the recommended instructions.
+
 ## Security
 
 The MCP server threat model and trust-boundary review live in

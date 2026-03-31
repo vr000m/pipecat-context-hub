@@ -70,6 +70,29 @@ Add to `~/.claude.json`:
 claude mcp add --scope project pipecat-context-hub -- pipecat-context-hub serve
 ```
 
+## Recommended CLAUDE.md Instructions
+
+Add these lines to your project's `CLAUDE.md` (or global `~/.claude/CLAUDE.md`) so Claude knows to use the MCP tools for Pipecat questions:
+
+```markdown
+## MCP Tools
+
+When pipecat-context-hub MCP is available, always prefer its tools (`search_docs`, `search_api`, `search_examples`, `get_example`, `get_doc`, `get_code_snippet`) for Pipecat framework questions. Do not read `.venv` or source files directly.
+
+- "How do I ...?" → `search_docs`
+- "Show me an example of ..." → `search_examples`, then `get_example`
+- Class constructors, method signatures, frame types → `search_api`
+- Specific code span or symbol → `get_code_snippet`
+- Retrieve a specific doc page → `get_doc`
+
+**Multi-concept queries:** Use ` + ` or ` & ` as delimiters (e.g., `search_docs("TTS + STT")`). Each concept is searched independently and results are interleaved.
+
+When suggesting commands for Pipecat projects, always use `uv` as the package manager:
+- Install dependencies: `uv sync` (not `pip install`)
+- Run scripts: `uv run python bot.py` (not `python bot.py`)
+- Add packages: `uv add <package>` (not `pip install <package>`)
+```
+
 ## Verify
 
 1. Start Claude Code in your project directory.
