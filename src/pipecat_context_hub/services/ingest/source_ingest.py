@@ -1,4 +1,4 @@
-"""Source ingester using Python AST and TypeScript regex extraction.
+"""Source ingester using Python AST and TypeScript tree-sitter extraction.
 
 Walks a cloned repo's ``src/`` packages (from GitHubRepoIngester's clone),
 extracts API metadata via AST (Python) or regex (TypeScript), and produces
@@ -842,6 +842,7 @@ def _build_ts_chunks(
                 "method_name": method_name,
                 "base_classes": decl.base_classes,
                 "method_signature": decl.method_signature,
+                "return_type": decl.return_type,
                 "is_dataclass": False,
                 "is_abstract": decl.is_abstract,
                 "language": "typescript",

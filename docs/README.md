@@ -123,6 +123,7 @@ Retrieval:
 ### Technology
 
 - **Embeddings:** `all-MiniLM-L6-v2` via sentence-transformers (local, no API key)
+- **AST parsing:** Python `ast` module (Python), `tree-sitter` (TypeScript/TSX)
 - **Vector store:** ChromaDB with cosine distance
 - **Keyword index:** SQLite FTS5 with porter tokenizer
 - **Reranking:** Reciprocal Rank Fusion + code-intent heuristics + cross-encoder (enabled by default) + result diversity

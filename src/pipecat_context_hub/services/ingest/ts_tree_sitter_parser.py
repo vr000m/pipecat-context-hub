@@ -19,13 +19,14 @@ from tree_sitter_typescript import language_typescript, language_tsx
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Module-level cached Language + Parser instances (singleton, not per-file)
+# Module-level cached Language instances. Parser is created per-call because
+# tree-sitter's C-backed Parser is not safe for concurrent use from
+# multiple threads/async tasks. Language construction is expensive;
+# Parser construction is cheap.
 # ---------------------------------------------------------------------------
 
 _ts_lang = Language(language_typescript())
 _tsx_lang = Language(language_tsx())
-_ts_parser = Parser(_ts_lang)
-_tsx_parser = Parser(_tsx_lang)
 
 # ---------------------------------------------------------------------------
 # Re-export TsDeclaration (expanded from Phase 1)
@@ -95,13 +96,19 @@ def _extract_jsdoc(node: Node, source: str) -> str:
     Walks backward from the declaration's start to find a preceding
     ``comment`` sibling whose text starts with ``/**``.
     """
-    # Check preceding siblings
-    prev = node.prev_named_sibling
+    # Check preceding sibling (use prev_sibling, not prev_named_sibling,
+    # to ensure we find comment nodes even if they are unnamed in the grammar)
+    prev = node.prev_sibling
+    # Skip whitespace/punctuation nodes to find the comment
+    while prev is not None and prev.type not in ("comment",) and not prev.is_named:
+        prev = prev.prev_sibling
     if prev is None or prev.type != "comment":
         # Also check parent's preceding sibling (for export_statement wrapping)
-        if node.parent and node.parent.prev_named_sibling:
-            prev = node.parent.prev_named_sibling
-            if prev.type != "comment":
+        if node.parent:
+            prev = node.parent.prev_sibling
+            while prev is not None and prev.type not in ("comment",) and not prev.is_named:
+                prev = prev.prev_sibling
+            if prev is None or prev.type != "comment":
                 return ""
         else:
             return ""
@@ -163,12 +170,12 @@ def _extract_bases_from_interface(node: Node) -> list[str]:
     extends = _find_child_by_type(node, "extends_type_clause")
     if extends:
         for child in extends.children:
-            if child.type in ("type_identifier", "generic_type"):
+            if child.type == "type_identifier":
+                bases.append(_node_text(child))
+            elif child.type == "generic_type":
                 name_node = _find_child_by_type(child, "type_identifier")
                 if name_node:
                     bases.append(_node_text(name_node))
-                elif child.type == "type_identifier":
-                    bases.append(_node_text(child))
     return bases
 
 
@@ -188,9 +195,8 @@ def _build_return_type(node: Node) -> str:
     """Extract return type annotation string."""
     ret_node = _find_child_by_type(node, "type_annotation")
     if ret_node:
-        # Strip leading ": "
         text = _node_text(ret_node)
-        return text.lstrip(": ").strip() if text.startswith(":") else text
+        return text.removeprefix(":").strip() if text.startswith(":") else text
     return ""
 
 
@@ -308,16 +314,16 @@ def _extract_enum(node: Node, source: str) -> TsDeclaration:
     )
 
 
-def _extract_const(node: Node, source: str) -> TsDeclaration:
+def _extract_const(node: Node, source: str) -> TsDeclaration | None:
     """Extract a typed const export from a lexical_declaration."""
     decl = _find_child_by_type(node, "variable_declarator")
     if not decl:
-        return None  # type: ignore[return-value]
+        return None
     name_node = _find_child_by_type(decl, "identifier")
     name = _node_text(name_node) if name_node else ""
     type_ann = _find_child_by_type(decl, "type_annotation")
     if not type_ann and not name:
-        return None  # type: ignore[return-value]
+        return None
     jsdoc = _extract_jsdoc(node, source)
     body = _node_text(node)
     if body.endswith(";"):
@@ -360,6 +366,31 @@ def _extract_class_methods(
             )
             if method:
                 methods.append(method)
+        elif child.type == "method_signature":
+            # Overload signature in a class body (e.g., multiple typed
+            # signatures before the implementation)
+            name_node = _find_child_by_type(
+                child, "property_identifier", "identifier",
+            )
+            if not name_node:
+                continue
+            name = _node_text(name_node)
+            sig = _build_signature(child)
+            ret = _build_return_type(child)
+            jsdoc = _extract_jsdoc(child, source)
+            methods.append(TsDeclaration(
+                name=name,
+                kind="method",
+                line_start=child.start_point[0] + 1,
+                line_end=child.end_point[0] + 1,
+                body=_node_text(child),
+                jsdoc=jsdoc,
+                base_classes=base_classes,
+                is_abstract=False,
+                class_name=class_name,
+                method_signature=sig,
+                return_type=ret,
+            ))
 
     return methods
 
@@ -496,6 +527,19 @@ def _extract_interface_methods(
                 continue
             name = _node_text(name_node)
             jsdoc = _extract_jsdoc(child, source)
+            # Extract signature from the nested function_type
+            type_ann = _find_child_by_type(child, "type_annotation")
+            fn_sig = ""
+            fn_ret = ""
+            if type_ann:
+                fn_type = _find_child_by_type(type_ann, "function_type")
+                if fn_type:
+                    fn_sig = _node_text(fn_type)
+                    # Extract return type from function_type (after =>)
+                    fn_text = fn_sig
+                    arrow_idx = fn_text.find("=>")
+                    if arrow_idx >= 0:
+                        fn_ret = fn_text[arrow_idx + 2:].strip()
             methods.append(TsDeclaration(
                 name=name,
                 kind="method",
@@ -506,8 +550,8 @@ def _extract_interface_methods(
                 base_classes=base_classes,
                 is_abstract=False,
                 class_name=iface_name,
-                method_signature="",
-                return_type="",
+                method_signature=fn_sig,
+                return_type=fn_ret,
             ))
 
     return methods
@@ -528,23 +572,23 @@ def _extract_imports(root: Node) -> list[str]:
 
 
 def _extract_calls(node: Node) -> list[str]:
-    """Extract this.method() calls from a method body (best-effort)."""
+    """Extract this.method() calls from a method body (best-effort).
+
+    Uses iterative traversal to avoid RecursionError on deeply nested ASTs.
+    """
     calls: list[str] = []
-    _walk_for_calls(node, calls)
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current.type == "call_expression":
+            fn = current.children[0] if current.children else None
+            if fn and fn.type == "member_expression":
+                obj = fn.children[0] if fn.children else None
+                prop = _find_child_by_type(fn, "property_identifier")
+                if obj and _node_text(obj) == "this" and prop:
+                    calls.append(_node_text(prop))
+        stack.extend(current.children)
     return sorted(set(calls))
-
-
-def _walk_for_calls(node: Node, calls: list[str]) -> None:
-    """Recursively find call_expression nodes with this.member patterns."""
-    if node.type == "call_expression":
-        fn = node.children[0] if node.children else None
-        if fn and fn.type == "member_expression":
-            obj = fn.children[0] if fn.children else None
-            prop = _find_child_by_type(fn, "property_identifier")
-            if obj and _node_text(obj) == "this" and prop:
-                calls.append(_node_text(prop))
-    for child in node.children:
-        _walk_for_calls(child, calls)
 
 
 # ---------------------------------------------------------------------------
@@ -577,7 +621,8 @@ def parse_ts_source(
         source: TypeScript source code as a string.
         is_tsx: If True, use the TSX grammar (for ``.tsx`` files).
     """
-    parser = _tsx_parser if is_tsx else _ts_parser
+    lang = _tsx_lang if is_tsx else _ts_lang
+    parser = Parser(lang)
     tree = parser.parse(source.encode("utf-8"))
     root = tree.root_node
     declarations: list[TsDeclaration] = []
