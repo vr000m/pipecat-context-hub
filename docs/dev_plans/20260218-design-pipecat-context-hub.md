@@ -1767,7 +1767,7 @@ Phase 2:
 - [x] Add `tree-sitter` + `tree-sitter-typescript` dependencies
 - [x] Build TypeScript AST extractor (replaces Phase 1a regex parser)
 - [x] Index `pipecat-client-web`, `voice-ui-kit`, `pipecat-flows-editor`
-- [ ] Live MCP smoke tests for TypeScript API search
+- [x] Live MCP smoke tests for TypeScript API search
 
 Phase 3:
 - [ ] Add `tree-sitter-swift`

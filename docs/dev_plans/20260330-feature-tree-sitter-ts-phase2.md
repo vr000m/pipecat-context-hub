@@ -78,17 +78,17 @@ method chunks.
 
 ### Phase 2a: Add dependencies and scaffold
 
-- [ ] Add `tree-sitter>=0.25,<1.0` and `tree-sitter-typescript>=0.23,<1.0`
+- [x] Add `tree-sitter>=0.25,<1.0` and `tree-sitter-typescript>=0.23,<1.0`
       to `[project].dependencies` in `pyproject.toml` (NOT dev deps)
-- [ ] Run `uv lock` and verify install
-- [ ] Create `ts_tree_sitter_parser.py` with:
+- [x] Run `uv lock` and verify install
+- [x] Create `ts_tree_sitter_parser.py` with:
       - Module-level cached `Language` and `Parser` instances (singleton,
         not recreated per file)
       - Separate parsers for `.ts` (`language_typescript()`) and
         `.tsx` (`language_tsx()`)
       - A minimal `parse_ts_source(source: str, *, is_tsx: bool = False)`
         that parses and returns empty `TsDeclaration` list
-- [ ] Verify tree-sitter loads both grammars correctly:
+- [x] Verify tree-sitter loads both grammars correctly:
       ```python
       from tree_sitter import Language, Parser
       from tree_sitter_typescript import language_typescript, language_tsx
@@ -97,36 +97,36 @@ method chunks.
       ts_parser = Parser(ts_lang)
       tsx_parser = Parser(tsx_lang)
       ```
-- [ ] Write a smoke test that parses real `.ts` and `.tsx` files from clones
+- [x] Write a smoke test that parses real `.ts` and `.tsx` files from clones
 
 ### Phase 2b: Extract top-level declarations (parity with regex)
 
-- [ ] Export detection — walk `export_statement` nodes
-- [ ] Handle `ambient_declaration` wrapper (`export declare function ...`)
+- [x] Export detection — walk `export_statement` nodes
+- [x] Handle `ambient_declaration` wrapper (`export declare function ...`)
       — unwrap to get the inner declaration node
-- [ ] Interface extraction — `interface_declaration` with `extends_type_clause`
-- [ ] Class extraction — BOTH `class_declaration` AND
+- [x] Interface extraction — `interface_declaration` with `extends_type_clause`
+- [x] Class extraction — BOTH `class_declaration` AND
       `abstract_class_declaration` (separate node types in tree-sitter-typescript)
-- [ ] Class heritage — `class_heritage` node contains both extends and
+- [x] Class heritage — `class_heritage` node contains both extends and
       implements (not separate `extends_clause`/`implements_clause`)
-- [ ] Type alias extraction — `type_alias_declaration`
-- [ ] Function extraction — `function_declaration` with `formal_parameters`
+- [x] Type alias extraction — `type_alias_declaration`
+- [x] Function extraction — `function_declaration` with `formal_parameters`
       and `return_type`
-- [ ] Enum extraction — `enum_declaration`
-- [ ] Const export extraction — `lexical_declaration` with type annotation
+- [x] Enum extraction — `enum_declaration`
+- [x] Const export extraction — `lexical_declaration` with type annotation
       inside `export_statement`
-- [ ] Re-export handling — `export_statement` nodes without declaration
+- [x] Re-export handling — `export_statement` nodes without declaration
       children (`export { X } from '...'`, `export * from '...'`) silently
       skipped (barrel files)
-- [ ] JSDoc extraction — `comment` nodes immediately before declarations
-- [ ] All Phase 1a unit tests pass against the new parser
-- [ ] A/B comparison: run both parsers on all 6 TS repos, compare by
+- [x] JSDoc extraction — `comment` nodes immediately before declarations
+- [x] All Phase 1a unit tests pass against the new parser
+- [x] A/B comparison: run both parsers on all 6 TS repos, compare by
       `(name, kind, line_start, base_classes, jsdoc_present)` — not just
       names. Allow tree-sitter to find more, not fewer.
 
 ### Phase 2c: Method extraction (new capability)
 
-- [ ] Class method extraction — `method_definition` nodes within
+- [x] Class method extraction — `method_definition` nodes within
       `class_body`, including:
       - Method name, parameter types, return type
       - Access modifiers (public/private/protected)
@@ -134,72 +134,72 @@ method chunks.
       - Static methods
       - Getters (`get` keyword) and setters (`set` keyword)
       - Constructor
-- [ ] Interface method extraction — `method_signature` nodes within
+- [x] Interface method extraction — `method_signature` nodes within
       `interface_body` (NOT `object_type` — that's for type aliases)
       - Only callable members become method chunks:
         - `method_signature` nodes → always a method
         - `property_signature` with function type annotation → method
         - `property_signature` with non-function type → skip (plain field,
           stays in class_overview only)
-- [ ] Build `method_signature` string (e.g.,
+- [x] Build `method_signature` string (e.g.,
       `(url: string, opts?: Options): Promise<void>`)
-- [ ] Update `_TS_KIND_TO_CHUNK_TYPE` with new mappings:
+- [x] Update `_TS_KIND_TO_CHUNK_TYPE` with new mappings:
       ```python
       "method": "method",
       "constructor": "method",
       "getter": "method",
       "setter": "method",
       ```
-- [ ] Update `_TS_KIND_LABEL` with new entries:
+- [x] Update `_TS_KIND_LABEL` with new entries:
       ```python
       "method": "Method",
       "constructor": "Constructor",
       "getter": "Getter",
       "setter": "Setter",
       ```
-- [ ] Update `_render_ts_snippet` for method-specific rendering
+- [x] Update `_render_ts_snippet` for method-specific rendering
       (show `Class.method` in heading, not just method name)
-- [ ] Wire into `_build_ts_chunks` — emit `chunk_type="method"` records
+- [x] Wire into `_build_ts_chunks` — emit `chunk_type="method"` records
       with `class_name` and `method_name` populated
-- [ ] **NO `_MIN_METHOD_LINES` filtering for TS methods** — abstract methods,
+- [x] **NO `_MIN_METHOD_LINES` filtering for TS methods** — abstract methods,
       interface methods, getters/setters, and constructors are typically 1-3
       lines. Filtering them defeats the purpose of Phase 2. (Python uses
       `_MIN_METHOD_LINES=3` because Python methods always have at least a
       `def` + `pass`/`...` line; TS has no equivalent.)
-- [ ] Unit tests for method extraction: concrete, abstract, static,
+- [x] Unit tests for method extraction: concrete, abstract, static,
       getter/setter, constructor, overloaded, interface methods
-- [ ] Constructor summary in class_overview — include constructor signature
+- [x] Constructor summary in class_overview — include constructor signature
       in the class overview snippet (matching Python pattern in
       `_build_class_overview`)
 
 ### Phase 2d: Enhanced metadata
 
-- [ ] Populate `method_signature` field for function and method chunks
-- [ ] Populate `imports` — extract `import { X } from "..."` statements
-- [ ] Populate `calls` — extract `this.method()` calls from method bodies
+- [x] Populate `method_signature` field for function and method chunks
+- [x] Populate `imports` — extract `import { X } from "..."` statements
+- [x] Populate `calls` — extract `this.method()` calls from method bodies
       (best-effort, like Python's `_extract_calls`)
-- [ ] Parameter extraction with types and defaults for all functions/methods
-- [ ] Decorator extraction (`@override`, `@deprecated`, etc.) — snippet-only,
+- [x] Parameter extraction with types and defaults for all functions/methods
+- [x] Decorator extraction (`@override`, `@deprecated`, etc.) — snippet-only,
       included in rendered content for search but NOT separately indexed or
       queryable (no new storage field or API output field in Phase 2)
-- [ ] Update smoke tests for method-level queries:
+- [x] Update smoke tests for method-level queries:
       - `search_api("connect", class_name="PipecatClient")` → method chunk
       - `search_api("initialize", class_name="Transport")` → abstract method
 
 ### Phase 2e: Cleanup and validation
 
-- [ ] Remove `ts_source_parser.py` (regex parser) — fully replaced
-- [ ] Update `source_ingest.py` imports to use new parser
-- [ ] Update `source_ingest.py` to pass `is_tsx` flag based on file extension
-- [ ] Full test suite passes (all existing tests, not a hardcoded count)
-- [ ] `ruff check` and `mypy` clean
-- [ ] All 22 MCP smoke tests pass
-- [ ] Live validation: `refresh --force`, reconnect MCP server, run full
+- [x] Remove `ts_source_parser.py` (regex parser) — fully replaced
+- [x] Update `source_ingest.py` imports to use new parser
+- [x] Update `source_ingest.py` to pass `is_tsx` flag based on file extension
+- [x] Full test suite passes (all existing tests, not a hardcoded count)
+- [x] `ruff check` and `mypy` clean
+- [x] All 22 MCP smoke tests pass
+- [x] Live validation: `refresh --force`, reconnect MCP server, run full
       AGENTS.md live smoke checklist (tests 1-22 + new method tests).
       Treat any live failure as a blocker even if unit tests pass.
-- [ ] Performance comparison: time `parse_ts_source` on
+- [x] Performance comparison: time `parse_ts_source` on
       `pipecat-client-web` repo with both parsers
-- [ ] Update docs: README architecture ("AST + TS tree-sitter"), CLAUDE.md
+- [x] Update docs: README architecture ("AST + TS tree-sitter"), CLAUDE.md
       project layout, CHANGELOG entry
 
 ## Technical Specifications
@@ -365,13 +365,13 @@ for repo in TS_REPOS:
 
 ## Acceptance Criteria
 
-- [ ] All existing MCP smoke tests pass (tests 1-22 in AGENTS.md)
-- [ ] New method-level smoke tests pass
-- [ ] `ts_source_parser.py` (regex) fully removed
-- [ ] Net chunk count increases (method chunks added)
-- [ ] `method_signature` populated for all TS function/method chunks
-- [ ] All existing unit tests pass, lint and type check clean
-- [ ] `.tsx` files parse correctly (test against voice-ui-kit components)
-- [ ] Performance: tree-sitter parse time <= regex parse time on
+- [x] All existing MCP smoke tests pass (tests 1-22 in AGENTS.md)
+- [x] New method-level smoke tests pass
+- [x] `ts_source_parser.py` (regex) fully removed
+- [x] Net chunk count increases (method chunks added)
+- [x] `method_signature` populated for all TS function/method chunks
+- [x] All existing unit tests pass, lint and type check clean
+- [x] `.tsx` files parse correctly (test against voice-ui-kit components)
+- [x] Performance: tree-sitter parse time <= regex parse time on
       pipecat-client-web
-- [ ] Live AGENTS.md smoke checklist passes after refresh + MCP reconnect
+- [x] Live AGENTS.md smoke checklist passes after refresh + MCP reconnect
