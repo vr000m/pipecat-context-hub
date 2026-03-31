@@ -99,7 +99,7 @@ in future reviews unless the underlying circumstances change.
 
 - **[Logic] won't-fix**: Confidence scores are optimistic on weak `search_examples` results — noisy keyword matches from large repos (e.g., gradient-bang frontend files) score high via RRF + dual-hit bonus, driving confidence to ~0.95 even when results are semantically irrelevant. This is a retrieval quality issue, not a confidence calibration bug. The cross-encoder (Phase 1, disabled by default) directly addresses this by scoring query-result *pairs* for semantic relevance. Without cross-encoder, confidence reflects score distribution, not true relevance. Follow-up: example corpus weighting / repo scoring to reduce noise from non-pipeline code. (2026-03-24)
 
-- **[Security] accepted-risk**: `pip-audit` reports `pygments 2.19.2` for `CVE-2026-4539`, but as of March 25, 2026 it does not provide a fixed PyPI version. The package is currently present transitively via `rich`/`pytest`, so the repo-local audit gate ignores this single CVE with an explicit `--ignore-vuln` entry rather than disabling `pip-audit` more broadly. Revisit as soon as upstream publishes a fixed release or the advisory guidance changes. (2026-03-25)
+- **[Security] resolved**: `pygments` CVE-2026-4539 resolved by upgrading to 2.20.0 via PR #34 (2026-03-31). The `--ignore-vuln` entry in the audit gate can be removed if still present.
 
 - **[Architecture] won't-fix**: Removing `pipecat_context_hub.services.ingest.ts_source_parser` is intentional. The module is treated as internal implementation detail, not supported public API, and no external consumers are expected to import it directly. Revisit only if ingestion parser modules become documented extension points. (2026-03-30)
 
