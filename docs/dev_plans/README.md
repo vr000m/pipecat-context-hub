@@ -7,6 +7,8 @@
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
+| 2026-03-31 | feature | Phase 2: Tree-sitter TypeScript Extraction | Complete (v0.0.13) | vr000m | `feature/tree-sitter-ts-phase2` | `20260330-feature-tree-sitter-ts-phase2.md` |
+| 2026-03-30 | feature | Phase 1: Multi-Language API Extraction | Complete (v0.0.12) | vr000m | `feature/multi-language-parsing-plan` | `20260218-design-pipecat-context-hub.md` |
 | 2026-03-25 | chore | MCP Server Audit & Hardening | Complete | vr000m | `chore/mcp-server-audit` | `20260325-chore-mcp-server-audit-hardening.md` |
 | 2026-03-24 | bug | Chroma Index Recovery & Benchmark Hardening | Complete | vr000m | `feature/daily-python-indexing` | `20260324-bug-chroma-index-recovery.md` |
 | 2026-03-24 | feature | Language & Domain Filtering for search_examples | Complete | vr000m | `feature/language-domain-filtering` | `20260218-design-pipecat-context-hub.md` |
