@@ -131,25 +131,29 @@ def _extract_jsdoc(node: Node, source: str) -> str:
 
 
 def _extract_bases_from_heritage(node: Node) -> list[str]:
-    """Extract base class/interface names from a class_heritage or extends_type_clause node."""
+    """Extract base class/interface names from a class_heritage node."""
     bases: list[str] = []
     for child in node.children:
         if child.type in ("extends_clause", "extends_type_clause"):
             for type_node in child.children:
-                if type_node.type in ("type_identifier", "generic_type"):
-                    name_node = _find_child_by_type(type_node, "type_identifier")
+                if type_node.type in ("type_identifier", "identifier"):
+                    bases.append(_node_text(type_node))
+                elif type_node.type == "generic_type":
+                    name_node = _find_child_by_type(
+                        type_node, "type_identifier", "identifier",
+                    )
                     if name_node:
                         bases.append(_node_text(name_node))
-                    elif type_node.type == "type_identifier":
-                        bases.append(_node_text(type_node))
         elif child.type == "implements_clause":
             for type_node in child.children:
-                if type_node.type in ("type_identifier", "generic_type"):
-                    name_node = _find_child_by_type(type_node, "type_identifier")
+                if type_node.type in ("type_identifier", "identifier"):
+                    bases.append(_node_text(type_node))
+                elif type_node.type == "generic_type":
+                    name_node = _find_child_by_type(
+                        type_node, "type_identifier", "identifier",
+                    )
                     if name_node:
                         bases.append(_node_text(name_node))
-                    elif type_node.type == "type_identifier":
-                        bases.append(_node_text(type_node))
     return bases
 
 
@@ -191,17 +195,24 @@ def _build_return_type(node: Node) -> str:
 
 
 def _is_function_typed(node: Node) -> bool:
-    """Check if a property_signature has a function type annotation."""
+    """Check if a property_signature has a function type annotation.
+
+    Only matches direct function types (``(args) => Return``), NOT object
+    types that happen to contain function-typed members.
+    """
     type_ann = _find_child_by_type(node, "type_annotation")
     if not type_ann:
         return False
-    # Check if the type is a function type or contains =>
+    # Check for function_type as a direct child of the type annotation
     for child in type_ann.children:
         if child.type == "function_type":
             return True
-    # Fallback: check text for arrow syntax
-    text = _node_text(type_ann)
-    return "=>" in text or "(" in text
+        # Also check parenthesized_type wrapping a function_type
+        if child.type == "parenthesized_type":
+            for inner in child.children:
+                if inner.type == "function_type":
+                    return True
+    return False
 
 
 # ---------------------------------------------------------------------------
