@@ -1,12 +1,12 @@
-# Version-Aware Indexing
+# Version-Aware Indexing & Deprecation Checking
 
 **Status:** Not Started
 **Priority:** Medium
 **Branch:** `feature/version-aware-indexing`
 **Created:** 2026-03-31
-**Objective:** Track which pipecat version each repo/example targets, and
-surface version compatibility information in retrieval results. Enable users
-pinning a specific pipecat version to get relevant, compatible results.
+**Objective:** Track which pipecat version each repo/example targets, expose
+deprecation checking as a first-class MCP tool, and enable version-aware
+retrieval so users get compatible results.
 
 ## Context
 
@@ -21,6 +21,8 @@ mismatch:
   patterns
 - There's no way to distinguish "this example uses the latest API" from
   "this example is 6 months stale"
+- When the harness sees `from pipecat.services.grok import ...`, there's no
+  way to immediately flag it as deprecated
 
 ### Current State
 
@@ -48,9 +50,12 @@ mismatch:
 
 **Deprecation mechanism:**
 - `DeprecatedModuleProxy` redirects old import paths to new ones with
-  `DeprecationWarning` — 40+ module-level deprecations
+  `DeprecationWarning` — 37+ module-level deprecations (structured, parseable)
+- `warnings.warn(DeprecationWarning)` for parameter/method deprecations
+  (unstructured, scattered in source code)
+- `.. deprecated:: 0.0.99` docstring directives (semi-structured)
+- CHANGELOG `### Deprecated` and `### Removed` sections (human-authored prose)
 - Old imports keep working until explicitly removed
-- Removals happen in same release as deprecation notice
 
 **Example repo version pinning (observed patterns):**
 | Pattern | Example | Count |
@@ -59,6 +64,19 @@ mismatch:
 | Minimum `>=0.0.105` | pipecat-flows, pipecat-subagents | ~10 |
 | Range `>=0.0.93,<1` | peekaboo | ~5 |
 | No constraint | pipecat-quickstart | ~10 |
+| Extras syntax | `pipecat-ai[daily,runner]>=0.0.105` | All of the above |
+
+**Important: monorepo structure.**
+`pipecat-ai/pipecat-examples` has `dependencies = []` at root. Each of
+48+ example subdirectories has its own `pyproject.toml` with its own
+pipecat-ai version pin. Version extraction must be per-example-directory,
+not per-repo.
+
+**Framework examples** (`pipecat-ai/pipecat/examples/`) have no dependency
+files. They implicitly target the framework's own version.
+
+**No `setup.py`/`setup.cfg`** found in any of the 73 indexed repos. All use
+`pyproject.toml` or `requirements.txt`.
 
 **TypeScript SDKs:**
 - Use caret ranges (`^1.7.0`) allowing minor/patch updates
@@ -68,228 +86,378 @@ mismatch:
 - Single docs site (always latest, no version selector)
 - No versioned doc variants
 
+### Review Findings (2026-04-01)
+
+Plan review identified 1 critical and 6 important gaps. All incorporated
+into the revised plan below.
+
+**Critical — monorepo version extraction:** `pipecat-examples` requires
+per-example-directory extraction, not per-repo. Each subdir has its own
+`pyproject.toml`.
+
+**Important — PEP 508 extras syntax:** Every real dependency uses
+`pipecat-ai[daily,runner]>=0.0.105`. Must parse extras correctly.
+
+**Important — `vector.py` metadata allowlist:** ChromaDB persistence uses
+an explicit allowlist in `_record_to_metadata()`. New metadata keys not
+added here are silently dropped.
+
+**Important — scoring penalty too aggressive:** `-0.15` is 15% of the
+score range (0-1). Start with `-0.05`, make tunable.
+
+**Important — user version detection:** MCP server is a separate stdio
+process. Auto-detection can't work. The harness should pass version as
+a tool parameter instead.
+
+**Important — deprecation scope:** `DeprecatedModuleProxy` only covers
+module renames. Parameter/method deprecations via `warnings.warn()` and
+docstring directives are unstructured. Scope Phase 1b to structured
+sources only.
+
 ## Requirements
 
-### Phase 1: Version Extraction (metadata only)
+### Phase 1a: Version Extraction (metadata only)
 
-1. **Extract pipecat version from each repo** — parse `pyproject.toml`,
-   `requirements.txt`, `setup.py`, `setup.cfg`, and `package.json` for
-   `pipecat-ai` / `@pipecat-ai/client-js` version constraints
-2. **Store as chunk metadata** — `pipecat_version_pin` field on each chunk
-   (e.g., `"==0.0.98"`, `">=0.0.105"`, `null` for no pin)
-3. **Surface in retrieval results** — include version pin in `search_api`,
-   `search_examples`, and `get_code_snippet` responses
-4. **No filtering yet** — Phase 1 is purely additive metadata
+1. **Extract pipecat version from each example/repo** — parse
+   `pyproject.toml` and `requirements.txt` for `pipecat-ai` version
+   constraints, handling PEP 508 extras syntax correctly
+2. **Per-example-directory extraction** — for monorepos like
+   `pipecat-examples`, walk from each example directory upward to find
+   the nearest dependency file
+3. **Framework repo special case** — chunks from `pipecat-ai/pipecat`
+   examples get version derived from the repo's latest git tag
+4. **Store as chunk metadata** — `pipecat_version_pin` field
+5. **Persist to ChromaDB** — add to `_record_to_metadata()` allowlist in
+   `vector.py`
+6. **Surface in retrieval results** — add optional `pipecat_version_pin`
+   field to `ExampleHit`, `ApiHit`, `CodeSnippet` output models
+7. **No filtering or scoring changes** — purely additive metadata
 
-### Phase 2: Deprecation Awareness
+### Phase 1b: Deprecation Check Tool (new MCP tool)
 
-1. **Extract deprecation markers from framework** — parse
-   `DeprecatedModuleProxy` usage, `@deprecated` decorators, and CHANGELOG
-   `Deprecated`/`Removed` sections
-2. **Build a deprecation map** — `{old_path: {new_path, deprecated_in,
-   removed_in}}` for module-level deprecations
-3. **Annotate chunks using deprecated APIs** — when an example imports
-   a deprecated module, flag it in the chunk metadata
-4. **Surface in results** — `deprecated_apis: ["pipecat.services.grok.llm"]`
+1. **Build deprecation map at refresh time** — parse `DeprecatedModuleProxy`
+   usage from pipecat source + CHANGELOG `Deprecated`/`Removed` sections
+2. **Expose `check_deprecation` MCP tool:**
+   ```
+   check_deprecation(symbol="pipecat.services.grok.llm")
+   → {deprecated: true, replacement: "pipecat.services.xai.llm",
+      deprecated_in: "0.0.100", removed_in: null}
 
-### Phase 3: User Version Context
+   check_deprecation(symbol="pipecat.services.grok")
+   → {deprecated: true, replacement: "pipecat.services.xai",
+      deprecated_in: "0.0.100", removed_in: null}
 
-1. **Detect user's pipecat version** — parse the user's project
-   `pyproject.toml` / `requirements.txt` at query time (or accept via
-   env var / config)
-2. **Version-aware scoring** — boost chunks whose `pipecat_version_pin`
-   is compatible with the user's version, penalize incompatible ones
-3. **Filter option** — allow excluding results targeting versions newer
-   than the user's (opt-in, not default)
-4. **Compatibility annotations** — add `version_compatibility: "compatible"
-   | "newer_required" | "deprecated" | "unknown"` to results
+   check_deprecation(symbol="DailyTransport")
+   → {deprecated: false}
+   ```
+3. **MCP server instructions** — tell Claude: "When you see pipecat imports,
+   check `check_deprecation` for deprecated APIs before recommending them"
+4. **Deprecation scope for Phase 1b (structured sources only):**
+   - `DeprecatedModuleProxy` usage in `__init__.py` files → old/new path
+   - CHANGELOG.md `### Deprecated` → version + description (best-effort)
+   - CHANGELOG.md `### Removed` → version + description (best-effort)
+   - **Deferred:** inline `warnings.warn()` and docstring `.. deprecated::`
+     (requires AST analysis, scope for Phase 3+)
+
+### Phase 2: Version-Aware Retrieval
+
+1. **Harness passes version as tool parameter** — the coding harness
+   (Claude Code, Cursor) knows the user's `pyproject.toml` and passes
+   the pipecat version on tool calls:
+   ```
+   search_examples("TTS pipeline", pipecat_version="0.0.95")
+   search_api("DailyTransport", pipecat_version="0.0.95")
+   ```
+2. **Version-aware scoring** — boost compatible chunks, penalize
+   incompatible ones (default penalty: `-0.05`, tunable)
+3. **Compatibility annotations** — add `version_compatibility` field:
+   `"compatible" | "newer_required" | "deprecated" | "unknown"`
+4. **Opt-in filter** — allow excluding results targeting versions newer
+   than the user's (`version_filter: "compatible_only"`)
+
+### Phase 3: Enhanced Deprecation Detection (stretch)
+
+1. **AST-based deprecation detection** — parse `warnings.warn(
+   DeprecationWarning)` calls in pipecat source for parameter/method
+   deprecations
+2. **Docstring deprecation parsing** — extract `.. deprecated:: 0.0.99`
+   directives from method docstrings
+3. **Annotate example chunks** — cross-reference example imports against
+   deprecation map, flag affected chunks
 
 ### Phase 4: Historical Version Indexing (stretch)
 
 1. **Index specific git tags** — allow indexing `pipecat-ai/pipecat` at a
-   specific tag (e.g., `v0.0.95`) alongside HEAD
-2. **Multi-version API surface** — users pinned to v0.0.95 get API docs
+   specific tag (e.g., `v0.0.95`) instead of HEAD
+2. **Config:** `PIPECAT_HUB_FRAMEWORK_VERSION=v0.0.95` env var or
+   `refresh --framework-version v0.0.95` CLI flag
+3. **Multi-version API surface** — users pinned to v0.0.95 get API docs
    from that version, not HEAD
-3. **Diff awareness** — know which APIs were added/removed between versions
+4. **Storage cost:** ~3x source chunk count per additional version indexed
 
 ## Implementation Checklist
 
-### Phase 1: Version Extraction
+### Phase 1a: Version Extraction
 
-- [ ] Add `_extract_pipecat_version(repo_path: Path) -> str | None` helper
-      in `github_ingest.py` — parses pyproject.toml, requirements.txt,
-      setup.py, setup.cfg, package.json for pipecat version constraints
+- [ ] Add `_extract_pipecat_version(path: Path) -> str | None` helper
+      in `github_ingest.py`:
+      - Parse `pyproject.toml` `[project].dependencies` for `pipecat-ai`
+      - Parse `requirements.txt` for `pipecat-ai` line
+      - Handle PEP 508 extras syntax (`pipecat-ai[daily,runner]>=0.0.105`)
+        using `packaging.Requirement` or regex strip
+      - Walk upward from example directory to find nearest dependency file
+      - For `pipecat-ai/pipecat` examples, derive from git tag
+      - Skip `setup.py`/`setup.cfg` (none exist in indexed repos)
+- [ ] Call version extraction per-example-directory in `_build_chunk_metadata()`
 - [ ] Store `pipecat_version_pin` in chunk metadata during ingestion
-- [ ] Store `pipecat_version_pin` in `TaxonomyEntry` for example chunks
-- [ ] Surface in `ExampleHit`, `ApiHit`, `CodeSnippet` response models
-- [ ] Unit tests for version extraction from each file format
-- [ ] Verify: `search_examples("TTS pipeline")` results include version pin
-- [ ] No changes to scoring or filtering — purely additive metadata
+- [ ] Add `pipecat_version_pin` to `_record_to_metadata()` allowlist in
+      `vector.py` for ChromaDB persistence
+- [ ] Add optional `pipecat_version_pin: str | None` field to `ExampleHit`,
+      `ApiHit`, `CodeSnippet` in `types.py` (default `None` for backward compat)
+- [ ] Surface in retrieval results via `hybrid.py`
+- [ ] Handle missing version data gracefully (default `None`, no penalty)
+- [ ] Document: `refresh --force` needed after upgrade to populate version pins
+- [ ] Unit tests for version extraction:
+      - Exact pin `==0.0.98`
+      - Minimum `>=0.0.105`
+      - Range `>=0.0.93,<1`
+      - Extras syntax `pipecat-ai[daily,runner]>=0.0.105`
+      - No version constraint `pipecat-ai[webrtc,daily]`
+      - TypeScript caret range `^1.7.0`
+      - Missing dependency file (returns `None`)
+      - Monorepo per-directory extraction
+      - Framework repo examples (derive from git tag)
+- [ ] Bump `_SERVER_VERSION` (minor schema addition)
 
-### Phase 2: Deprecation Awareness
+### Phase 1b: Deprecation Check Tool
 
-- [ ] Parse `DeprecatedModuleProxy` usage from pipecat source — build
-      `{old_module: new_module}` map
-- [ ] Parse CHANGELOG.md for `### Deprecated` and `### Removed` sections
-      with version numbers
-- [ ] Store deprecation map as a versioned artifact (rebuild on refresh)
-- [ ] Cross-reference example imports against deprecation map during ingest
-- [ ] Add `deprecated_apis` metadata field to affected chunks
-- [ ] Surface `deprecated_apis` in retrieval results
-- [ ] Unit tests for deprecation map parsing
+- [ ] Create `deprecation_map.py` in `services/ingest/`:
+      - Parse `DeprecatedModuleProxy` usage from cloned pipecat source
+      - Parse CHANGELOG.md `### Deprecated` and `### Removed` sections
+        (best-effort, seed manually for known deprecations)
+      - Store as `DeprecationMap` dataclass (dict of `DeprecationEntry`)
+      - Rebuild on each `refresh`
+- [ ] Create `check_deprecation` MCP tool handler in `server/tools/`:
+      - Input: `symbol: str` (module path, class name, or method name)
+      - Output: `{deprecated: bool, replacement: str | None,
+        deprecated_in: str | None, removed_in: str | None, note: str | None}`
+      - Fuzzy matching: `pipecat.services.grok` matches `pipecat.services.grok.llm`
+- [ ] Register tool in `main.py` tool registry
+- [ ] Update `_SERVER_INSTRUCTIONS` to tell Claude to use `check_deprecation`
+      when it sees pipecat imports
+- [ ] Persist deprecation map to disk (rebuild on refresh, load on serve)
+- [ ] Unit tests for deprecation map parsing:
+      - `DeprecatedModuleProxy` extraction
+      - CHANGELOG `### Deprecated` section parsing
+      - CHANGELOG `### Removed` section parsing
+      - Fuzzy symbol matching
+- [ ] MCP smoke test: `check_deprecation("pipecat.services.grok.llm")`
+      returns `{deprecated: true, replacement: "pipecat.services.xai.llm"}`
 
-### Phase 3: User Version Context
+### Phase 2: Version-Aware Retrieval
 
-- [ ] Detect user's pipecat version from project files (at query time or
-      via `PIPECAT_HUB_USER_VERSION` env var)
-- [ ] Add `version_compatibility` field to retrieval results
-- [ ] Implement version-aware scoring adjustments
-- [ ] Add opt-in version filtering to `search_examples` and `search_api`
+- [ ] Add optional `pipecat_version: str | None` parameter to
+      `SearchExamplesInput`, `SearchApiInput`, `GetCodeSnippetInput`
+- [ ] Implement version comparison logic (PEP 440 for Python,
+      semver for npm)
+- [ ] Version-aware scoring in `rerank.py`:
+      - Default penalty: `-0.05` for incompatible versions (tunable)
+      - A/B test: highly relevant older example still ranks above
+        irrelevant newer one
+- [ ] Add `version_compatibility` field to result models
+- [ ] Opt-in `version_filter` parameter on search tools
 - [ ] Unit tests for version comparison and scoring
+- [ ] MCP smoke tests with version parameter
+
+### Phase 3: Enhanced Deprecation Detection (stretch)
+
+- [ ] AST-based `warnings.warn(DeprecationWarning)` parsing
+- [ ] Docstring `.. deprecated::` directive parsing
+- [ ] Cross-reference example imports against full deprecation map
+- [ ] Add `deprecated_apis` metadata field to affected chunks
 
 ### Phase 4: Historical Version Indexing (stretch)
 
-- [ ] Support indexing specific git tags via config or CLI flag
+- [ ] `PIPECAT_HUB_FRAMEWORK_VERSION` env var / `--framework-version` CLI
+- [ ] Tag-based checkout in `GitHubRepoIngester.clone_or_fetch()`
 - [ ] Separate index partitions per version
-- [ ] Version-aware `search_api` — prefer user's version's API surface
-- [ ] Performance: don't double index count unnecessarily
+- [ ] Performance benchmarks for multi-version index
 
 ## Technical Specifications
 
-### Version Extraction (Phase 1)
+### Version Extraction (Phase 1a)
 
-**Parsing priority order:**
-1. `pyproject.toml` → `[project].dependencies` → find `pipecat-ai` entry
-2. `requirements.txt` → line matching `pipecat-ai`
-3. `setup.py` / `setup.cfg` → `install_requires` → `pipecat-ai`
-4. `package.json` → `dependencies` / `peerDependencies` →
+**Parsing strategy:**
+1. `pyproject.toml` → `[project].dependencies` → find entry matching
+   `pipecat-ai` (strip extras with `packaging.Requirement` or regex
+   `pipecat-ai\[.*?\]` before version extraction)
+2. `requirements.txt` → line matching `pipecat-ai` (same extras handling)
+3. `package.json` → `dependencies` / `peerDependencies` →
    `@pipecat-ai/client-js`
+4. No `setup.py`/`setup.cfg` — none exist in indexed repos
 
-**Version constraint format stored as-is:**
-- `"==0.0.98"` (exact pin)
-- `">=0.0.105"` (minimum)
-- `">=0.0.93,<1"` (range)
-- `"^1.7.0"` (npm caret range)
-- `null` (no pipecat dependency found)
+**Monorepo handling:**
+```python
+def _extract_pipecat_version(example_dir: Path, repo_root: Path) -> str | None:
+    """Walk upward from example_dir to repo_root looking for dependency files."""
+    current = example_dir
+    while current != repo_root.parent:
+        for filename in ("pyproject.toml", "requirements.txt"):
+            dep_file = current / filename
+            if dep_file.is_file():
+                version = _parse_pipecat_version_from(dep_file)
+                if version is not None:
+                    return version
+        current = current.parent
+    return None
+```
 
-### Deprecation Map (Phase 2)
+**Framework repo special case:**
+For chunks from `pipecat-ai/pipecat`, derive version from the repo's
+HEAD commit tag (via `git describe --tags --abbrev=0`).
+
+### Deprecation Map (Phase 1b)
 
 ```python
 @dataclass
 class DeprecationEntry:
     old_path: str           # e.g., "pipecat.services.grok.llm"
-    new_path: str           # e.g., "pipecat.services.xai.llm"
-    deprecated_in: str      # version string, e.g., "0.0.100"
+    new_path: str | None    # e.g., "pipecat.services.xai.llm"
+    deprecated_in: str | None  # version string, e.g., "0.0.100"
     removed_in: str | None  # version if removed, else None
+    note: str = ""          # human-readable description
+
+@dataclass
+class DeprecationMap:
+    entries: dict[str, DeprecationEntry]  # keyed by old_path
+
+    def check(self, symbol: str) -> DeprecationEntry | None:
+        """Fuzzy match: 'pipecat.services.grok' matches
+        'pipecat.services.grok.llm'."""
+        if symbol in self.entries:
+            return self.entries[symbol]
+        # Prefix match
+        for key, entry in self.entries.items():
+            if key.startswith(symbol + ".") or symbol.startswith(key + "."):
+                return entry
+        return None
 ```
 
-**Sources:**
-1. `DeprecatedModuleProxy` usage in `__init__.py` files → old/new path
-2. CHANGELOG.md `### Deprecated` → version + description
+**Sources (structured, Phase 1b):**
+1. `DeprecatedModuleProxy` usage in `__init__.py` files → old/new module path
+2. CHANGELOG.md `### Deprecated` → version + description (best-effort prose parsing)
 3. CHANGELOG.md `### Removed` → version + description
 
-### Version Compatibility Scoring (Phase 3)
+**Sources (unstructured, deferred to Phase 3):**
+4. `warnings.warn(DeprecationWarning, ...)` calls in source code
+5. `.. deprecated:: 0.0.99` docstring directives
 
+### Version-Aware Scoring (Phase 2)
+
+```python
+# Harness passes user version as tool parameter
+user_version = "0.0.95"  # from tool call, not env var
+chunk_version_pin = ">=0.0.105"  # from chunk metadata
+
+# Version comparison using packaging.Version
+from packaging.version import Version
+from packaging.specifiers import SpecifierSet
+
+user_v = Version(user_version)
+spec = SpecifierSet(chunk_version_pin)
+
+if user_v not in spec:
+    # Chunk requires newer → small penalty, annotate
+    score_adjustment = -0.05  # tunable, not -0.15
+    compatibility = "newer_required"
+else:
+    score_adjustment = 0
+    compatibility = "compatible"
 ```
-user_version = "0.0.95"
-chunk_version_pin = "==0.0.98"
 
-if chunk requires newer than user → penalty -0.15, label "newer_required"
-if chunk uses deprecated APIs in user's version → no penalty, label "uses_deprecated"
-if chunk is compatible → no change, label "compatible"
-if no version info → no change, label "unknown"
+### MCP Tool: `check_deprecation`
+
+```python
+class CheckDeprecationInput(BaseModel):
+    symbol: str = Field(
+        max_length=256,
+        description="Module path, class name, or method to check. "
+        "E.g., 'pipecat.services.grok.llm' or 'TTSService.add_word_timestamps'.",
+    )
+
+class CheckDeprecationOutput(BaseModel):
+    deprecated: bool
+    replacement: str | None = None
+    deprecated_in: str | None = None
+    removed_in: str | None = None
+    note: str | None = None
 ```
 
 ### Files to Modify
 
 | Phase | File | Changes |
 |-------|------|---------|
-| 1 | `github_ingest.py` | `_extract_pipecat_version()` helper |
-| 1 | `types.py` | `pipecat_version_pin` on response models |
-| 1 | `hybrid.py` | Surface version in results |
-| 2 | New: `deprecation_map.py` | Parse deprecations from framework source |
-| 2 | `source_ingest.py` | Cross-reference imports vs deprecation map |
-| 3 | `hybrid.py` | Version-aware scoring |
-| 3 | `config.py` | `PIPECAT_HUB_USER_VERSION` env var |
+| 1a | `github_ingest.py` | `_extract_pipecat_version()` helper, call per-example-dir |
+| 1a | `vector.py` | Add `pipecat_version_pin` to `_record_to_metadata()` allowlist |
+| 1a | `types.py` | `pipecat_version_pin` on `ExampleHit`, `ApiHit`, `CodeSnippet` |
+| 1a | `hybrid.py` | Surface version in results |
+| 1a | `main.py` | Bump `_SERVER_VERSION` |
+| 1b | New: `services/ingest/deprecation_map.py` | Parse deprecations |
+| 1b | New: `server/tools/check_deprecation.py` | Tool handler |
+| 1b | `main.py` | Register `check_deprecation` tool, update instructions |
+| 1b | `cli.py` | Build deprecation map during `refresh` |
+| 2 | `types.py` | `pipecat_version` param on search input models |
+| 2 | `rerank.py` | Version-aware scoring adjustments |
+| 2 | `hybrid.py` | `version_compatibility` field, version filter |
 
-### Version Pinning Configuration
+### Integration Seams
 
-Today the context hub has no version awareness. Two new configuration
-surfaces are needed:
-
-**1. Framework version to index** (affects what API surface is indexed):
-
-```bash
-# Default: HEAD of pipecat-ai/pipecat (current behavior, no change)
-# Pinned: index a specific tag instead of HEAD
-PIPECAT_HUB_FRAMEWORK_VERSION=v0.0.95
-```
-
-Or via CLI:
-```bash
-pipecat-context-hub refresh --framework-version v0.0.95
-```
-
-When set, `GitHubRepoIngester` clones/checks out the specified tag for
-`pipecat-ai/pipecat` instead of HEAD. All other repos still index at HEAD.
-This is Phase 4 work — Phase 1-3 don't change what gets indexed, they
-only add metadata and scoring.
-
-**2. User's project version** (affects scoring/filtering at query time):
-
-```bash
-# Option A: env var (explicit, works for any project)
-PIPECAT_HUB_USER_VERSION=0.0.95
-
-# Option B: auto-detect from user's project (implicit)
-# The MCP server reads the calling project's pyproject.toml at startup
-# and extracts the pipecat-ai version constraint.
-```
-
-Auto-detection is more ergonomic but harder — the MCP server runs as a
-subprocess and may not know the calling project's working directory. The
-env var is simpler and reliable. Phase 3 should support both: env var
-takes precedence, auto-detect as fallback.
-
-**Neither mechanism exists today.** Phase 1 only extracts version metadata
-from indexed repos — no new config needed. Phases 2-3 add
-`PIPECAT_HUB_USER_VERSION`. Phase 4 adds `PIPECAT_HUB_FRAMEWORK_VERSION`.
+| Seam | Contract |
+|------|----------|
+| `_extract_pipecat_version(path, repo_root)` | Returns version constraint string or None. Called per-example-dir during ingest. |
+| `DeprecationMap.check(symbol)` | Returns DeprecationEntry or None. Loaded from disk at server startup. |
+| `check_deprecation` MCP tool | Takes symbol string, returns deprecation status. Available to harness without version context. |
+| `pipecat_version` tool parameter | Optional param on search tools. Harness reads user's pyproject.toml and passes version. |
+| `_record_to_metadata()` in vector.py | Must include `pipecat_version_pin` in allowlist or field is silently dropped. |
 
 ## Open Questions
 
-1. **Should version filtering be opt-in or default?** — Filtering by default
-   could reduce useful results. Annotating (no filtering) is safer as a first
-   step.
-2. **How to handle repos with no version pin?** — Mark as `"unknown"`,
-   don't penalize. These are often actively maintained (follow latest).
-3. **Should we track TS SDK versions separately?** — The JS/TS packages use
-   a different versioning scheme (`^1.7.0`). Phase 1 should extract both
-   Python and TS version pins.
-4. **Multi-version indexing cost** — Indexing 3 versions of pipecat would
-   ~3x the source chunk count (~15K → ~45K). Retrieval performance impact?
-5. **How stale is "too stale"?** — A repo pinned to `v0.0.85` (released
-   months ago) may have perfectly valid patterns. Only deprecated/removed
-   APIs are truly problematic.
+1. **CHANGELOG parsing reliability** — prose sections are fragile to parse.
+   Should we seed the deprecation map manually for known deprecations and
+   use CHANGELOG parsing as a best-effort supplement?
+2. **Should `check_deprecation` also check class/method names?** — Phase 1b
+   covers module paths. Expanding to class/method names requires AST analysis
+   of `warnings.warn()` calls (Phase 3).
+3. **Version penalty tuning** — -0.05 is conservative. Should this be
+   configurable per-user or fixed? Start fixed, add config if needed.
+4. **Multi-version indexing cost (Phase 4)** — indexing 3 versions would
+   ~3x the source chunk count (~15K → ~45K). Worth the storage and
+   retrieval performance cost?
+5. **TS SDK version tracking** — `@pipecat-ai/client-js` uses `^1.7.0`
+   (caret ranges). Should this be a separate field from the Python version
+   pin, or unified?
 
 ## Review Focus
 
-- **Version extraction reliability** — pyproject.toml formats vary
-  (PEP 621 vs setuptools vs poetry). Cover all common patterns.
-- **Deprecation map completeness** — `DeprecatedModuleProxy` covers module
-  renames but not individual API deprecations (method removed, parameter
-  changed). CHANGELOG parsing is needed for the rest.
-- **Scoring balance** — version penalties should not overwhelm relevance.
-  A highly relevant example from v0.0.95 is still better than an irrelevant
-  one from v0.0.108.
-- **Phase 4 feasibility** — multi-version indexing has real storage and
-  performance costs. May be better as a "version snapshot" feature than
-  a permanent multi-version index.
+- **Version extraction reliability** — PEP 508 extras syntax, monorepo
+  per-directory parsing, framework repo special case
+- **Deprecation map completeness** — Phase 1b covers module renames only.
+  Verify this covers the most user-visible deprecation scenarios.
+- **Scoring balance** — -0.05 penalty should not overwhelm relevance.
+  A highly relevant example from v0.0.95 beats an irrelevant one from HEAD.
+- **`check_deprecation` tool design** — fuzzy matching, response format,
+  harness integration via MCP server instructions
+- **Backward compatibility** — new optional fields on output models must
+  default to None. Existing MCP clients should not break.
 
 ## Acceptance Criteria
 
 - [ ] `search_examples` results include `pipecat_version_pin` when available
-- [ ] `get_code_snippet` results show version compatibility annotation
-- [ ] Examples using deprecated APIs are flagged in results
-- [ ] User version detection works from project pyproject.toml
-- [ ] No scoring regressions — existing smoke tests still pass
-- [ ] Version info doesn't clutter results for users who don't need it
+- [ ] `check_deprecation("pipecat.services.grok.llm")` returns deprecation
+      info with replacement path
+- [ ] `check_deprecation("DailyTransport")` returns `{deprecated: false}`
+- [ ] MCP server instructions mention `check_deprecation` for import checking
+- [ ] Examples using deprecated modules are discoverable via the tool
+- [ ] Existing 29 smoke tests still pass (no regressions)
+- [ ] `refresh --force` populates version pins on all chunks
+- [ ] Version info defaults to `None` gracefully for chunks without it
