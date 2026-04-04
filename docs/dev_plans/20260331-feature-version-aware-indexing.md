@@ -253,7 +253,7 @@ penalty or make mutually exclusive.
       protocol unaffected, backward compatible)
 - [x] Surface in retrieval results via `hybrid.py`
 - [x] Handle missing version data gracefully (default `None`, no penalty)
-- [ ] Document: `refresh --force` needed after upgrade to populate version pins
+- [x] Document: `refresh --force` needed after upgrade to populate version pins
 - [x] Unit tests for version extraction:
       - Exact pin `==0.0.98`
       - Minimum `>=0.0.105`

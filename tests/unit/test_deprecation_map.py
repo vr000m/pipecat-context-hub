@@ -225,8 +225,8 @@ class TestBuildFromChangelog:
             "- Some bugfix.\n"
         )
         dm = build_deprecation_map_from_changelog(changelog)
-        # Should have 1 changelog entry
-        matching = [e for e in dm.entries.values() if e.deprecated_in == "0.0.100"]
+        # CHANGELOG entries go to changelog_notes, not entries
+        matching = [n for n in dm.changelog_notes if n.deprecated_in == "0.0.100"]
         assert len(matching) == 1
         assert "grok" in matching[0].note
 
@@ -238,7 +238,7 @@ class TestBuildFromChangelog:
             "- Removed the old `pipecat.services.lmnt` module.\n"
         )
         dm = build_deprecation_map_from_changelog(changelog)
-        matching = [e for e in dm.entries.values() if e.removed_in == "0.0.110"]
+        matching = [n for n in dm.changelog_notes if n.removed_in == "0.0.110"]
         assert len(matching) == 1
 
     def test_supplements_existing_map(self, tmp_path: Path) -> None:
@@ -257,13 +257,13 @@ class TestBuildFromChangelog:
             }
         )
         result = build_deprecation_map_from_changelog(changelog, existing)
-        # Should have both existing and new entries
+        # entries preserved, changelog_notes added separately
         assert "pipecat.services.grok" in result.entries
-        assert len(result.entries) >= 2
+        assert len(result.changelog_notes) >= 1
 
     def test_missing_changelog(self, tmp_path: Path) -> None:
         dm = build_deprecation_map_from_changelog(tmp_path / "CHANGELOG.md")
-        assert len(dm.entries) == 0
+        assert len(dm.changelog_notes) == 0
 
 
 class TestCheckDeprecationHandler:
@@ -345,5 +345,7 @@ class TestBuildFromRealSource:
             return  # Skip if not available
 
         dm = build_deprecation_map_from_changelog(changelog)
-        # CHANGELOG should have at least some Deprecated/Removed entries
-        assert len(dm.entries) >= 1, f"Expected >= 1 CHANGELOG entry, got {len(dm.entries)}"
+        # CHANGELOG should have at least some Deprecated/Removed notes
+        assert len(dm.changelog_notes) >= 1, (
+            f"Expected >= 1 CHANGELOG note, got {len(dm.changelog_notes)}"
+        )

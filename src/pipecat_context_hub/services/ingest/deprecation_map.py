@@ -48,6 +48,7 @@ class DeprecationMap:
     """
 
     entries: dict[str, DeprecationEntry] = field(default_factory=dict)
+    changelog_notes: list[DeprecationEntry] = field(default_factory=list)
     pipecat_commit_sha: str = ""
 
     def check(self, symbol: str) -> DeprecationEntry | None:
@@ -80,6 +81,16 @@ class DeprecationMap:
                 }
                 for k, e in self.entries.items()
             },
+            "changelog_notes": [
+                {
+                    "old_path": e.old_path,
+                    "new_path": e.new_path,
+                    "deprecated_in": e.deprecated_in,
+                    "removed_in": e.removed_in,
+                    "note": e.note,
+                }
+                for e in self.changelog_notes
+            ],
         }
 
     @classmethod
@@ -97,9 +108,22 @@ class DeprecationMap:
                         removed_in=val.get("removed_in"),
                         note=val.get("note", ""),
                     )
+        changelog_notes: list[DeprecationEntry] = []
+        raw_notes = data.get("changelog_notes", [])
+        if isinstance(raw_notes, list):
+            for val in raw_notes:
+                if isinstance(val, dict):
+                    changelog_notes.append(DeprecationEntry(
+                        old_path=str(val.get("old_path", "")),
+                        new_path=val.get("new_path"),
+                        deprecated_in=val.get("deprecated_in"),
+                        removed_in=val.get("removed_in"),
+                        note=val.get("note", ""),
+                    ))
         commit_sha = data.get("pipecat_commit_sha", "")
         return cls(
             entries=entries,
+            changelog_notes=changelog_notes,
             pipecat_commit_sha=str(commit_sha) if commit_sha else "",
         )
 
@@ -179,10 +203,15 @@ def build_deprecation_map_from_source(
         return DeprecationMap(entries=entries, pipecat_commit_sha=commit_sha)
 
     # Scan all Python files for DeprecatedModuleProxy usage
+    resolved_root = pipecat_repo_path.resolve()
     for py_file in src_root.rglob("*.py"):
+        # Security: reject symlinks and verify file stays within repo
+        if py_file.is_symlink():
+            continue
         try:
+            py_file.resolve().relative_to(resolved_root)
             content = py_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except (ValueError, Exception):
             continue
 
         for match in _PROXY_RE.finditer(content):
@@ -283,19 +312,14 @@ def build_deprecation_map_from_changelog(
         if current_version and current_section and line.strip().startswith("- "):
             changelog_entries.append((current_version, current_section, line.strip()[2:]))
 
-    added = 0
     for version, section, description in changelog_entries:
-        # Generate a key from the description (best-effort)
-        key = f"changelog:{version}:{description[:80]}"
-        if key not in result.entries:
-            result.entries[key] = DeprecationEntry(
-                old_path=key,
-                new_path=None,
-                deprecated_in=version if section == "Deprecated" else None,
-                removed_in=version if section == "Removed" else None,
-                note=description,
-            )
-            added += 1
+        result.changelog_notes.append(DeprecationEntry(
+            old_path=description[:80],
+            new_path=None,
+            deprecated_in=version if section == "Deprecated" else None,
+            removed_in=version if section == "Removed" else None,
+            note=description,
+        ))
 
-    logger.info("Added %d CHANGELOG deprecation/removal entries", added)
+    logger.info("Added %d CHANGELOG deprecation/removal notes", len(changelog_entries))
     return result

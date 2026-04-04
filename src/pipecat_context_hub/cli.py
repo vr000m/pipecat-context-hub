@@ -436,11 +436,17 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
             dep_map_path = config.storage.data_dir / "deprecation_map.json"
             dep_map.save(dep_map_path)
         else:
-            logger.warning(
-                "Framework repo %s not in effective_repos — "
-                "deprecation map not rebuilt",
-                framework_slug,
-            )
+            # Delete stale map to avoid serving outdated deprecation data
+            dep_map_path = config.storage.data_dir / "deprecation_map.json"
+            if dep_map_path.is_file():
+                dep_map_path.unlink()
+                logger.info("Deleted stale deprecation map (framework repo not configured)")
+            else:
+                logger.debug(
+                    "Framework repo %s not in effective_repos — "
+                    "no deprecation map to build",
+                    framework_slug,
+                )
 
     try:
         asyncio.run(_run_refresh())

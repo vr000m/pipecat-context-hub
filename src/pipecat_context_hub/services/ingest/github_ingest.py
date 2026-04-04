@@ -684,26 +684,38 @@ def _parse_pipecat_version_from_package_json(path: Path) -> str | None:
     return None
 
 
+def _is_safe_file(path: Path, repo_root_resolved: Path) -> bool:
+    """Check that a file is not a symlink and resolves within the repo root."""
+    if path.is_symlink():
+        return False
+    try:
+        path.resolve().relative_to(repo_root_resolved)
+        return True
+    except ValueError:
+        return False
+
+
 def _extract_pipecat_version(example_dir: Path, repo_root: Path) -> str | None:
     """Walk upward from example_dir looking for pipecat-ai dependency.
 
     Checks pyproject.toml, requirements.txt, and package.json at each level.
     Returns the version constraint string or None.
     """
+    resolved_root = repo_root.resolve()
     current = example_dir
     while current != repo_root.parent:
         pyproject = current / "pyproject.toml"
-        if pyproject.is_file():
+        if pyproject.is_file() and _is_safe_file(pyproject, resolved_root):
             version = _parse_pipecat_version_from_pyproject(pyproject)
             if version is not None:
                 return version
         reqs = current / "requirements.txt"
-        if reqs.is_file():
+        if reqs.is_file() and _is_safe_file(reqs, resolved_root):
             version = _parse_pipecat_version_from_requirements(reqs)
             if version is not None:
                 return version
         pkg_json = current / "package.json"
-        if pkg_json.is_file():
+        if pkg_json.is_file() and _is_safe_file(pkg_json, resolved_root):
             version = _parse_pipecat_version_from_package_json(pkg_json)
             if version is not None:
                 return version
