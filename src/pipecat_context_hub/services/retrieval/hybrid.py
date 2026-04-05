@@ -54,7 +54,7 @@ from pipecat_context_hub.shared.types import (
 
 logger = logging.getLogger(__name__)
 
-_VersionCompat = Literal["compatible", "newer_required", "deprecated", "unknown"]
+_VersionCompat = Literal["compatible", "newer_required", "older_targeted", "deprecated", "unknown"]
 
 # Number of candidate results to fetch for code snippet lookups.
 _DEFAULT_SNIPPET_CANDIDATES = 5
@@ -108,8 +108,9 @@ class HybridRetriever:
         """
         concepts = decompose_query(query_text)
         if concepts is not None:
-            results = await self._multi_concept_search(concepts, filters, limit)
-            return results, {}
+            return await self._multi_concept_search(
+                concepts, filters, limit, pipecat_version=pipecat_version
+            )
         return await self._single_concept_search(
             query_text, filters, limit, pipecat_version=pipecat_version
         )
@@ -174,12 +175,12 @@ class HybridRetriever:
         concepts: list[str],
         filters: dict[str, Any],
         limit: int,
-    ) -> list[IndexResult]:
+        pipecat_version: str | None = None,
+    ) -> tuple[list[IndexResult], dict[str, str]]:
         """Run per-concept searches and interleave for balanced coverage.
 
-        Note: multi-concept search does not return a compat_map because
-        results are interleaved from multiple sub-queries. The caller
-        provides an empty compat_map.
+        Returns (results, merged_compat_map) — compat maps from all
+        sub-queries are merged.
         """
         n = len(concepts)
 
@@ -187,10 +188,10 @@ class HybridRetriever:
         # per-concept searches would over-fetch.  Fall back to a single
         # search using the full (joined) query.
         if limit < n:
-            results, _ = await self._single_concept_search(
-                " ".join(concepts), filters, limit
+            return await self._single_concept_search(
+                " ".join(concepts), filters, limit,
+                pipecat_version=pipecat_version,
             )
-            return results
 
         per_concept = -(-limit // n)  # ceiling division
 
@@ -202,9 +203,17 @@ class HybridRetriever:
         )
 
         raw_results = await asyncio.gather(
-            *(self._single_concept_search(c, filters, per_concept) for c in concepts)
+            *(
+                self._single_concept_search(
+                    c, filters, per_concept, pipecat_version=pipecat_version
+                )
+                for c in concepts
+            )
         )
         concept_results = [r for r, _ in raw_results]
+        merged_compat: dict[str, str] = {}
+        for _, cm in raw_results:
+            merged_compat.update(cm)
 
         # Round-robin interleave with deduplication
         merged: list[IndexResult] = []
@@ -219,9 +228,9 @@ class HybridRetriever:
                         seen_ids.add(cid)
                         merged.append(results[i])
                         if len(merged) >= limit:
-                            return merged
+                            return merged, merged_compat
 
-        return merged[:limit]
+        return merged[:limit], merged_compat
 
     # -----------------------------------------------------------------
     # search_docs
@@ -367,7 +376,7 @@ class HybridRetriever:
         if input.version_filter == "compatible_only" and compat_map:
             results = [
                 r for r in results
-                if compat_map.get(r.chunk.chunk_id) in ("compatible", "unknown")
+                if compat_map.get(r.chunk.chunk_id) in ("compatible", "older_targeted", "unknown")
             ]
 
         evidence = assemble_evidence(input.query, results, filters)
@@ -678,7 +687,7 @@ class HybridRetriever:
         if input.version_filter == "compatible_only" and compat_map:
             results = [
                 r for r in results
-                if compat_map.get(r.chunk.chunk_id) in ("compatible", "unknown")
+                if compat_map.get(r.chunk.chunk_id) in ("compatible", "older_targeted", "unknown")
             ]
 
         evidence = assemble_evidence(input.query, results, filters)

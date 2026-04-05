@@ -110,9 +110,13 @@ def compute_version_compatibility(
 
     Returns:
         A tuple of (compatibility_label, penalty):
-        - ``("unknown", 0.0)`` if no version pin
+        - ``("unknown", 0.0)`` if no version pin or unparseable
         - ``("compatible", 0.0)`` if user version satisfies the constraint
-        - ``("newer_required", VERSION_PENALTY)`` if constraint requires a newer version
+        - ``("newer_required", VERSION_PENALTY)`` if user needs to upgrade
+          (chunk's minimum version is above the user's)
+        - ``("older_targeted", 0.0)`` if the chunk targets an older version
+          than the user has (e.g., ``==0.0.85`` with user on ``0.0.95``)
+          — no penalty because the user likely has a superset of functionality
     """
     if not chunk_version_pin:
         return ("unknown", 0.0)
@@ -122,20 +126,46 @@ def compute_version_compatibility(
         from packaging.version import InvalidVersion, Version
 
         user_v = Version(user_version)
-
-        # Plain version (e.g., "0.0.108" from git tag) — treat as "~=major.minor"
-        # meaning the chunk targets that version; compatible if user is >= that version.
         pin = chunk_version_pin.strip()
+
+        # Plain version (e.g., "0.0.108" from git tag) — the chunk was
+        # written for that version. Compatible if user is >= that version.
         if pin and pin[0].isdigit():
-            spec = SpecifierSet(f">={pin}")
-        else:
-            spec = SpecifierSet(pin)
+            chunk_v = Version(pin)
+            if user_v >= chunk_v:
+                return ("compatible", 0.0)
+            else:
+                return ("newer_required", VERSION_PENALTY)
+
+        spec = SpecifierSet(pin)
 
         if user_v in spec:
             return ("compatible", 0.0)
+
+        # Determine direction: does the spec require a version ABOVE the user's,
+        # or does it target a version BELOW the user's?
+        # Check if any specifier has a minimum above user_v.
+        has_min_above = False
+        has_max_below = False
+        for s in spec:
+            s_version = Version(s.version)
+            if s.operator in (">=", ">", "~=", "=="):
+                if s_version > user_v:
+                    has_min_above = True
+            if s.operator in ("<=", "<", "=="):
+                if s_version < user_v:
+                    has_max_below = True
+
+        if has_min_above:
+            return ("newer_required", VERSION_PENALTY)
+        elif has_max_below:
+            # Chunk targets an older version — user has already passed it.
+            # No penalty: the code might still work or use deprecated patterns
+            # (check_deprecation handles that separately).
+            return ("older_targeted", 0.0)
         else:
             return ("newer_required", VERSION_PENALTY)
-    except (InvalidVersion, InvalidSpecifier, Exception):
+    except (InvalidVersion, InvalidSpecifier, TypeError):
         return ("unknown", 0.0)
 
 

@@ -914,7 +914,8 @@ class TestVersionAwareRetrieval:
             if hit.example_id == "new1":
                 assert hit.version_compatibility == "newer_required"
             elif hit.example_id == "old1":
-                assert hit.version_compatibility == "newer_required"
+                # ==0.0.85 with user on 0.0.95 → user has passed that version
+                assert hit.version_compatibility == "older_targeted"
             elif hit.example_id == "nopin1":
                 assert hit.version_compatibility == "unknown"
 
@@ -937,6 +938,6 @@ class TestVersionAwareRetrieval:
             )
         )
         for hit in result.hits:
-            assert hit.version_compatibility in ("compatible", "unknown"), (
+            assert hit.version_compatibility in ("compatible", "older_targeted", "unknown"), (
                 f"Hit {hit.example_id} has version_compatibility={hit.version_compatibility}"
             )

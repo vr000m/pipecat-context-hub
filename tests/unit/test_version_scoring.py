@@ -72,10 +72,17 @@ class TestComputeVersionCompatibility:
         assert label == "compatible"
         assert penalty == 0.0
 
-    def test_incompatible_exact(self) -> None:
+    def test_exact_pin_user_below(self) -> None:
+        """User on 0.0.95, chunk pins ==0.0.98 → user needs to upgrade."""
         label, penalty = compute_version_compatibility("0.0.95", "==0.0.98")
         assert label == "newer_required"
         assert penalty == VERSION_PENALTY
+
+    def test_exact_pin_user_above(self) -> None:
+        """User on 0.0.110, chunk pins ==0.0.85 → user has passed that version."""
+        label, penalty = compute_version_compatibility("0.0.110", "==0.0.85")
+        assert label == "older_targeted"
+        assert penalty == 0.0
 
     def test_compatible_range(self) -> None:
         label, penalty = compute_version_compatibility("0.0.95", "<1,>=0.0.93")
@@ -189,3 +196,31 @@ class TestVersionScoringInHeuristics:
         results, compat = rerank([v1], [k1], "test", now=NOW, pipecat_version="0.0.95")
         assert "a" in compat
         assert compat["a"] == "newer_required"
+
+
+class TestVersionFilterValidation:
+    """Test that version_filter requires pipecat_version."""
+
+    def test_filter_without_version_raises(self) -> None:
+        from pipecat_context_hub.shared.types import SearchExamplesInput
+
+        with pytest.raises(ValueError, match="version_filter requires pipecat_version"):
+            SearchExamplesInput(
+                query="test", version_filter="compatible_only"
+            )
+
+    def test_filter_with_version_ok(self) -> None:
+        from pipecat_context_hub.shared.types import SearchExamplesInput
+
+        inp = SearchExamplesInput(
+            query="test", pipecat_version="0.0.95", version_filter="compatible_only"
+        )
+        assert inp.version_filter == "compatible_only"
+
+    def test_api_filter_without_version_raises(self) -> None:
+        from pipecat_context_hub.shared.types import SearchApiInput
+
+        with pytest.raises(ValueError, match="version_filter requires pipecat_version"):
+            SearchApiInput(
+                query="test", version_filter="compatible_only"
+            )

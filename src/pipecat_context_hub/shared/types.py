@@ -314,9 +314,15 @@ class SearchExamplesInput(BaseModel):
     )
     version_filter: Literal["compatible_only"] | None = Field(
         default=None,
-        description="Set to 'compatible_only' to exclude results targeting versions newer than the user's.",
+        description="Set to 'compatible_only' to exclude results targeting versions newer than the user's. Requires pipecat_version.",
     )
     limit: int = Field(default=10, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def _version_filter_requires_version(self) -> "SearchExamplesInput":
+        if self.version_filter and not self.pipecat_version:
+            raise ValueError("version_filter requires pipecat_version to be set.")
+        return self
 
 
 class ExampleHit(BaseModel):
@@ -331,7 +337,7 @@ class ExampleHit(BaseModel):
     path: str
     commit_sha: str | None = None
     pipecat_version_pin: str | None = None
-    version_compatibility: Literal["compatible", "newer_required", "deprecated", "unknown"] | None = None
+    version_compatibility: Literal["compatible", "newer_required", "older_targeted", "deprecated", "unknown"] | None = None
     citation: Citation
     score: float
 
@@ -451,7 +457,7 @@ class CodeSnippet(BaseModel):
     line_end: int
     language: str | None = None
     pipecat_version_pin: str | None = None
-    version_compatibility: Literal["compatible", "newer_required", "deprecated", "unknown"] | None = None
+    version_compatibility: Literal["compatible", "newer_required", "older_targeted", "deprecated", "unknown"] | None = None
     citation: Citation
     dependency_notes: list[str] = Field(
         default_factory=list,
@@ -544,9 +550,15 @@ class SearchApiInput(BaseModel):
     )
     version_filter: Literal["compatible_only"] | None = Field(
         default=None,
-        description="Set to 'compatible_only' to exclude results targeting versions newer than the user's.",
+        description="Set to 'compatible_only' to exclude results targeting versions newer than the user's. Requires pipecat_version.",
     )
     limit: int = Field(default=10, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def _version_filter_requires_version(self) -> "SearchApiInput":
+        if self.version_filter and not self.pipecat_version:
+            raise ValueError("version_filter requires pipecat_version to be set.")
+        return self
 
 
 class ApiHit(BaseModel):
@@ -578,7 +590,7 @@ class ApiHit(BaseModel):
         description="RST type definition names for this method's parameters. Look up with search_api(query=name, chunk_type='type_definition').",
     )
     pipecat_version_pin: str | None = None
-    version_compatibility: Literal["compatible", "newer_required", "deprecated", "unknown"] | None = None
+    version_compatibility: Literal["compatible", "newer_required", "older_targeted", "deprecated", "unknown"] | None = None
     citation: Citation
     score: float
 
