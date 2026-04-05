@@ -14,7 +14,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
     from pipecat_context_hub.services.embedding import EmbeddingService
@@ -53,6 +53,8 @@ from pipecat_context_hub.shared.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+_VersionCompat = Literal["compatible", "newer_required", "deprecated", "unknown"]
 
 # Number of candidate results to fetch for code snippet lookups.
 _DEFAULT_SNIPPET_CANDIDATES = 5
@@ -94,25 +96,35 @@ class HybridRetriever:
         query_text: str,
         filters: dict[str, Any],
         limit: int,
-    ) -> list[IndexResult]:
+        pipecat_version: str | None = None,
+    ) -> tuple[list[IndexResult], dict[str, str]]:
         """Run both vector and keyword search, merge with reranking.
 
         If the query contains multiple concepts (delimited by `` + ``
         or `` & ``), runs per-concept searches and interleaves results
         for balanced coverage.
+
+        Returns (results, version_compatibility_map).
         """
         concepts = decompose_query(query_text)
         if concepts is not None:
-            return await self._multi_concept_search(concepts, filters, limit)
-        return await self._single_concept_search(query_text, filters, limit)
+            results = await self._multi_concept_search(concepts, filters, limit)
+            return results, {}
+        return await self._single_concept_search(
+            query_text, filters, limit, pipecat_version=pipecat_version
+        )
 
     async def _single_concept_search(
         self,
         query_text: str,
         filters: dict[str, Any],
         limit: int,
-    ) -> list[IndexResult]:
-        """Run vector + keyword search for a single query, merge with RRF."""
+        pipecat_version: str | None = None,
+    ) -> tuple[list[IndexResult], dict[str, str]]:
+        """Run vector + keyword search for a single query, merge with RRF.
+
+        Returns (results, version_compatibility_map).
+        """
         query_embedding: list[float] | None = None
         if self._embedding is not None:
             query_embedding = await asyncio.to_thread(self._embedding.embed_query, query_text)
@@ -140,21 +152,22 @@ class HybridRetriever:
         )
 
         if not vector_results and not keyword_results:
-            return []
+            return [], {}
 
-        reranked = rerank(
+        reranked, compat_map = rerank(
             vector_results=vector_results,
             keyword_results=keyword_results,
             query=query_text,
             rrf_k=self._rrf_k,
             filters=filters,
+            pipecat_version=pipecat_version,
         )
 
         # Optional cross-encoder reranking (async, runs in thread)
         if self._cross_encoder and self._cross_encoder.enabled:
             reranked = await self._cross_encoder.rerank(reranked, query_text)
 
-        return reranked[:limit]
+        return reranked[:limit], compat_map
 
     async def _multi_concept_search(
         self,
@@ -162,14 +175,22 @@ class HybridRetriever:
         filters: dict[str, Any],
         limit: int,
     ) -> list[IndexResult]:
-        """Run per-concept searches and interleave for balanced coverage."""
+        """Run per-concept searches and interleave for balanced coverage.
+
+        Note: multi-concept search does not return a compat_map because
+        results are interleaved from multiple sub-queries. The caller
+        provides an empty compat_map.
+        """
         n = len(concepts)
 
         # When the requested limit is smaller than the concept count,
         # per-concept searches would over-fetch.  Fall back to a single
         # search using the full (joined) query.
         if limit < n:
-            return await self._single_concept_search(" ".join(concepts), filters, limit)
+            results, _ = await self._single_concept_search(
+                " ".join(concepts), filters, limit
+            )
+            return results
 
         per_concept = -(-limit // n)  # ceiling division
 
@@ -180,9 +201,10 @@ class HybridRetriever:
             limit,
         )
 
-        concept_results = await asyncio.gather(
+        raw_results = await asyncio.gather(
             *(self._single_concept_search(c, filters, per_concept) for c in concepts)
         )
+        concept_results = [r for r, _ in raw_results]
 
         # Round-robin interleave with deduplication
         merged: list[IndexResult] = []
@@ -215,7 +237,7 @@ class HybridRetriever:
             area = input.area if input.area.startswith("/") else f"/{input.area}"
             filters["path"] = area
 
-        results = await self._hybrid_search(input.query, filters, input.limit)
+        results, _ = await self._hybrid_search(input.query, filters, input.limit)
         evidence = assemble_evidence(input.query, results, filters)
 
         hits: list[DocHit] = []
@@ -336,7 +358,18 @@ class HybridRetriever:
         if input.execution_mode:
             filters["execution_mode"] = input.execution_mode
 
-        results = await self._hybrid_search(input.query, filters, input.limit)
+        results, compat_map = await self._hybrid_search(
+            input.query, filters, input.limit,
+            pipecat_version=input.pipecat_version,
+        )
+
+        # Apply version_filter if requested
+        if input.version_filter == "compatible_only" and compat_map:
+            results = [
+                r for r in results
+                if compat_map.get(r.chunk.chunk_id) in ("compatible", "unknown")
+            ]
+
         evidence = assemble_evidence(input.query, results, filters)
 
         hits: list[ExampleHit] = []
@@ -344,6 +377,7 @@ class HybridRetriever:
             citation = build_citation(r)
             cap_tags: list[str] = r.chunk.metadata.get("capability_tags", [])
             key_files: list[str] = r.chunk.metadata.get("key_files", [])
+            compat = cast(_VersionCompat | None, compat_map.get(r.chunk.chunk_id))
             hits.append(
                 ExampleHit(
                     example_id=r.chunk.chunk_id,
@@ -355,6 +389,7 @@ class HybridRetriever:
                     path=r.chunk.path,
                     commit_sha=r.chunk.commit_sha,
                     pipecat_version_pin=r.chunk.metadata.get("pipecat_version_pin"),
+                    version_compatibility=compat,
                     citation=citation,
                     score=r.score,
                 )
@@ -445,6 +480,7 @@ class HybridRetriever:
         """Get code snippets by symbol, intent, or path+line_start."""
         filters: dict[str, Any] = {}
         results: list[IndexResult] = []
+        compat_map: dict[str, str] = {}
 
         # Determine query text and content_type based on lookup mode.
         # Symbol lookups target framework source (content_type="source")
@@ -477,8 +513,9 @@ class HybridRetriever:
             cascade_filters: dict[str, Any] = base_filters
             for extra_filter in cascade_steps:
                 cascade_filters = {**base_filters, **extra_filter}
-                results = await self._hybrid_search(
-                    query_text, cascade_filters, _DEFAULT_SNIPPET_CANDIDATES
+                results, compat_map = await self._hybrid_search(
+                    query_text, cascade_filters, _DEFAULT_SNIPPET_CANDIDATES,
+                    pipecat_version=input.pipecat_version,
                 )
                 if results:
                     break
@@ -500,7 +537,10 @@ class HybridRetriever:
             query_text = ""
 
         if not input.symbol:
-            results = await self._hybrid_search(query_text, filters, _DEFAULT_SNIPPET_CANDIDATES)
+            results, compat_map = await self._hybrid_search(
+                query_text, filters, _DEFAULT_SNIPPET_CANDIDATES,
+                pipecat_version=input.pipecat_version,
+            )
         evidence = assemble_evidence(query_text, results, filters)
 
         snippets: list[CodeSnippet] = []
@@ -593,6 +633,9 @@ class HybridRetriever:
                     line_end=chunk_line_end,
                     language=r.chunk.metadata.get("language"),
                     pipecat_version_pin=r.chunk.metadata.get("pipecat_version_pin"),
+                    version_compatibility=cast(
+                        _VersionCompat | None, compat_map.get(r.chunk.chunk_id)
+                    ),
                     citation=citation,
                     dependency_notes=imports_raw,
                     companion_snippets=companion,
@@ -626,7 +669,18 @@ class HybridRetriever:
         if input.calls:
             filters["calls"] = input.calls
 
-        results = await self._hybrid_search(input.query, filters, input.limit)
+        results, compat_map = await self._hybrid_search(
+            input.query, filters, input.limit,
+            pipecat_version=input.pipecat_version,
+        )
+
+        # Apply version_filter if requested
+        if input.version_filter == "compatible_only" and compat_map:
+            results = [
+                r for r in results
+                if compat_map.get(r.chunk.chunk_id) in ("compatible", "unknown")
+            ]
+
         evidence = assemble_evidence(input.query, results, filters)
 
         hits: list[ApiHit] = []
@@ -653,6 +707,9 @@ class HybridRetriever:
                     calls=calls_raw,
                     related_types=related_types_raw,
                     pipecat_version_pin=r.chunk.metadata.get("pipecat_version_pin"),
+                    version_compatibility=cast(
+                        _VersionCompat | None, compat_map.get(r.chunk.chunk_id)
+                    ),
                     citation=citation,
                     score=r.score,
                 )

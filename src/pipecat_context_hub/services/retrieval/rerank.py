@@ -28,6 +28,14 @@ SYMBOL_MATCH_BOOST = 0.15
 # Boost for chunks found by both vector AND keyword search.
 DUAL_HIT_BONUS = 0.10
 
+# Version incompatibility penalty (applied when user's version doesn't
+# satisfy the chunk's version constraint).
+VERSION_PENALTY = 0.05
+
+# Combined penalty cap: staleness + version penalty cannot exceed this.
+# Prevents old + incompatible examples from being double-penalized.
+COMBINED_PENALTY_CAP = 0.10
+
 
 def reciprocal_rank_fusion(
     ranked_lists: list[list[IndexResult]],
@@ -88,13 +96,57 @@ def _extract_query_symbols(query: str) -> list[str]:
     return symbols
 
 
+def compute_version_compatibility(
+    user_version: str,
+    chunk_version_pin: str | None,
+) -> tuple[str, float]:
+    """Compute version compatibility and score penalty.
+
+    Args:
+        user_version: The user's pipecat-ai version (e.g., "0.0.95").
+        chunk_version_pin: The chunk's version constraint (e.g., ">=0.0.105")
+            or None if unknown. For framework-derived versions (plain "0.0.108"),
+            the chunk targets that exact version.
+
+    Returns:
+        A tuple of (compatibility_label, penalty):
+        - ``("unknown", 0.0)`` if no version pin
+        - ``("compatible", 0.0)`` if user version satisfies the constraint
+        - ``("newer_required", VERSION_PENALTY)`` if constraint requires a newer version
+    """
+    if not chunk_version_pin:
+        return ("unknown", 0.0)
+
+    try:
+        from packaging.specifiers import InvalidSpecifier, SpecifierSet
+        from packaging.version import InvalidVersion, Version
+
+        user_v = Version(user_version)
+
+        # Plain version (e.g., "0.0.108" from git tag) — treat as "~=major.minor"
+        # meaning the chunk targets that version; compatible if user is >= that version.
+        pin = chunk_version_pin.strip()
+        if pin and pin[0].isdigit():
+            spec = SpecifierSet(f">={pin}")
+        else:
+            spec = SpecifierSet(pin)
+
+        if user_v in spec:
+            return ("compatible", 0.0)
+        else:
+            return ("newer_required", VERSION_PENALTY)
+    except (InvalidVersion, InvalidSpecifier, Exception):
+        return ("unknown", 0.0)
+
+
 def apply_code_intent_heuristics(
     results: list[IndexResult],
     rrf_scores: dict[str, float],
     query: str,
     dual_hit_ids: set[str] | None = None,
     now: datetime | None = None,
-) -> list[IndexResult]:
+    pipecat_version: str | None = None,
+) -> tuple[list[IndexResult], dict[str, str]]:
     """Apply code-intent heuristics on top of RRF scores.
 
     Heuristics:
@@ -104,8 +156,13 @@ def apply_code_intent_heuristics(
        score boost (stronger signal than single-backend match).
     3. **Graduated staleness:** Linear decay penalty based on age, capped at
        ``STALENESS_MAX_PENALTY`` at ``STALENESS_DECAY_DAYS``.
+    4. **Version compatibility:** If ``pipecat_version`` is provided, penalize
+       chunks targeting incompatible versions. Combined staleness + version
+       penalty is capped at ``COMBINED_PENALTY_CAP``.
 
-    Returns results sorted by adjusted score (descending).
+    Returns:
+        A tuple of (reranked results, version_compatibility_map) where the map
+        is ``{chunk_id: compatibility_label}``.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -114,6 +171,7 @@ def apply_code_intent_heuristics(
 
     query_symbols = _extract_query_symbols(query)
     adjusted: list[tuple[float, IndexResult]] = []
+    compat_map: dict[str, str] = {}
 
     for result in results:
         chunk_id = result.chunk.chunk_id
@@ -147,15 +205,36 @@ def apply_code_intent_heuristics(
         if indexed_at.tzinfo is None:
             indexed_at = indexed_at.replace(tzinfo=timezone.utc)
         age_days = (now - indexed_at).days
+        staleness_penalty = 0.0
         if age_days > 0:
-            penalty = min(STALENESS_MAX_PENALTY, age_days / STALENESS_DECAY_DAYS * STALENESS_MAX_PENALTY)
-            score -= penalty
-            if penalty > 0.01:
+            staleness_penalty = min(
+                STALENESS_MAX_PENALTY,
+                age_days / STALENESS_DECAY_DAYS * STALENESS_MAX_PENALTY,
+            )
+
+        # Version compatibility penalty
+        version_penalty = 0.0
+        if pipecat_version:
+            chunk_pin = result.chunk.metadata.get("pipecat_version_pin")
+            compat_label, version_penalty = compute_version_compatibility(
+                pipecat_version, chunk_pin
+            )
+            compat_map[chunk_id] = compat_label
+
+        # Combined penalty cap: staleness + version ≤ COMBINED_PENALTY_CAP
+        total_penalty = staleness_penalty + version_penalty
+        if total_penalty > COMBINED_PENALTY_CAP:
+            total_penalty = COMBINED_PENALTY_CAP
+
+        if total_penalty > 0:
+            score -= total_penalty
+            if total_penalty > 0.01:
                 logger.debug(
-                    "Staleness penalty: chunk=%s age_days=%d penalty=%.4f new_score=%.6f",
+                    "Penalty: chunk=%s staleness=%.4f version=%.4f combined=%.4f score=%.6f",
                     chunk_id,
-                    age_days,
-                    penalty,
+                    staleness_penalty,
+                    version_penalty,
+                    total_penalty,
                     score,
                 )
 
@@ -176,7 +255,7 @@ def apply_code_intent_heuristics(
                 match_type=result.match_type,
             )
         )
-    return reranked
+    return reranked, compat_map
 
 
 # Maximum total results from the same repo or file before diversity penalty.
@@ -286,15 +365,17 @@ def rerank(
     rrf_k: int = DEFAULT_RRF_K,
     now: datetime | None = None,
     filters: dict[str, object] | None = None,
-) -> list[IndexResult]:
+    pipecat_version: str | None = None,
+) -> tuple[list[IndexResult], dict[str, str]]:
     """Full reranking pipeline: RRF merge + heuristics + diversity.
 
     1. Compute RRF scores across vector and keyword result lists.
     2. Identify dual-hit chunk IDs (found by both backends).
     3. Deduplicate by chunk_id, using RRF scores for winner selection.
-    4. Apply code-intent heuristics (symbol boost, dual-hit bonus, staleness).
+    4. Apply code-intent heuristics (symbol boost, dual-hit bonus, staleness,
+       version compatibility).
     5. Apply diversity pass (repo/file diversity, chunk-type preference).
-    6. Return sorted results.
+    6. Return sorted results + version compatibility map.
     """
     # RRF scoring
     rrf_scores = reciprocal_rank_fusion([vector_results, keyword_results], k=rrf_k)
@@ -323,7 +404,8 @@ def rerank(
     )
 
     # Apply heuristics then diversity
-    heuristic_results = apply_code_intent_heuristics(
-        merged, rrf_scores, query, dual_hit_ids=dual_hit_ids, now=now
+    heuristic_results, compat_map = apply_code_intent_heuristics(
+        merged, rrf_scores, query, dual_hit_ids=dual_hit_ids, now=now,
+        pipecat_version=pipecat_version,
     )
-    return _apply_diversity(heuristic_results, filters=filters)
+    return _apply_diversity(heuristic_results, filters=filters), compat_map

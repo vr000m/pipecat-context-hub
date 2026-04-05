@@ -1,6 +1,6 @@
 # Version-Aware Indexing & Deprecation Checking
 
-**Status:** Phase 1a + 1b Complete
+**Status:** Phase 1a + 1b + 2 Complete
 **Priority:** Medium
 **Branch:** `feature/version-aware-indexing`
 **Created:** 2026-03-31
@@ -301,20 +301,20 @@ penalty or make mutually exclusive.
 
 ### Phase 2: Version-Aware Retrieval
 
-- [ ] Add optional `pipecat_version: str | None` parameter to
+- [x] Add optional `pipecat_version: str | None` parameter to
       `SearchExamplesInput`, `SearchApiInput`, `GetCodeSnippetInput`
       (default `None` — Retriever protocol unaffected)
-- [ ] Implement version comparison logic using `packaging.Version` and
+- [x] Implement version comparison logic using `packaging.Version` and
       `packaging.specifiers.SpecifierSet` (PEP 440 for Python)
-- [ ] Version-aware scoring in `rerank.py`:
+- [x] Version-aware scoring in `rerank.py`:
       - Default penalty: `-0.05` for incompatible versions (tunable)
       - Combined cap: staleness + version penalty ≤ `-0.10` total
       - A/B test: highly relevant older example still ranks above
         irrelevant newer one
-- [ ] Add `version_compatibility` field to result models
-- [ ] Opt-in `version_filter` parameter on search tools
-- [ ] Unit tests for version comparison and scoring
-- [ ] MCP smoke tests with version parameter
+- [x] Add `version_compatibility` field to result models
+- [x] Opt-in `version_filter` parameter on search tools
+- [x] Unit tests for version comparison and scoring
+- [x] MCP smoke tests with version parameter
 
 ### Phase 3: Enhanced Deprecation Detection (stretch)
 

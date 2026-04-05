@@ -870,3 +870,73 @@ class TestCheckDeprecationE2E:
         result = json.loads(result_json)
         assert result["deprecated"] is False
         assert "not available" in (result.get("note") or "")
+
+
+# ---------------------------------------------------------------------------
+# Version-aware retrieval E2E tests (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class TestVersionAwareRetrieval:
+    """E2E tests for version-aware scoring and filtering."""
+
+    @pytest.fixture(autouse=True)
+    async def _seed_versioned_examples(self, embedding_writer: EmbeddingIndexWriter):
+        records = [
+            _make_versioned_code_record(
+                "new1",
+                "Voice bot using new DailyTransport API with TTS pipeline",
+                pipecat_version_pin=">=0.0.105",
+                path="examples/new-api/bot.py",
+            ),
+            _make_versioned_code_record(
+                "old1",
+                "Voice bot using old DailyTransport API with TTS pipeline",
+                pipecat_version_pin="==0.0.85",
+                path="examples/old-api/bot.py",
+            ),
+            _make_versioned_code_record(
+                "nopin1",
+                "Voice bot pipeline with no version constraint at all",
+                pipecat_version_pin=None,
+                path="examples/nopin/bot.py",
+            ),
+        ]
+        await embedding_writer.upsert(records)
+
+    async def test_version_compatibility_annotated(self, retriever: HybridRetriever):
+        """Results include version_compatibility when pipecat_version is passed."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="voice bot TTS pipeline", pipecat_version="0.0.95")
+        )
+        assert len(result.hits) > 0
+        for hit in result.hits:
+            if hit.example_id == "new1":
+                assert hit.version_compatibility == "newer_required"
+            elif hit.example_id == "old1":
+                assert hit.version_compatibility == "newer_required"
+            elif hit.example_id == "nopin1":
+                assert hit.version_compatibility == "unknown"
+
+    async def test_no_version_no_annotation(self, retriever: HybridRetriever):
+        """Without pipecat_version, version_compatibility is None."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="voice bot TTS pipeline")
+        )
+        assert len(result.hits) > 0
+        for hit in result.hits:
+            assert hit.version_compatibility is None
+
+    async def test_compatible_only_filter(self, retriever: HybridRetriever):
+        """version_filter='compatible_only' excludes newer_required results."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(
+                query="voice bot TTS pipeline",
+                pipecat_version="0.0.110",
+                version_filter="compatible_only",
+            )
+        )
+        for hit in result.hits:
+            assert hit.version_compatibility in ("compatible", "unknown"), (
+                f"Hit {hit.example_id} has version_compatibility={hit.version_compatibility}"
+            )

@@ -307,6 +307,15 @@ class SearchExamplesInput(BaseModel):
     )
     foundational_class: str | None = Field(default=None, max_length=256)
     execution_mode: str | None = Field(default=None, max_length=64)
+    pipecat_version: str | None = Field(
+        default=None,
+        max_length=64,
+        description="User's pipecat-ai version (e.g. '0.0.95'). When provided, results are scored for compatibility and annotated with version_compatibility.",
+    )
+    version_filter: Literal["compatible_only"] | None = Field(
+        default=None,
+        description="Set to 'compatible_only' to exclude results targeting versions newer than the user's.",
+    )
     limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -322,6 +331,7 @@ class ExampleHit(BaseModel):
     path: str
     commit_sha: str | None = None
     pipecat_version_pin: str | None = None
+    version_compatibility: Literal["compatible", "newer_required", "deprecated", "unknown"] | None = None
     citation: Citation
     score: float
 
@@ -401,6 +411,11 @@ class GetCodeSnippetInput(BaseModel):
         description="Override content type: 'source' for framework, 'code' for examples. "
         "Defaults to 'source' for symbol mode, 'code' for intent/path mode.",
     )
+    pipecat_version: str | None = Field(
+        default=None,
+        max_length=64,
+        description="User's pipecat-ai version (e.g. '0.0.95'). When provided, results are scored for compatibility.",
+    )
     max_lines: int = Field(default=100, ge=1, le=500)
 
     @model_validator(mode="after")
@@ -436,6 +451,7 @@ class CodeSnippet(BaseModel):
     line_end: int
     language: str | None = None
     pipecat_version_pin: str | None = None
+    version_compatibility: Literal["compatible", "newer_required", "deprecated", "unknown"] | None = None
     citation: Citation
     dependency_notes: list[str] = Field(
         default_factory=list,
@@ -521,6 +537,15 @@ class SearchApiInput(BaseModel):
         max_length=256,
         description="Filter for methods that call a specific method, e.g. 'push_frame'.",
     )
+    pipecat_version: str | None = Field(
+        default=None,
+        max_length=64,
+        description="User's pipecat-ai version (e.g. '0.0.95'). When provided, results are scored for compatibility.",
+    )
+    version_filter: Literal["compatible_only"] | None = Field(
+        default=None,
+        description="Set to 'compatible_only' to exclude results targeting versions newer than the user's.",
+    )
     limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -553,6 +578,7 @@ class ApiHit(BaseModel):
         description="RST type definition names for this method's parameters. Look up with search_api(query=name, chunk_type='type_definition').",
     )
     pipecat_version_pin: str | None = None
+    version_compatibility: Literal["compatible", "newer_required", "deprecated", "unknown"] | None = None
     citation: Citation
     score: float
 
