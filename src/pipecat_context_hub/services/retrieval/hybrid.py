@@ -80,6 +80,7 @@ class HybridRetriever:
         self._vector_weight = vector_weight
         self._keyword_weight = keyword_weight
         self._cross_encoder = cross_encoder
+        self.deprecation_map: Any = None  # Set externally after refresh
         logger.debug(
             "HybridRetriever init: rrf_k=%d vector_weight=%.2f keyword_weight=%.2f cross_encoder=%s",
             rrf_k,
@@ -353,6 +354,7 @@ class HybridRetriever:
                     repo=r.chunk.repo or "",
                     path=r.chunk.path,
                     commit_sha=r.chunk.commit_sha,
+                    pipecat_version_pin=r.chunk.metadata.get("pipecat_version_pin"),
                     citation=citation,
                     score=r.score,
                 )
@@ -590,6 +592,7 @@ class HybridRetriever:
                     line_start=chunk_line_start,
                     line_end=chunk_line_end,
                     language=r.chunk.metadata.get("language"),
+                    pipecat_version_pin=r.chunk.metadata.get("pipecat_version_pin"),
                     citation=citation,
                     dependency_notes=imports_raw,
                     companion_snippets=companion,
@@ -649,6 +652,7 @@ class HybridRetriever:
                     yields=yields_raw,
                     calls=calls_raw,
                     related_types=related_types_raw,
+                    pipecat_version_pin=r.chunk.metadata.get("pipecat_version_pin"),
                     citation=citation,
                     score=r.score,
                 )

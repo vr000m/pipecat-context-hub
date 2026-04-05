@@ -133,8 +133,8 @@ def mock_retriever():
 
 
 class TestToolRegistration:
-    def test_base_tools_has_six_entries(self):
-        assert len(_BASE_TOOLS) == 6
+    def test_base_tools_has_seven_entries(self):
+        assert len(_BASE_TOOLS) == 7
 
     def test_base_tool_names(self):
         names = [name for name, _, _ in _BASE_TOOLS]
@@ -145,6 +145,7 @@ class TestToolRegistration:
             "get_example",
             "get_code_snippet",
             "search_api",
+            "check_deprecation",
         ]
 
     def test_hub_status_tool_exists(self):

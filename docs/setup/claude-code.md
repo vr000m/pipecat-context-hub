@@ -77,13 +77,14 @@ Add these lines to your project's `CLAUDE.md` (or global `~/.claude/CLAUDE.md`) 
 ```markdown
 ## MCP Tools
 
-When pipecat-context-hub MCP is available, always prefer its tools (`search_docs`, `search_api`, `search_examples`, `get_example`, `get_doc`, `get_code_snippet`) for Pipecat framework questions. Do not read `.venv` or source files directly.
+When pipecat-context-hub MCP is available, always prefer its tools (`search_docs`, `search_api`, `search_examples`, `get_example`, `get_doc`, `get_code_snippet`, `check_deprecation`) for Pipecat framework questions. Do not read `.venv` or source files directly.
 
 - "How do I ...?" → `search_docs`
 - "Show me an example of ..." → `search_examples`, then `get_example`
 - Class constructors, method signatures, frame types → `search_api`
 - Specific code span or symbol → `get_code_snippet`
 - Retrieve a specific doc page → `get_doc`
+- Check if an import is deprecated → `check_deprecation`
 
 **Multi-concept queries:** Use ` + ` or ` & ` as delimiters (e.g., `search_docs("TTS + STT")`). Each concept is searched independently and results are interleaved.
 

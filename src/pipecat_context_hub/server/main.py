@@ -11,6 +11,7 @@ from mcp.server.lowlevel import Server
 from pipecat_context_hub.services.index.store import IndexStore
 from pipecat_context_hub.shared.interfaces import Retriever
 from pipecat_context_hub.shared.types import (
+    CheckDeprecationInput,
     GetCodeSnippetInput,
     GetDocInput,
     GetExampleInput,
@@ -19,6 +20,7 @@ from pipecat_context_hub.shared.types import (
     SearchDocsInput,
     SearchExamplesInput,
 )
+from pipecat_context_hub.server.tools.check_deprecation import handle_check_deprecation
 from pipecat_context_hub.server.tools.get_code_snippet import handle_get_code_snippet
 from pipecat_context_hub.server.tools.get_doc import handle_get_doc
 from pipecat_context_hub.server.tools.get_example import handle_get_example
@@ -29,7 +31,7 @@ from pipecat_context_hub.server.tools.search_examples import handle_search_examp
 
 logger = logging.getLogger(__name__)
 
-_SERVER_VERSION = "0.0.13"
+_SERVER_VERSION = "0.0.14"
 
 # Tool name → (description, input schema, handler)
 _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
@@ -84,6 +86,14 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'BaseTransport + WebSocketTransport').",
         SearchApiInput.model_json_schema(),
     ),
+    (
+        "check_deprecation",
+        "Check if a pipecat module path, class, or import is deprecated. "
+        "Use when you see pipecat imports to verify they are current. "
+        "Returns replacement path if deprecated. "
+        "E.g., check_deprecation(symbol='pipecat.services.grok.llm') → deprecated, use pipecat.services.xai.llm.",
+        CheckDeprecationInput.model_json_schema(),
+    ),
 ]
 
 _HUB_STATUS_TOOL: tuple[str, str, dict[str, Any]] = (
@@ -107,7 +117,12 @@ Tool selection guide:
 - Class constructors, method signatures, frame types → search_api
 - Specific code span or symbol → get_code_snippet
 - Retrieve a specific doc page → get_doc
+- Import deprecation check → check_deprecation
 - Index health, freshness, version info → get_hub_status
+
+**Important:** When you see pipecat imports in user code (e.g. \
+``from pipecat.services.grok import ...``), use ``check_deprecation`` \
+to verify the import path is not deprecated before recommending it.
 
 Multi-concept queries: use ` + ` or ` & ` to search for multiple concepts \
 at once (e.g. "idle timeout + function calling + Gemini"). Each concept is \
@@ -160,6 +175,12 @@ def create_server(retriever: Retriever, index_store: IndexStore | None = None) -
         # get_hub_status has a different dispatch signature (needs index_store)
         if name == "get_hub_status" and index_store is not None:
             result_json = await handle_get_hub_status(args, index_store)
+            return [types.TextContent(type="text", text=result_json)]
+
+        # check_deprecation dispatches via retriever.deprecation_map
+        if name == "check_deprecation":
+            dep_map = getattr(retriever, "deprecation_map", None)
+            result_json = await handle_check_deprecation(args, dep_map)
             return [types.TextContent(type="text", text=result_json)]
 
         handler_map: dict[str, Any] = {

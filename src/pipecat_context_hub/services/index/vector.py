@@ -70,6 +70,10 @@ def _record_to_metadata(
         val = record.metadata.get(key)
         if val is not None:
             meta[key] = int(val)
+    # Version pin metadata
+    version_pin = record.metadata.get("pipecat_version_pin")
+    if version_pin is not None:
+        meta["pipecat_version_pin"] = str(version_pin)
     # Source API metadata fields
     for key in ("module_path", "class_name", "chunk_type", "method_name", "method_signature", "return_type"):
         val = record.metadata.get(key)
@@ -115,6 +119,10 @@ def _metadata_to_record_fields(
     capability_tags_str = meta.get("capability_tags", "")
     if capability_tags_str:
         extra_meta["capability_tags"] = capability_tags_str.split(",")
+    # Round-trip version pin
+    version_pin = meta.get("pipecat_version_pin")
+    if version_pin is not None:
+        extra_meta["pipecat_version_pin"] = version_pin
     # Round-trip optional metadata fields
     for key in ("foundational_class", "language", "domain", "execution_mode"):
         val = meta.get(key)

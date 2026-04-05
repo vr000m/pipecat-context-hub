@@ -20,6 +20,7 @@ IDE/Agent  ←stdio→  pipecat-context-hub serve  ←→  Local index (~/.pipec
 | `get_example` | Retrieve full example with source files and metadata |
 | `get_code_snippet` | Get targeted code spans by intent, symbol, or path. Returns enriched output with dependencies (`dependency_notes`), called methods (`companion_snippets`), related type definitions (`related_type_defs`), and interface contracts (`interface_expectations`) |
 | `search_api` | Search framework internals — class definitions, method signatures, type definitions, inheritance. Filter by `module`, `class_name` (prefix match), `chunk_type` (including `type_definition` for dict schemas), `yields` (frame types), or `calls` (method names) |
+| `check_deprecation` | Check if a pipecat import path is deprecated. Returns replacement path, deprecation/removal version. Use when you see pipecat imports to verify they are current |
 | `get_hub_status` | Get index health: last refresh time, record counts, commit SHAs |
 
 All responses include an `EvidenceReport` with `known`/`unknown` items, confidence scores, and suggested follow-up queries.

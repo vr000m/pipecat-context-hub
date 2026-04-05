@@ -23,6 +23,7 @@ from pipecat_context_hub.shared.types import (
     GetCodeSnippetInput,
     GetDocInput,
     GetExampleInput,
+    SearchApiInput,
     SearchDocsInput,
     SearchExamplesInput,
 )
@@ -474,3 +475,398 @@ class TestGetExamplePathCorrectness:
         assert result.example_id == "ex1"
         assert len(result.files) > 0
         assert result.files[0].path == "examples/real-path/bot.py"
+
+
+# ---------------------------------------------------------------------------
+# Version-aware indexing smoke tests (Phase 1a)
+# ---------------------------------------------------------------------------
+
+
+def _make_versioned_code_record(
+    chunk_id: str,
+    content: str,
+    *,
+    pipecat_version_pin: str | None = None,
+    repo: str = "pipecat-ai/pipecat",
+    path: str = "examples/test/bot.py",
+    language: str = "python",
+) -> ChunkedRecord:
+    """Helper to build code records with pipecat_version_pin metadata."""
+    meta: dict[str, Any] = {
+        "capability_tags": ["tts"],
+        "key_files": [path],
+        "language": language,
+        "line_start": 1,
+        "line_end": 10,
+    }
+    if pipecat_version_pin is not None:
+        meta["pipecat_version_pin"] = pipecat_version_pin
+    return ChunkedRecord(
+        chunk_id=chunk_id,
+        content=content,
+        content_type="code",
+        source_url=f"https://github.com/{repo}/blob/main/{path}",
+        repo=repo,
+        path=path,
+        commit_sha="abc123",
+        indexed_at=NOW,
+        metadata=meta,
+    )
+
+
+def _make_versioned_source_record(
+    chunk_id: str,
+    content: str,
+    *,
+    pipecat_version_pin: str | None = None,
+    module_path: str = "pipecat.services.test",
+    class_name: str | None = None,
+    chunk_type: str = "class_overview",
+) -> ChunkedRecord:
+    """Helper to build source records with pipecat_version_pin metadata."""
+    meta: dict[str, Any] = {
+        "module_path": module_path,
+        "chunk_type": chunk_type,
+        "line_start": 1,
+        "line_end": 20,
+    }
+    if class_name is not None:
+        meta["class_name"] = class_name
+    if pipecat_version_pin is not None:
+        meta["pipecat_version_pin"] = pipecat_version_pin
+    return ChunkedRecord(
+        chunk_id=chunk_id,
+        content=content,
+        content_type="source",
+        source_url=f"https://github.com/pipecat-ai/pipecat/blob/main/src/{module_path.replace('.', '/')}.py",
+        repo="pipecat-ai/pipecat",
+        path=f"src/{module_path.replace('.', '/')}.py",
+        commit_sha="abc123",
+        indexed_at=NOW,
+        metadata=meta,
+    )
+
+
+class TestVersionPinInSearchExamples:
+    """Verify pipecat_version_pin flows through search_examples results."""
+
+    @pytest.fixture(autouse=True)
+    async def _seed_versioned(self, embedding_writer: EmbeddingIndexWriter):
+        records = [
+            _make_versioned_code_record(
+                "v1",
+                "Voice bot using DailyTransport with TTS and STT services",
+                pipecat_version_pin=">=0.0.105",
+                path="examples/voice/bot.py",
+            ),
+            _make_versioned_code_record(
+                "v2",
+                "Old voice bot pipeline using deprecated patterns",
+                pipecat_version_pin="==0.0.85",
+                path="examples/old/bot.py",
+            ),
+            _make_versioned_code_record(
+                "v3",
+                "Quickstart voice bot example with no version constraint",
+                pipecat_version_pin=None,
+                path="examples/quickstart/bot.py",
+            ),
+        ]
+        await embedding_writer.upsert(records)
+
+    async def test_version_pin_present_in_hits(self, retriever: HybridRetriever):
+        """search_examples should include pipecat_version_pin when available."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="voice bot pipeline")
+        )
+        assert len(result.hits) > 0
+        versioned = [h for h in result.hits if h.pipecat_version_pin is not None]
+        assert len(versioned) >= 1, "At least one hit should have pipecat_version_pin"
+
+    async def test_version_pin_exact(self, retriever: HybridRetriever):
+        """Verify specific version pins are preserved through the pipeline."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="voice bot pipeline", limit=50)
+        )
+        pins = {h.example_id: h.pipecat_version_pin for h in result.hits}
+        if "v1" in pins:
+            assert pins["v1"] == ">=0.0.105"
+        if "v2" in pins:
+            assert pins["v2"] == "==0.0.85"
+
+    async def test_version_pin_none_for_unconstrained(self, retriever: HybridRetriever):
+        """Chunks without version constraint should have pipecat_version_pin=None."""
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="quickstart bot", limit=50)
+        )
+        for hit in result.hits:
+            if hit.example_id == "v3":
+                assert hit.pipecat_version_pin is None
+
+    async def test_various_pin_formats(self, embedding_writer: EmbeddingIndexWriter, retriever: HybridRetriever):
+        """Test that different version constraint formats survive round-trip."""
+        formats = [
+            ("fmt-exact", "==0.0.98", "Bot with exact pin"),
+            ("fmt-min", ">=0.0.105", "Bot with minimum pin"),
+            ("fmt-range", "<1,>=0.0.93", "Bot with range pin"),
+            ("fmt-caret", "^1.7.0", "TypeScript bot with caret range"),
+            ("fmt-tilde", "~2.0.0", "TypeScript bot with tilde range"),
+            ("fmt-complex", "<0.1,>=0.0.100", "Bot with complex range"),
+        ]
+        records = [
+            _make_versioned_code_record(
+                cid, content, pipecat_version_pin=pin,
+                path=f"examples/{cid}/bot.py",
+            )
+            for cid, pin, content in formats
+        ]
+        await embedding_writer.upsert(records)
+
+        result = await retriever.search_examples(
+            SearchExamplesInput(query="bot", limit=50)
+        )
+        found_pins = {h.example_id: h.pipecat_version_pin for h in result.hits}
+        for cid, expected_pin, _ in formats:
+            if cid in found_pins:
+                assert found_pins[cid] == expected_pin, (
+                    f"Version pin mismatch for {cid}: "
+                    f"expected {expected_pin!r}, got {found_pins[cid]!r}"
+                )
+
+
+class TestVersionPinInGetCodeSnippet:
+    """Verify pipecat_version_pin flows through get_code_snippet results."""
+
+    @pytest.fixture(autouse=True)
+    async def _seed_versioned_snippet(self, embedding_writer: EmbeddingIndexWriter):
+        records = [
+            _make_versioned_code_record(
+                "snip1",
+                "def create_pipeline():\n    transport = DailyTransport()\n    return Pipeline([transport])\n",
+                pipecat_version_pin=">=0.0.105",
+                path="examples/snippet/bot.py",
+            ),
+        ]
+        await embedding_writer.upsert(records)
+
+    async def test_snippet_includes_version_pin(self, retriever: HybridRetriever):
+        result = await retriever.get_code_snippet(
+            GetCodeSnippetInput(intent="create pipeline with DailyTransport")
+        )
+        if result.snippets:
+            snippet = result.snippets[0]
+            assert snippet.pipecat_version_pin == ">=0.0.105"
+
+
+class TestVersionPinInSearchApi:
+    """Verify pipecat_version_pin flows through search_api results."""
+
+    @pytest.fixture(autouse=True)
+    async def _seed_versioned_api(self, embedding_writer: EmbeddingIndexWriter):
+        records = [
+            _make_versioned_source_record(
+                "api1",
+                "# Class: DailyTransport\nModule: pipecat.transports.daily\n\n"
+                "## Constructor\ndef __init__(self, room_url, token)\n",
+                pipecat_version_pin="0.0.108",
+                module_path="pipecat.transports.daily",
+                class_name="DailyTransport",
+            ),
+        ]
+        await embedding_writer.upsert(records)
+
+    async def test_api_hit_includes_version_pin(self, retriever: HybridRetriever):
+        result = await retriever.search_api(
+            SearchApiInput(query="DailyTransport")
+        )
+        if result.hits:
+            for hit in result.hits:
+                if hit.chunk_id == "api1":
+                    assert hit.pipecat_version_pin == "0.0.108"
+
+
+class TestVersionPinIndexRoundTrip:
+    """Verify version pin survives full index round-trip (embed→store→retrieve)."""
+
+    async def test_round_trip_preserves_pin(
+        self,
+        embedding_writer: EmbeddingIndexWriter,
+        index_store: IndexStore,
+        embedding_service: EmbeddingService,
+    ):
+        record = _make_versioned_code_record(
+            "rt1",
+            "Round-trip test: voice bot with version pin",
+            pipecat_version_pin=">=0.0.100,<0.1",
+            path="examples/roundtrip/bot.py",
+        )
+        await embedding_writer.upsert([record])
+
+        from pipecat_context_hub.shared.types import IndexQuery
+
+        query_vec = embedding_service.embed_query("round-trip voice bot")
+        results = await index_store.vector_search(
+            IndexQuery(query_text="round-trip voice bot", query_embedding=query_vec, limit=5)
+        )
+        assert len(results) > 0
+        rt_result = next((r for r in results if r.chunk.chunk_id == "rt1"), None)
+        assert rt_result is not None
+        assert rt_result.chunk.metadata.get("pipecat_version_pin") == ">=0.0.100,<0.1"
+
+    async def test_round_trip_absent_pin(
+        self,
+        embedding_writer: EmbeddingIndexWriter,
+        index_store: IndexStore,
+        embedding_service: EmbeddingService,
+    ):
+        """Chunks without version pin should not have the field after round-trip."""
+        record = _make_versioned_code_record(
+            "rt2",
+            "Round-trip test: no version pin on this example",
+            pipecat_version_pin=None,
+            path="examples/no-pin/bot.py",
+        )
+        await embedding_writer.upsert([record])
+
+        from pipecat_context_hub.shared.types import IndexQuery
+
+        query_vec = embedding_service.embed_query("no version pin example")
+        results = await index_store.vector_search(
+            IndexQuery(query_text="no version pin", query_embedding=query_vec, limit=5)
+        )
+        rt_result = next((r for r in results if r.chunk.chunk_id == "rt2"), None)
+        assert rt_result is not None
+        assert rt_result.chunk.metadata.get("pipecat_version_pin") is None
+
+
+# ---------------------------------------------------------------------------
+# Deprecation check tool smoke tests (Phase 1b)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDeprecationE2E:
+    """End-to-end tests for the check_deprecation MCP tool."""
+
+    def _make_retriever_with_deprecation_map(
+        self, index_store: IndexStore, embedding_service: EmbeddingService
+    ) -> HybridRetriever:
+        from pipecat_context_hub.services.ingest.deprecation_map import (
+            DeprecationEntry,
+            DeprecationMap,
+        )
+
+        retriever = HybridRetriever(index_store, embedding_service)
+        retriever.deprecation_map = DeprecationMap(
+            entries={
+                "pipecat.services.grok": DeprecationEntry(
+                    old_path="pipecat.services.grok",
+                    new_path="pipecat.services.xai.llm",
+                    deprecated_in="0.0.100",
+                    note="Use pipecat.services.xai.llm instead",
+                ),
+                "pipecat.services.cartesia": DeprecationEntry(
+                    old_path="pipecat.services.cartesia",
+                    new_path="pipecat.services.cartesia.stt, pipecat.services.cartesia.tts",
+                    deprecated_in="0.0.99",
+                ),
+                "pipecat.services.lmnt": DeprecationEntry(
+                    old_path="pipecat.services.lmnt",
+                    new_path="pipecat.services.lmnt.tts",
+                    removed_in="0.0.110",
+                    note="Module removed in 0.0.110",
+                ),
+            },
+            pipecat_commit_sha="test123",
+        )
+        return retriever
+
+    async def test_deprecated_exact_match(
+        self, index_store: IndexStore, embedding_service: EmbeddingService
+    ):
+        """check_deprecation for a known deprecated module returns full info."""
+        from pipecat_context_hub.server.tools.check_deprecation import handle_check_deprecation
+        import json
+
+        retriever = self._make_retriever_with_deprecation_map(index_store, embedding_service)
+        result_json = await handle_check_deprecation(
+            {"symbol": "pipecat.services.grok"}, retriever.deprecation_map
+        )
+        result = json.loads(result_json)
+        assert result["deprecated"] is True
+        assert result["replacement"] == "pipecat.services.xai.llm"
+        assert result["deprecated_in"] == "0.0.100"
+
+    async def test_deprecated_child_match(
+        self, index_store: IndexStore, embedding_service: EmbeddingService
+    ):
+        """check_deprecation for a child path matches the parent entry."""
+        from pipecat_context_hub.server.tools.check_deprecation import handle_check_deprecation
+        import json
+
+        retriever = self._make_retriever_with_deprecation_map(index_store, embedding_service)
+        result_json = await handle_check_deprecation(
+            {"symbol": "pipecat.services.grok.llm"}, retriever.deprecation_map
+        )
+        result = json.loads(result_json)
+        assert result["deprecated"] is True
+        assert "xai" in result["replacement"]
+
+    async def test_not_deprecated(
+        self, index_store: IndexStore, embedding_service: EmbeddingService
+    ):
+        """check_deprecation for a non-deprecated symbol returns false."""
+        from pipecat_context_hub.server.tools.check_deprecation import handle_check_deprecation
+        import json
+
+        retriever = self._make_retriever_with_deprecation_map(index_store, embedding_service)
+        result_json = await handle_check_deprecation(
+            {"symbol": "DailyTransport"}, retriever.deprecation_map
+        )
+        result = json.loads(result_json)
+        assert result["deprecated"] is False
+        assert result["replacement"] is None
+
+    async def test_removed_module(
+        self, index_store: IndexStore, embedding_service: EmbeddingService
+    ):
+        """check_deprecation for a removed module shows removed_in."""
+        from pipecat_context_hub.server.tools.check_deprecation import handle_check_deprecation
+        import json
+
+        retriever = self._make_retriever_with_deprecation_map(index_store, embedding_service)
+        result_json = await handle_check_deprecation(
+            {"symbol": "pipecat.services.lmnt"}, retriever.deprecation_map
+        )
+        result = json.loads(result_json)
+        assert result["deprecated"] is True
+        assert result["removed_in"] == "0.0.110"
+
+    async def test_bracket_expanded_match(
+        self, index_store: IndexStore, embedding_service: EmbeddingService
+    ):
+        """check_deprecation for cartesia returns both stt and tts replacements."""
+        from pipecat_context_hub.server.tools.check_deprecation import handle_check_deprecation
+        import json
+
+        retriever = self._make_retriever_with_deprecation_map(index_store, embedding_service)
+        result_json = await handle_check_deprecation(
+            {"symbol": "pipecat.services.cartesia"}, retriever.deprecation_map
+        )
+        result = json.loads(result_json)
+        assert result["deprecated"] is True
+        assert "stt" in result["replacement"]
+        assert "tts" in result["replacement"]
+
+    async def test_no_map_available(
+        self, index_store: IndexStore, embedding_service: EmbeddingService
+    ):
+        """check_deprecation with no map returns not deprecated + note."""
+        from pipecat_context_hub.server.tools.check_deprecation import handle_check_deprecation
+        import json
+
+        result_json = await handle_check_deprecation(
+            {"symbol": "pipecat.services.grok"}, None
+        )
+        result = json.loads(result_json)
+        assert result["deprecated"] is False
+        assert "not available" in (result.get("note") or "")

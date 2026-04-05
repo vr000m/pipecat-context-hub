@@ -625,6 +625,118 @@ def _build_readme_chunk(
     )
 
 
+def _parse_pipecat_version_from_pyproject(path: Path) -> str | None:
+    """Extract pipecat-ai version constraint from pyproject.toml."""
+    import tomllib
+
+    try:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except Exception:
+        return None
+    deps = data.get("project", {}).get("dependencies", [])
+    for dep_str in deps:
+        try:
+            from packaging.requirements import InvalidRequirement, Requirement
+
+            req = Requirement(dep_str)
+            if req.name == "pipecat-ai":
+                return str(req.specifier) or None
+        except (InvalidRequirement, TypeError):
+            continue
+    return None
+
+
+def _parse_pipecat_version_from_requirements(path: Path) -> str | None:
+    """Extract pipecat-ai version constraint from requirements.txt."""
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return None
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("-"):
+            continue
+        try:
+            req = Requirement(line)
+            if req.name == "pipecat-ai":
+                return str(req.specifier) or None
+        except (InvalidRequirement, TypeError):
+            continue
+    return None
+
+
+def _parse_pipecat_version_from_package_json(path: Path) -> str | None:
+    """Extract @pipecat-ai/client-js version from package.json."""
+    import json as _json
+
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return None
+    for section in ("dependencies", "devDependencies"):
+        deps = data.get(section, {})
+        version = deps.get("@pipecat-ai/client-js")
+        if version:
+            return str(version)
+    return None
+
+
+def _is_safe_file(path: Path, repo_root_resolved: Path) -> bool:
+    """Check that a file is not a symlink and resolves within the repo root."""
+    if path.is_symlink():
+        return False
+    try:
+        path.resolve().relative_to(repo_root_resolved)
+        return True
+    except ValueError:
+        return False
+
+
+def _extract_pipecat_version(example_dir: Path, repo_root: Path) -> str | None:
+    """Walk upward from example_dir looking for pipecat-ai dependency.
+
+    Checks pyproject.toml, requirements.txt, and package.json at each level.
+    Returns the version constraint string or None.
+    """
+    resolved_root = repo_root.resolve()
+    current = example_dir
+    while current != repo_root.parent:
+        pyproject = current / "pyproject.toml"
+        if pyproject.is_file() and _is_safe_file(pyproject, resolved_root):
+            version = _parse_pipecat_version_from_pyproject(pyproject)
+            if version is not None:
+                return version
+        reqs = current / "requirements.txt"
+        if reqs.is_file() and _is_safe_file(reqs, resolved_root):
+            version = _parse_pipecat_version_from_requirements(reqs)
+            if version is not None:
+                return version
+        pkg_json = current / "package.json"
+        if pkg_json.is_file() and _is_safe_file(pkg_json, resolved_root):
+            version = _parse_pipecat_version_from_package_json(pkg_json)
+            if version is not None:
+                return version
+        current = current.parent
+    return None
+
+
+def _get_framework_version(repo_path: Path) -> str | None:
+    """Get pipecat version from git tag (setuptools_scm repos)."""
+    try:
+        repo = GitRepo(str(repo_path))
+        tag = repo.git.describe("--tags", "--abbrev=0")
+        return str(tag).lstrip("v")  # "v0.0.108" → "0.0.108"
+    except Exception:
+        return None
+
+
+# Framework repo slug — examples in this repo derive version from git tag.
+_FRAMEWORK_REPO = "pipecat-ai/pipecat"
+
+
 def _build_chunk_metadata(
     *,
     repo_slug: str,
@@ -635,6 +747,7 @@ def _build_chunk_metadata(
     line_end: int,
     rel_path: str = "",
     taxonomy_entry: TaxonomyEntry | None,
+    pipecat_version: str | None = None,
 ) -> dict[str, object]:
     """Build enriched metadata dict for a ChunkedRecord.
 
@@ -664,6 +777,9 @@ def _build_chunk_metadata(
         if taxonomy_entry.readme_content is not None:
             meta["readme_content"] = taxonomy_entry.readme_content[:65536]
         meta["execution_mode"] = _infer_execution_mode(cap_tag_names)
+
+    if pipecat_version is not None:
+        meta["pipecat_version_pin"] = pipecat_version
 
     return meta
 
@@ -803,6 +919,15 @@ class GitHubRepoIngester:
         now = datetime.now(tz=timezone.utc)
         chunking = self._config.chunking
 
+        # Extract pipecat version: framework repo uses git tag,
+        # other repos extract per-example-directory from dependency files.
+        is_framework = repo_slug == _FRAMEWORK_REPO
+        framework_version: str | None = None
+        if is_framework:
+            framework_version = _get_framework_version(repo_path)
+            if framework_version:
+                logger.debug("Framework version from git tag: %s", framework_version)
+
         is_root_fallback = repo_path in example_dirs
 
         for ex_dir in example_dirs:
@@ -816,6 +941,12 @@ class GitHubRepoIngester:
                     rel_ex_dir,
                     repo_slug,
                 )
+
+            # Version extraction: framework uses git tag, others walk-up.
+            if is_framework:
+                ex_version = framework_version
+            else:
+                ex_version = _extract_pipecat_version(ex_dir, repo_path)
 
             # When the repo root IS the example, skip top-level non-source
             # dirs (tests/, docs/, .github/, …) to avoid polluting example
@@ -874,6 +1005,7 @@ class GitHubRepoIngester:
                         line_end=line_end,
                         rel_path=rel_path,
                         taxonomy_entry=taxonomy_entry,
+                        pipecat_version=ex_version,
                     )
 
                     records.append(
@@ -911,6 +1043,13 @@ class GitHubRepoIngester:
                 )
             root_taxonomy = taxonomy_lookup.get(".")
 
+            # Version for root-level files: use repo-root extraction.
+            root_version = (
+                framework_version
+                if is_framework
+                else _extract_pipecat_version(repo_path, repo_path)
+            )
+
             root_files = _iter_root_level_code_files(repo_path)
             for code_file in root_files:
                 if code_file.is_symlink():
@@ -947,6 +1086,7 @@ class GitHubRepoIngester:
                         line_end=line_end,
                         rel_path=rel_path,
                         taxonomy_entry=taxonomy_entry,
+                        pipecat_version=root_version,
                     )
                     records.append(
                         ChunkedRecord(

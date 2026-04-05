@@ -3,6 +3,7 @@
 ## Current Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
+| 2026-03-31 | feature | Version-Aware Indexing | Phase 1a+1b Complete (v0.0.14) | vr000m | `feature/version-aware-indexing` | `20260331-feature-version-aware-indexing.md` |
 
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
