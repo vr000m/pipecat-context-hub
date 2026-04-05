@@ -1568,10 +1568,10 @@ Three-layer ingestion stack per language, each adding value independently:
 | Language | Layer 0 | Layer 1 | Layer 2 | Layer 3 |
 |----------|---------|---------|---------|---------|
 | Python | ✅ | ✅ `ast_extractor.py` | N/A (uses `ast`) | ✅ docstrings via AST |
-| TypeScript | ✅ (859+ chunks) | ❌ | ❌ | ❌ JSDoc not extracted |
-| Swift | ❌ 0 chunks | ❌ | ❌ | ❌ |
-| Kotlin | ❌ 2-3 chunks | ❌ | ❌ | ❌ |
-| C++ | ❌ 2-3 chunks | ❌ | ❌ | ❌ |
+| TypeScript | ✅ (859+ chunks) | ✅ replaced by L2 | ✅ `ts_tree_sitter_parser.py` (v0.0.13) | ✅ JSDoc via tree-sitter |
+| Swift | ✅ README fallback (v0.0.12) | ❌ | ❌ | ❌ |
+| Kotlin | ✅ README fallback (v0.0.12) | ❌ | ❌ | ❌ |
+| C++ | ✅ README fallback (v0.0.12) | ❌ | ❌ | ❌ |
 
 ### Review Findings (2026-03-29)
 
