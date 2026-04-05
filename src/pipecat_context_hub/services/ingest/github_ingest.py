@@ -637,19 +637,19 @@ def _parse_pipecat_version_from_pyproject(path: Path) -> str | None:
     deps = data.get("project", {}).get("dependencies", [])
     for dep_str in deps:
         try:
-            from packaging.requirements import Requirement
+            from packaging.requirements import InvalidRequirement, Requirement
 
             req = Requirement(dep_str)
             if req.name == "pipecat-ai":
                 return str(req.specifier) or None
-        except Exception:
+        except (InvalidRequirement, TypeError):
             continue
     return None
 
 
 def _parse_pipecat_version_from_requirements(path: Path) -> str | None:
     """Extract pipecat-ai version constraint from requirements.txt."""
-    from packaging.requirements import Requirement
+    from packaging.requirements import InvalidRequirement, Requirement
 
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -663,7 +663,7 @@ def _parse_pipecat_version_from_requirements(path: Path) -> str | None:
             req = Requirement(line)
             if req.name == "pipecat-ai":
                 return str(req.specifier) or None
-        except Exception:
+        except (InvalidRequirement, TypeError):
             continue
     return None
 
