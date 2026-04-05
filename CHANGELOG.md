@@ -5,6 +5,38 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.14] - 2026-04-04
+
+### Added
+
+- **Version-aware indexing (Phase 1a)** — extract `pipecat-ai` version
+  constraints from `pyproject.toml`, `requirements.txt`, and `package.json`
+  during ingestion. Per-example-directory walk-upward supports monorepos
+  (e.g., pipecat-examples). Framework repo derives version from
+  `git describe --tags`. Stored as `pipecat_version_pin` on chunk metadata
+  and surfaced in `ExampleHit`, `ApiHit`, `CodeSnippet` results.
+- **`check_deprecation` MCP tool (Phase 1b)** — new tool to check whether
+  a pipecat import path is deprecated. Parses `DeprecatedModuleProxy` usage
+  (with bracket-expansion) from framework source and CHANGELOG
+  `Deprecated`/`Removed` sections. Fuzzy symbol matching (prefix, exact,
+  child). Built at `refresh`, persisted as JSON, loaded at `serve` startup.
+- `packaging` added as an explicit dependency (was transitive only)
+
+### Changed
+
+- Server instructions now recommend `check_deprecation` when pipecat
+  imports are seen
+- Deprecation map automatically deleted when framework repo is not in
+  `effective_repos` (prevents serving stale data)
+
+### Security
+
+- Symlink rejection and `resolve().relative_to()` containment guards on
+  all new file-read paths: deprecation source scanner, version extraction
+  manifest readers, and CHANGELOG reader
+- Narrowed `except Exception` to `except (InvalidRequirement, TypeError)`
+  in version parsers (bandit B112)
+
 ## [0.0.13] - 2026-03-31
 
 ### Changed
