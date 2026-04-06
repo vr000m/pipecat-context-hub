@@ -31,7 +31,7 @@ from pipecat_context_hub.server.tools.search_examples import handle_search_examp
 
 logger = logging.getLogger(__name__)
 
-_SERVER_VERSION = "0.0.14"
+_SERVER_VERSION = "0.0.15"
 
 # Tool name → (description, input schema, handler)
 _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
@@ -56,6 +56,9 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "Use when the user needs runnable code patterns. "
         "Filter by `repo`, `tags` (capability tags), `foundational_class`, `language`, `domain` "
         "(backend/frontend/config/infra), or `execution_mode`. "
+        "Pass `pipecat_version` (e.g. '0.0.95') to score results for compatibility "
+        "and annotate with `version_compatibility`. Use `version_filter='compatible_only'` "
+        "to exclude results requiring a newer version. "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'idle timeout + function calling').",
         SearchExamplesInput.model_json_schema(),
     ),
@@ -73,6 +76,7 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "Use `module` to scope symbol lookups (e.g. module='pipecat.runner.daily' with symbol='configure'). "
         "Use `class_name` to scope to a specific class (prefix match, e.g. 'DailyTransport' matches DailyTransportClient). "
         "Use `content_type='source'` with intent to search framework code instead of examples. "
+        "Pass `pipecat_version` (e.g. '0.0.95') to score results for compatibility. "
         "For multiple topics, use ` + ` or ` & ` delimiters.",
         GetCodeSnippetInput.model_json_schema(),
     ),
@@ -83,6 +87,8 @@ _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
         "or inheritance hierarchies. "
         "Filter by `module` (path prefix, e.g. 'pipecat.services'), `class_name` (prefix match, e.g. 'DailyTransport' matches DailyTransportClient), "
         "`chunk_type` ('module_overview', 'class_overview', 'method', 'function', 'type_definition'), or `is_dataclass`. "
+        "Pass `pipecat_version` (e.g. '0.0.95') to score results for compatibility. "
+        "Use `version_filter='compatible_only'` to exclude results requiring a newer version. "
         "For multiple topics, use ` + ` or ` & ` delimiters (e.g. 'BaseTransport + WebSocketTransport').",
         SearchApiInput.model_json_schema(),
     ),

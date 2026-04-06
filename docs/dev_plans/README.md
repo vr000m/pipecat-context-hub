@@ -8,7 +8,7 @@
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
-| 2026-03-31 | feature | Version-Aware Indexing Phase 1a+1b | Complete (v0.0.14) | vr000m | `feature/version-aware-indexing` | `20260331-feature-version-aware-indexing.md` |
+| 2026-03-31 | feature | Version-Aware Indexing Phase 1a+1b+2 | Complete (v0.0.15) | vr000m | `feature/version-aware-indexing` | `20260331-feature-version-aware-indexing.md` |
 | 2026-03-31 | feature | Phase 2: Tree-sitter TypeScript Extraction | Complete (v0.0.13) | vr000m | `feature/tree-sitter-ts-phase2` | `20260330-feature-tree-sitter-ts-phase2.md` |
 | 2026-03-30 | feature | Phase 1: Multi-Language API Extraction | Complete (v0.0.12) | vr000m | `feature/multi-language-parsing-plan` | `20260218-design-pipecat-context-hub.md` |
 | 2026-03-25 | chore | MCP Server Audit & Hardening | Complete | vr000m | `chore/mcp-server-audit` | `20260325-chore-mcp-server-audit-hardening.md` |

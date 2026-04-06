@@ -1,8 +1,8 @@
 # Version-Aware Indexing & Deprecation Checking
 
-**Status:** Phase 1a + 1b Complete
+**Status:** Phase 1a + 1b + 2 Complete
 **Priority:** Medium
-**Branch:** `feature/version-aware-indexing`
+**Branch:** `feature/version-aware-indexing` (Phase 1a+1b), `feature/version-aware-retrieval` (Phase 2)
 **Created:** 2026-03-31
 **Objective:** Track which pipecat version each repo/example targets, expose
 deprecation checking as a first-class MCP tool, and enable version-aware
@@ -301,20 +301,20 @@ penalty or make mutually exclusive.
 
 ### Phase 2: Version-Aware Retrieval
 
-- [ ] Add optional `pipecat_version: str | None` parameter to
+- [x] Add optional `pipecat_version: str | None` parameter to
       `SearchExamplesInput`, `SearchApiInput`, `GetCodeSnippetInput`
       (default `None` — Retriever protocol unaffected)
-- [ ] Implement version comparison logic using `packaging.Version` and
+- [x] Implement version comparison logic using `packaging.Version` and
       `packaging.specifiers.SpecifierSet` (PEP 440 for Python)
-- [ ] Version-aware scoring in `rerank.py`:
+- [x] Version-aware scoring in `rerank.py`:
       - Default penalty: `-0.05` for incompatible versions (tunable)
       - Combined cap: staleness + version penalty ≤ `-0.10` total
       - A/B test: highly relevant older example still ranks above
         irrelevant newer one
-- [ ] Add `version_compatibility` field to result models
-- [ ] Opt-in `version_filter` parameter on search tools
-- [ ] Unit tests for version comparison and scoring
-- [ ] MCP smoke tests with version parameter
+- [x] Add `version_compatibility` field to result models
+- [x] Opt-in `version_filter` parameter on search tools
+- [x] Unit tests for version comparison and scoring
+- [x] MCP smoke tests with version parameter
 
 ### Phase 3: Enhanced Deprecation Detection (stretch)
 
@@ -565,14 +565,14 @@ via `retriever.deprecation_map.check(symbol)` — no special-case dispatch.
 
 ## Acceptance Criteria
 
-- [ ] `search_examples` results include `pipecat_version_pin` when available
-- [ ] `check_deprecation("pipecat.services.grok.llm")` returns deprecation
+- [x] `search_examples` results include `pipecat_version_pin` when available
+- [x] `check_deprecation("pipecat.services.grok.llm")` returns deprecation
       info with replacement path
-- [ ] `check_deprecation("DailyTransport")` returns `{deprecated: false}`
-- [ ] Bracket-expansion: `check_deprecation("pipecat.services.cartesia.stt")`
+- [x] `check_deprecation("DailyTransport")` returns `{deprecated: false}`
+- [x] Bracket-expansion: `check_deprecation("pipecat.services.cartesia.stt")`
       returns deprecation info
-- [ ] MCP server instructions mention `check_deprecation` for import checking
-- [ ] Existing 29 smoke tests still pass (no regressions)
-- [ ] `refresh --force` populates version pins on all chunks
-- [ ] Version info defaults to `None` gracefully for chunks without it
-- [ ] `packaging` declared as explicit dependency in pyproject.toml
+- [x] MCP server instructions mention `check_deprecation` for import checking
+- [x] Existing 29 smoke tests still pass (no regressions)
+- [x] `refresh --force` populates version pins on all chunks
+- [x] Version info defaults to `None` gracefully for chunks without it
+- [x] `packaging` declared as explicit dependency in pyproject.toml

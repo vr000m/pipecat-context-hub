@@ -5,6 +5,26 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.15] - 2026-04-05
+
+### Added
+
+- **Version-aware retrieval (Phase 2)** — `search_examples`, `search_api`,
+  and `get_code_snippet` now accept an optional `pipecat_version` parameter
+  (e.g., `"0.0.95"`). When provided, results are scored for compatibility
+  and annotated with `version_compatibility`:
+  - `compatible` — user's version satisfies the chunk's constraint
+  - `newer_required` — chunk requires a version the user hasn't upgraded to
+  - `older_targeted` — chunk targets an older version the user has passed
+  - `unknown` — no version constraint on the chunk
+- **Version filtering** — `version_filter="compatible_only"` on
+  `search_examples` and `search_api` excludes `newer_required` results
+  (with over-fetch to maintain result count)
+- **Combined penalty cap** — version penalty (`-0.05`) and staleness penalty
+  are capped at `-0.10` combined, preventing double-penalization of old +
+  incompatible results. Highly relevant incompatible examples still rank
+  above irrelevant compatible ones.
+
 ## [0.0.14] - 2026-04-04
 
 ### Added
