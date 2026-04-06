@@ -565,14 +565,14 @@ via `retriever.deprecation_map.check(symbol)` — no special-case dispatch.
 
 ## Acceptance Criteria
 
-- [ ] `search_examples` results include `pipecat_version_pin` when available
-- [ ] `check_deprecation("pipecat.services.grok.llm")` returns deprecation
+- [x] `search_examples` results include `pipecat_version_pin` when available
+- [x] `check_deprecation("pipecat.services.grok.llm")` returns deprecation
       info with replacement path
-- [ ] `check_deprecation("DailyTransport")` returns `{deprecated: false}`
-- [ ] Bracket-expansion: `check_deprecation("pipecat.services.cartesia.stt")`
+- [x] `check_deprecation("DailyTransport")` returns `{deprecated: false}`
+- [x] Bracket-expansion: `check_deprecation("pipecat.services.cartesia.stt")`
       returns deprecation info
-- [ ] MCP server instructions mention `check_deprecation` for import checking
-- [ ] Existing 29 smoke tests still pass (no regressions)
-- [ ] `refresh --force` populates version pins on all chunks
-- [ ] Version info defaults to `None` gracefully for chunks without it
-- [ ] `packaging` declared as explicit dependency in pyproject.toml
+- [x] MCP server instructions mention `check_deprecation` for import checking
+- [x] Existing 29 smoke tests still pass (no regressions)
+- [x] `refresh --force` populates version pins on all chunks
+- [x] Version info defaults to `None` gracefully for chunks without it
+- [x] `packaging` declared as explicit dependency in pyproject.toml

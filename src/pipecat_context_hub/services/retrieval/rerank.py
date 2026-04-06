@@ -148,15 +148,24 @@ def compute_version_compatibility(
         # - Otherwise, the chunk requires a newer version → newer_required.
         #
         # We collect all version numbers mentioned in the specifier set
-        # and check if the user is above the highest one. This correctly
-        # handles upper-bounded ranges (>=0.0.95,<0.1 with user 0.1.0)
-        # and compatible-release (~=0.0.95 with user 0.1.0).
+        # (excluding != which inverts meaning) and check if the user is
+        # above the highest one. This correctly handles upper-bounded
+        # ranges (>=0.0.95,<0.1 with user 0.1.0) and compatible-release
+        # (~=0.0.95 with user 0.1.0).
         spec_versions = []
+        has_negation = False
         for s in spec:
+            if s.operator == "!=":
+                has_negation = True
+                continue
             try:
                 spec_versions.append(Version(s.version))
             except InvalidVersion:
                 continue
+
+        # Negation-only specs (e.g., !=0.0.95) don't imply a direction
+        if not spec_versions and has_negation:
+            return ("unknown", 0.0)
 
         if spec_versions and user_v >= max(spec_versions):
             return ("older_targeted", 0.0)

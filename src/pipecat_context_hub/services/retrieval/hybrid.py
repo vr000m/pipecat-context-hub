@@ -54,7 +54,7 @@ from pipecat_context_hub.shared.types import (
 
 logger = logging.getLogger(__name__)
 
-_VersionCompat = Literal["compatible", "newer_required", "older_targeted", "deprecated", "unknown"]
+_VersionCompat = Literal["compatible", "newer_required", "older_targeted", "unknown"]
 
 # Number of candidate results to fetch for code snippet lookups.
 _DEFAULT_SNIPPET_CANDIDATES = 5
@@ -167,6 +167,9 @@ class HybridRetriever:
         # Optional cross-encoder reranking (async, runs in thread)
         if self._cross_encoder and self._cross_encoder.enabled:
             reranked = await self._cross_encoder.rerank(reranked, query_text)
+            # Prune compat_map to only keys still in reranked results
+            surviving_ids = {r.chunk.chunk_id for r in reranked}
+            compat_map = {k: v for k, v in compat_map.items() if k in surviving_ids}
 
         return reranked[:limit], compat_map
 
@@ -246,6 +249,8 @@ class HybridRetriever:
             area = input.area if input.area.startswith("/") else f"/{input.area}"
             filters["path"] = area
 
+        # Version scoring not applicable to docs — docs are version-agnostic
+        # (single docs site, no versioned variants).
         results, _ = await self._hybrid_search(input.query, filters, input.limit)
         evidence = assemble_evidence(input.query, results, filters)
 
@@ -367,8 +372,11 @@ class HybridRetriever:
         if input.execution_mode:
             filters["execution_mode"] = input.execution_mode
 
+        # Over-fetch when version_filter is active so filtering doesn't
+        # silently return fewer results than limit.
+        fetch_limit = min(input.limit * 3, 50) if input.version_filter else input.limit
         results, compat_map = await self._hybrid_search(
-            input.query, filters, input.limit,
+            input.query, filters, fetch_limit,
             pipecat_version=input.pipecat_version,
         )
 
@@ -378,6 +386,7 @@ class HybridRetriever:
                 r for r in results
                 if compat_map.get(r.chunk.chunk_id) in ("compatible", "older_targeted", "unknown")
             ]
+        results = results[: input.limit]
 
         evidence = assemble_evidence(input.query, results, filters)
 
@@ -678,8 +687,11 @@ class HybridRetriever:
         if input.calls:
             filters["calls"] = input.calls
 
+        # Over-fetch when version_filter is active so filtering doesn't
+        # silently return fewer results than limit.
+        fetch_limit = min(input.limit * 3, 50) if input.version_filter else input.limit
         results, compat_map = await self._hybrid_search(
-            input.query, filters, input.limit,
+            input.query, filters, fetch_limit,
             pipecat_version=input.pipecat_version,
         )
 
@@ -689,6 +701,7 @@ class HybridRetriever:
                 r for r in results
                 if compat_map.get(r.chunk.chunk_id) in ("compatible", "older_targeted", "unknown")
             ]
+        results = results[: input.limit]
 
         evidence = assemble_evidence(input.query, results, filters)
 
