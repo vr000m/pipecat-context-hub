@@ -94,6 +94,30 @@ class TestComputeVersionCompatibility:
         assert label == "newer_required"
         assert penalty == VERSION_PENALTY
 
+    def test_upper_bounded_range_user_above(self) -> None:
+        """User on 0.1.0, chunk pins >=0.0.95,<0.1 → older_targeted."""
+        label, penalty = compute_version_compatibility("0.1.0", ">=0.0.95,<0.1")
+        assert label == "older_targeted"
+        assert penalty == 0.0
+
+    def test_compatible_release_user_above(self) -> None:
+        """User on 0.1.0, chunk pins ~=0.0.95 → older_targeted."""
+        label, penalty = compute_version_compatibility("0.1.0", "~=0.0.95")
+        assert label == "older_targeted"
+        assert penalty == 0.0
+
+    def test_upper_bounded_range_user_within(self) -> None:
+        """User on 0.0.97, chunk pins >=0.0.95,<0.1 → compatible."""
+        label, penalty = compute_version_compatibility("0.0.97", ">=0.0.95,<0.1")
+        assert label == "compatible"
+        assert penalty == 0.0
+
+    def test_upper_bounded_range_user_below(self) -> None:
+        """User on 0.0.90, chunk pins >=0.0.95,<0.1 → newer_required."""
+        label, penalty = compute_version_compatibility("0.0.90", ">=0.0.95,<0.1")
+        assert label == "newer_required"
+        assert penalty == VERSION_PENALTY
+
     def test_plain_version_compatible(self) -> None:
         """Plain version (from git tag) treated as >=version."""
         label, penalty = compute_version_compatibility("0.0.110", "0.0.108")

@@ -142,26 +142,23 @@ def compute_version_compatibility(
         if user_v in spec:
             return ("compatible", 0.0)
 
-        # Determine direction: does the spec require a version ABOVE the user's,
-        # or does it target a version BELOW the user's?
-        # Check if any specifier has a minimum above user_v.
-        has_min_above = False
-        has_max_below = False
+        # User is outside the spec. Determine direction:
+        # - If user is ABOVE all version references in the spec, the chunk
+        #   targets an older release line → older_targeted (no penalty).
+        # - Otherwise, the chunk requires a newer version → newer_required.
+        #
+        # We collect all version numbers mentioned in the specifier set
+        # and check if the user is above the highest one. This correctly
+        # handles upper-bounded ranges (>=0.0.95,<0.1 with user 0.1.0)
+        # and compatible-release (~=0.0.95 with user 0.1.0).
+        spec_versions = []
         for s in spec:
-            s_version = Version(s.version)
-            if s.operator in (">=", ">", "~=", "=="):
-                if s_version > user_v:
-                    has_min_above = True
-            if s.operator in ("<=", "<", "=="):
-                if s_version < user_v:
-                    has_max_below = True
+            try:
+                spec_versions.append(Version(s.version))
+            except InvalidVersion:
+                continue
 
-        if has_min_above:
-            return ("newer_required", VERSION_PENALTY)
-        elif has_max_below:
-            # Chunk targets an older version — user has already passed it.
-            # No penalty: the code might still work or use deprecated patterns
-            # (check_deprecation handles that separately).
+        if spec_versions and user_v >= max(spec_versions):
             return ("older_targeted", 0.0)
         else:
             return ("newer_required", VERSION_PENALTY)
