@@ -352,6 +352,9 @@ _MODULE_PATH_RE = re.compile(r"`(pipecat\.[a-zA-Z0-9_.]+)`")
 # Matches backtick-wrapped class/function names like `GrokLLMService`
 _SYMBOL_NAME_RE = re.compile(r"`([A-Z][a-zA-Z0-9]+(?:Service|Processor|Transport|Filter|Strategy|Analyzer|Observer|Frame|Params|Settings))`")
 
+# Matches backtick-wrapped dotted identifiers like `SimliVideoService.InputParams`
+_DOTTED_SYMBOL_RE = re.compile(r"`([A-Z][a-zA-Z0-9]+(?:\.[A-Z][a-zA-Z0-9]+)+)`")
+
 
 def _extract_module_paths(text: str) -> list[str]:
     """Extract pipecat module paths from backtick-wrapped text.
@@ -405,7 +408,7 @@ def _extract_replacement(text: str, deprecated_paths: list[str]) -> str | None:
 
 def _fetch_release_notes(
     repo_slug: str,
-    limit: int = 20,
+    limit: int = 100,
 ) -> list[tuple[str, str]]:
     """Fetch release notes from GitHub via gh CLI.
 
@@ -425,7 +428,10 @@ def _fetch_release_notes(
             timeout=30,
         )
         if list_result.returncode != 0:
-            logger.debug("gh release list failed: %s", list_result.stderr.strip())
+            logger.warning(
+                "gh release list failed (auth issue?) — release-note deprecation data "
+                "will be incomplete: %s", list_result.stderr.strip(),
+            )
             return []
 
         tags = [r["tagName"] for r in json.loads(list_result.stdout) if r.get("tagName")]
@@ -451,7 +457,7 @@ def _fetch_release_notes(
         logger.info("Fetched %d release notes from %s", len(notes), repo_slug)
         return notes
     except FileNotFoundError:
-        logger.debug("gh CLI not found — skipping release notes fetch")
+        logger.warning("gh CLI not found — release-note deprecation data will be incomplete")
         return []
     except subprocess.TimeoutExpired:
         logger.warning("gh release list timed out")
@@ -504,9 +510,12 @@ def _parse_release_body(
                 ))
         else:
             # No module paths found — extract class/symbol names
+            # Try dotted identifiers first (e.g. SimliVideoService.InputParams)
+            dotted = _DOTTED_SYMBOL_RE.findall(text)
             symbols = _SYMBOL_NAME_RE.findall(text)
-            if symbols:
-                for sym in symbols:
+            all_symbols = list(dict.fromkeys(dotted + symbols))  # dedup, order preserved
+            if all_symbols:
+                for sym in all_symbols:
                     entries.append(DeprecationEntry(
                         old_path=sym,
                         new_path=replacement,
@@ -554,7 +563,7 @@ def build_deprecation_map_from_releases(
     repo_slug: str = "pipecat-ai/pipecat",
     existing_map: DeprecationMap | None = None,
     *,
-    limit: int = 20,
+    limit: int = 100,
 ) -> DeprecationMap:
     """Build deprecation map from GitHub release notes.
 
@@ -563,13 +572,16 @@ def build_deprecation_map_from_releases(
     text, and creates entries keyed by module path for ``check()`` matching.
 
     Entries from release notes do NOT overwrite existing entries (e.g.,
-    from ``DeprecatedModuleProxy`` source parsing).
+    from ``DeprecatedModuleProxy`` source parsing), but missing lifecycle
+    fields (``deprecated_in``, ``removed_in``, ``new_path``) are merged
+    into existing entries when the release notes provide them.
 
     Args:
         repo_slug: GitHub repo slug (e.g., ``pipecat-ai/pipecat``).
-        existing_map: Map to supplement. Release entries are added only
-            for keys not already present.
-        limit: Maximum number of releases to fetch.
+        existing_map: Map to supplement. New keys are added; existing keys
+            get missing lifecycle fields merged from release data.
+        limit: Maximum number of releases to fetch (default 100 to cover
+            the full deprecation history).
 
     Returns:
         The supplemented map.
@@ -582,17 +594,33 @@ def build_deprecation_map_from_releases(
         return result
 
     added = 0
+    merged = 0
     for version, body in releases:
         entries = _parse_release_body(version, body)
         for entry in entries:
-            # Don't overwrite existing entries (source parsing is primary)
-            if entry.old_path not in result.entries:
+            existing = result.entries.get(entry.old_path)
+            if existing is None:
                 result.entries[entry.old_path] = entry
                 added += 1
+            else:
+                # Merge missing lifecycle fields into the existing entry
+                changed = False
+                if not existing.deprecated_in and entry.deprecated_in:
+                    existing.deprecated_in = entry.deprecated_in
+                    changed = True
+                if not existing.removed_in and entry.removed_in:
+                    existing.removed_in = entry.removed_in
+                    changed = True
+                if not existing.new_path and entry.new_path:
+                    existing.new_path = entry.new_path
+                    changed = True
+                if changed:
+                    merged += 1
 
     logger.info(
-        "Added %d deprecation entries from %d release notes",
+        "Added %d deprecation entries from %d release notes (%d existing entries merged)",
         added,
         len(releases),
+        merged,
     )
     return result

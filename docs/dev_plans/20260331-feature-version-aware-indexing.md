@@ -58,8 +58,11 @@ mismatch:
 - `warnings.warn(DeprecationWarning)` for parameter/method deprecations
   (20+ instances, unstructured, scattered in source code — deferred to Phase 3)
 - `.. deprecated:: 0.0.99` docstring directives (semi-structured — deferred)
-- CHANGELOG `### Deprecated` and `### Removed` sections (human-authored prose,
-  best-effort parsing as supplement to DeprecatedModuleProxy)
+- GitHub release notes `### Deprecated` and `### Removed` sections (structured,
+  versioned — primary source now that `DeprecatedModuleProxy` was removed in
+  PR #4240; fetched via `gh` CLI, 100 releases by default)
+- CHANGELOG `### Deprecated` and `### Removed` sections (best-effort
+  supplement, stored as `changelog_notes` only)
 - Old imports keep working until explicitly removed
 
 **Example repo version pinning (observed patterns):**

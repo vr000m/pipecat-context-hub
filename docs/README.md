@@ -32,6 +32,9 @@ All responses include an `EvidenceReport` with `known`/`unknown` items, confiden
 uv sync --extra dev --group dev
 
 # Populate the local index (crawls docs + clones repos + computes embeddings)
+# When `gh` CLI is authenticated, also fetches GitHub release notes for
+# richer deprecation data. Without `gh`, check_deprecation still works
+# but may have fewer entries.
 uv run pipecat-context-hub refresh
 
 # Force full re-ingest, ignoring cached state

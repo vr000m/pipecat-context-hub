@@ -124,6 +124,28 @@ class TestParseReleaseBody:
         assert "FalSmartTurnAnalyzer" in names
         assert "LocalSmartTurnAnalyzer" in names
 
+    def test_dotted_symbol_extraction(self) -> None:
+        """Dotted identifiers like SimliVideoService.InputParams are stored as real keys."""
+        body = (
+            "### Deprecated\n"
+            "- Deprecated `SimliVideoService.InputParams`. Use the new params API.\n"
+        )
+        entries = _parse_release_body("0.0.110", body)
+        names = {e.old_path for e in entries}
+        assert "SimliVideoService.InputParams" in names
+
+    def test_dotted_symbol_queryable(self) -> None:
+        """Dotted symbol entries can be found via DeprecationMap.check()."""
+        dm = DeprecationMap(entries={
+            "SimliVideoService.InputParams": DeprecationEntry(
+                old_path="SimliVideoService.InputParams",
+                deprecated_in="0.0.110",
+            ),
+        })
+        result = dm.check("SimliVideoService.InputParams")
+        assert result is not None
+        assert result.deprecated_in == "0.0.110"
+
     def test_no_deprecated_sections(self) -> None:
         body = "### Added\n- New feature.\n### Fixed\n- Bugfix.\n"
         entries = _parse_release_body("0.0.107", body)
@@ -237,8 +259,44 @@ class TestBuildFromReleases:
                 "pipecat-ai/pipecat", existing
             )
 
-        # Should keep the original entry, not overwrite
+        # Should keep the original entry's note, not overwrite
         assert dm.entries["pipecat.services.grok"].note == "From DeprecatedModuleProxy"
+        # But should merge the missing deprecated_in field
+        assert dm.entries["pipecat.services.grok"].deprecated_in == "0.0.108"
+
+    def test_merge_missing_lifecycle_fields(self) -> None:
+        """Release data merges deprecated_in/removed_in into existing entries."""
+        existing = DeprecationMap(
+            entries={
+                "pipecat.services.old": DeprecationEntry(
+                    old_path="pipecat.services.old",
+                    new_path="pipecat.services.new",
+                    note="From source",
+                ),
+            }
+        )
+        mock_releases = [
+            ("0.0.105", (
+                "### Deprecated\n"
+                "- `pipecat.services.old` is deprecated. Use `pipecat.services.new`.\n"
+            )),
+            ("0.0.110", (
+                "### Removed\n"
+                "- `pipecat.services.old` has been removed.\n"
+            )),
+        ]
+        with patch(
+            "pipecat_context_hub.services.ingest.deprecation_map._fetch_release_notes",
+            return_value=mock_releases,
+        ):
+            dm = build_deprecation_map_from_releases(
+                "pipecat-ai/pipecat", existing
+            )
+
+        entry = dm.entries["pipecat.services.old"]
+        assert entry.note == "From source"  # not overwritten
+        assert entry.deprecated_in == "0.0.105"  # merged
+        assert entry.removed_in == "0.0.110"  # merged
 
     def test_gh_not_available(self) -> None:
         """Gracefully returns empty when gh CLI is not available."""

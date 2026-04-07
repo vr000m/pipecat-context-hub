@@ -101,6 +101,11 @@ matters.
     `newer_required` hits pass through the filter
 33. `search_examples("TTS pipeline")` (no version) — all hits have
     `version_compatibility: null`
+**Prerequisite:** Tests 34-37 require that `gh` CLI was authenticated during
+the last `refresh`. Without `gh`, release-note-derived deprecation entries
+will be absent and these assertions will fail. Test 36 (`DailyTransport`)
+always passes regardless of `gh` availability.
+
 34. `check_deprecation("pipecat.services.grok.llm")` — returns
     `deprecated: true`, `deprecated_in: "0.0.108"`, replacement includes
     `pipecat.services.xai.llm`, note includes PR link
