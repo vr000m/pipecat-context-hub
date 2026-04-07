@@ -409,30 +409,46 @@ def _fetch_release_notes(
 ) -> list[tuple[str, str]]:
     """Fetch release notes from GitHub via gh CLI.
 
+    Uses ``gh release list`` for tags then ``gh release view`` for each
+    body (``gh release list --json`` does not support the ``body`` field).
+
     Returns a list of ``(version, body)`` tuples.
     Falls back gracefully if ``gh`` is unavailable or unauthenticated.
     """
     try:
-        # Get list of releases
-        result = subprocess.run(
+        # Step 1: get tag names
+        list_result = subprocess.run(
             ["gh", "release", "list", "--repo", repo_slug, "--limit", str(limit),
-             "--json", "tagName,body"],
+             "--json", "tagName"],
             capture_output=True,
             text=True,
             timeout=30,
         )
-        if result.returncode != 0:
-            logger.debug("gh release list failed: %s", result.stderr.strip())
+        if list_result.returncode != 0:
+            logger.debug("gh release list failed: %s", list_result.stderr.strip())
             return []
 
-        releases = json.loads(result.stdout)
+        tags = [r["tagName"] for r in json.loads(list_result.stdout) if r.get("tagName")]
+
+        # Step 2: fetch body for each tag
         notes: list[tuple[str, str]] = []
-        for r in releases:
-            tag = r.get("tagName", "")
-            body = r.get("body", "")
-            version = tag.lstrip("v")
-            if version and body:
-                notes.append((version, body))
+        for tag in tags:
+            try:
+                view_result = subprocess.run(
+                    ["gh", "release", "view", tag, "--repo", repo_slug,
+                     "--json", "body", "-q", ".body"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if view_result.returncode == 0 and view_result.stdout.strip():
+                    version = tag.lstrip("v")
+                    notes.append((version, view_result.stdout))
+            except subprocess.TimeoutExpired:
+                logger.debug("gh release view %s timed out", tag)
+                continue
+
+        logger.info("Fetched %d release notes from %s", len(notes), repo_slug)
         return notes
     except FileNotFoundError:
         logger.debug("gh CLI not found — skipping release notes fetch")
@@ -465,11 +481,16 @@ def _parse_release_body(
             return
         text = " ".join(current_item_lines)
         all_paths = _extract_module_paths(text)
-        # First extract replacements (paths after "use"), then deprecated
-        # paths are everything else.
-        replacement_paths = set(_REPLACEMENT_RE.findall(text))
+        # Split paths into deprecated vs replacement by finding the "use"
+        # boundary. All pipecat paths after "use" are replacements.
+        use_match = re.search(r"\b[Uu]se\b", text)
+        if use_match:
+            after_use = text[use_match.start():]
+            replacement_paths = set(_MODULE_PATH_RE.findall(after_use))
+        else:
+            replacement_paths = set()
         deprecated_paths = [p for p in all_paths if p not in replacement_paths]
-        replacement = _extract_replacement(text, deprecated_paths)
+        replacement = ", ".join(sorted(replacement_paths)) if replacement_paths else None
 
         if deprecated_paths:
             # Create one entry per deprecated module path
