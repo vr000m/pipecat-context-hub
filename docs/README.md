@@ -40,10 +40,10 @@ Results are annotated with `version_compatibility`: `"compatible"`,
 `version_filter="compatible_only"` to exclude results that require a newer
 version than yours.
 
-**Note:** The index always reflects the latest framework HEAD. Version scoring
-penalizes incompatible results but does not change what is indexed. Indexing a
-specific framework version (e.g., checking out `v0.0.96`) is planned for a
-future release.
+**Note:** By default, the index reflects the latest framework HEAD. You can pin
+the framework to a specific version using `PIPECAT_HUB_FRAMEWORK_VERSION=v0.0.96`
+or `refresh --framework-version v0.0.96`. Version scoring also penalizes
+incompatible results for unpinned queries.
 
 ## Quick Start
 

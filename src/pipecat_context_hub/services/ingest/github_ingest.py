@@ -94,6 +94,8 @@ _HEX_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 _REPO_SLUG_RE = re.compile(
     r"^[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._-]*$"
 )
+# Validation for git tag names (e.g. "v0.0.96", "0.0.96").
+_TAG_RE = re.compile(r"^v?[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
 
 
 def _estimate_tokens(text: str) -> int:
@@ -1183,13 +1185,15 @@ class GitHubRepoIngester:
         """Resolve a git tag name to a commit SHA.
 
         Handles both lightweight and annotated tags. Raises ``ValueError``
-        if the tag does not exist.
+        if the tag does not exist or has an invalid format.
         """
+        if not _TAG_RE.fullmatch(tag):
+            raise ValueError(f"Invalid tag format: {tag!r}")
         # Normalise: accept both "v0.0.96" and "0.0.96"
         candidates = [tag]
         if not tag.startswith("v"):
             candidates.append(f"v{tag}")
-        elif tag.startswith("v"):
+        else:
             candidates.append(tag[1:])
 
         for candidate in candidates:

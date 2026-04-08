@@ -140,6 +140,19 @@ class TestResolveTag:
         with pytest.raises(ValueError, match="Tag 'v999.0.0' not found"):
             GitHubRepoIngester._resolve_tag(git_repo, "v999.0.0")
 
+    def test_invalid_tag_format_rejected(self, tmp_path: Path):
+        """Tags with invalid characters are rejected before git lookup."""
+        from git import Repo as GitRepo
+
+        from pipecat_context_hub.services.ingest.github_ingest import GitHubRepoIngester
+
+        repo_dir = _create_tagged_repo(tmp_path, ["v0.0.96"])
+        git_repo = GitRepo(str(repo_dir))
+
+        for bad_tag in ["../evil", "tag\ninjection", "", "a" * 200, "tag with spaces"]:
+            with pytest.raises(ValueError, match="Invalid tag format"):
+                GitHubRepoIngester._resolve_tag(git_repo, bad_tag)
+
     def test_annotated_tag(self, tmp_path: Path):
         """Annotated tags are dereferenced to their commit."""
         from git import Repo as GitRepo

@@ -170,6 +170,7 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
     from pipecat_context_hub.services.index.store import IndexStore
     from pipecat_context_hub.services.ingest.docs_crawler import DocsCrawler
     from pipecat_context_hub.services.ingest.github_ingest import (
+        _FRAMEWORK_REPO,
         GitHubRepoIngester,
         repo_ref_is_tainted,
     )
@@ -293,7 +294,7 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
                     await index_store.delete_by_repo(slug)
                     index_store.delete_metadata(meta_key)
 
-        framework_slug = "pipecat-ai/pipecat"
+        framework_slug = _FRAMEWORK_REPO
         for repo_slug in config.sources.effective_repos:
             stored_sha_key = f"repo:{repo_slug}:commit_sha"
             # Pin the framework repo to a specific tag when configured.
@@ -442,8 +443,10 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
                 index_store.delete_metadata(f"repo:{repo_slug}:commit_sha")
 
         # ----- 3. Deprecation map -----
-        # Deprecation map always builds from HEAD/release-notes (forward-looking),
-        # not pinned to the framework version.
+        # Release-notes parsing (primary source) is always HEAD-independent.
+        # Source and CHANGELOG scanning use whatever checkout is current —
+        # when --framework-version is set, these reflect the pinned tag.
+        # This is acceptable: release notes carry the bulk of deprecation data.
         from pipecat_context_hub.services.ingest.deprecation_map import (
             build_deprecation_map_from_changelog,
             build_deprecation_map_from_releases,
