@@ -28,5 +28,6 @@ async def handle_get_hub_status(
         counts_by_type=stats["counts_by_type"],
         commit_shas=stats.get("commit_shas", []),
         index_path=str(index_store.data_dir),
+        framework_version=metadata.get("framework_version"),
     )
     return output.model_dump_json()

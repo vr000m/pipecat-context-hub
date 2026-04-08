@@ -24,6 +24,9 @@ _TAINTED_REFS_ENV = "PIPECAT_HUB_TAINTED_REFS"
 # Environment variable for enabling cross-encoder reranking.
 _RERANKER_ENABLED_ENV = "PIPECAT_HUB_RERANKER_ENABLED"
 
+# Environment variable for pinning the framework repo to a specific git tag.
+_FRAMEWORK_VERSION_ENV = "PIPECAT_HUB_FRAMEWORK_VERSION"
+
 
 def _split_csv_env(raw: str) -> list[str]:
     """Split a comma-separated env var into trimmed non-empty entries."""
@@ -224,3 +227,21 @@ class HubConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     sources: SourceConfig = Field(default_factory=SourceConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    framework_version: str | None = Field(
+        default=None,
+        description="Pin the framework repo (pipecat-ai/pipecat) to a specific git tag "
+        "(e.g. 'v0.0.96'). When set, source chunks come from that tag instead of HEAD. "
+        "Set via --framework-version CLI flag or PIPECAT_HUB_FRAMEWORK_VERSION env var.",
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_framework_version(self) -> str | None:
+        """Resolve framework version from field or env var.
+
+        CLI flag (stored in ``framework_version``) takes precedence over env var.
+        """
+        if self.framework_version is not None:
+            return self.framework_version
+        env = os.environ.get(_FRAMEWORK_VERSION_ENV, "").strip()
+        return env or None

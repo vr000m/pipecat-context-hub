@@ -512,6 +512,10 @@ class HubStatusOutput(BaseModel):
         default_factory=list, description="Distinct git commit SHAs in the index."
     )
     index_path: str = Field(default="", description="Path to the index data directory.")
+    framework_version: str | None = Field(
+        default=None,
+        description="Pinned framework version tag (e.g. 'v0.0.96') if set, else None (HEAD).",
+    )
 
 
 class SearchApiInput(BaseModel):

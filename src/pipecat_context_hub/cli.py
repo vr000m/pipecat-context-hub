@@ -153,8 +153,15 @@ def serve(ctx: click.Context) -> None:
     is_flag=True,
     help="Delete local index state before rebuilding. Use this when the persisted Chroma index is unhealthy.",
 )
+@click.option(
+    "--framework-version",
+    default=None,
+    help="Pin the framework repo (pipecat-ai/pipecat) to a specific git tag "
+    "(e.g. 'v0.0.96'). Source chunks will come from that version instead of HEAD. "
+    "Can also be set via PIPECAT_HUB_FRAMEWORK_VERSION env var.",
+)
 @click.pass_context
-def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
+def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_version: str | None) -> None:
     """Rebuild the index, skipping unchanged sources when possible."""
     from pipecat_context_hub.services.embedding import (
         EmbeddingIndexWriter,
@@ -171,7 +178,17 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
     logger = logging.getLogger(__name__)
     config: HubConfig = ctx.obj["config"]
 
-    logger.info("Starting index refresh (force=%s reset_index=%s)", force, reset_index)
+    # Propagate --framework-version CLI flag into config (CLI > env var).
+    if framework_version is not None:
+        config = config.model_copy(update={"framework_version": framework_version})
+
+    fw_version = config.effective_framework_version
+    logger.info(
+        "Starting index refresh (force=%s reset_index=%s framework_version=%s)",
+        force,
+        reset_index,
+        fw_version,
+    )
     start = time.monotonic()
 
     if reset_index:
@@ -276,11 +293,14 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
                     await index_store.delete_by_repo(slug)
                     index_store.delete_metadata(meta_key)
 
+        framework_slug = "pipecat-ai/pipecat"
         for repo_slug in config.sources.effective_repos:
             stored_sha_key = f"repo:{repo_slug}:commit_sha"
+            # Pin the framework repo to a specific tag when configured.
+            repo_tag = fw_version if repo_slug == framework_slug and fw_version else None
             try:
                 repo_path, commit_sha = await asyncio.to_thread(
-                    github.clone_or_fetch, repo_slug, False
+                    github.clone_or_fetch, repo_slug, False, tag=repo_tag
                 )
                 repo_shas[repo_slug] = commit_sha
                 prefetched[repo_slug] = (repo_path, commit_sha)
@@ -422,13 +442,14 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
                 index_store.delete_metadata(f"repo:{repo_slug}:commit_sha")
 
         # ----- 3. Deprecation map -----
+        # Deprecation map always builds from HEAD/release-notes (forward-looking),
+        # not pinned to the framework version.
         from pipecat_context_hub.services.ingest.deprecation_map import (
             build_deprecation_map_from_changelog,
             build_deprecation_map_from_releases,
             build_deprecation_map_from_source,
         )
 
-        framework_slug = "pipecat-ai/pipecat"
         dep_map_path = config.storage.data_dir / "deprecation_map.json"
 
         if framework_slug in prefetched:
@@ -487,6 +508,12 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool) -> None:
 
         stats = index_store.get_index_stats()
         index_store.set_metadata("content_type_counts", json.dumps(stats["counts_by_type"]))
+
+        # Persist pinned framework version (or clear it) for get_hub_status.
+        if fw_version:
+            index_store.set_metadata("framework_version", fw_version)
+        else:
+            index_store.delete_metadata("framework_version")
 
         if not all_errors:
             index_store.set_metadata("last_refresh_at", now)

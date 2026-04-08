@@ -480,7 +480,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
-        mock_github.clone_or_fetch.side_effect = lambda repo_slug, _checkout=False: (
+        mock_github.clone_or_fetch.side_effect = lambda repo_slug, _checkout=False, tag=None: (
             Path(f"/tmp/{repo_slug.replace('/', '_')}"),
             "badcafe" if repo_slug == "pipecat-ai/pipecat" else "abc123",
         )
@@ -503,7 +503,12 @@ class TestRefreshCommand:
         mock_github.ingest.assert_not_called()
         mock_source.ingest.assert_not_called()
         mock_store.delete_by_repo.assert_not_called()
-        mock_store.delete_metadata.assert_not_called()
+        # delete_metadata should not have been called for any repo SHA keys;
+        # the only allowed call is clearing framework_version when not pinned.
+        for call in mock_store.delete_metadata.call_args_list:
+            assert call.args[0] == "framework_version", (
+                f"Unexpected delete_metadata call: {call.args[0]}"
+            )
         set_calls = {
             call.args[0] for call in mock_store.set_metadata.call_args_list
         }
@@ -527,7 +532,7 @@ class TestRefreshCommand:
         mock_dc_cls.return_value = mock_crawler
         mock_gh_cls.return_value = mock_github
         mock_si_cls.return_value = mock_source
-        mock_github.clone_or_fetch.side_effect = lambda repo_slug, _checkout=False: (
+        mock_github.clone_or_fetch.side_effect = lambda repo_slug, _checkout=False, tag=None: (
             Path(f"/tmp/{repo_slug.replace('/', '_')}"),
             "badcafe" if repo_slug == "pipecat-ai/pipecat" else "abc123",
         )
