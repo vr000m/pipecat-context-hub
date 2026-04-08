@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from pipecat_context_hub.cli import _load_dotenv, main
@@ -107,6 +108,25 @@ def _sha_metadata(sha: str = "abc123", repos: list[str] | None = None) -> dict[s
 
 class TestRefreshCommand:
     """Tests for the refresh command's incremental skip logic."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_deprecation_map(self):
+        """Prevent real gh CLI calls and filesystem access during refresh tests."""
+        with (
+            patch(
+                "pipecat_context_hub.services.ingest.deprecation_map.build_deprecation_map_from_source",
+                return_value=MagicMock(entries=[], save=MagicMock()),
+            ),
+            patch(
+                "pipecat_context_hub.services.ingest.deprecation_map.build_deprecation_map_from_releases",
+                return_value=MagicMock(entries=[], save=MagicMock()),
+            ),
+            patch(
+                "pipecat_context_hub.services.ingest.deprecation_map.build_deprecation_map_from_changelog",
+                return_value=MagicMock(entries=[], save=MagicMock()),
+            ),
+        ):
+            yield
 
     def _make_mocks(self):
         """Create shared mock objects for refresh tests."""
