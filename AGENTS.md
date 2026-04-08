@@ -115,6 +115,12 @@ always passes regardless of `gh` availability.
 37. `check_deprecation("pipecat.services.google.llm_vertex")` — returns
     `deprecated: true`, `deprecated_in: "0.0.105"`, replacement includes
     `pipecat.services.google.vertex.llm`
+38. `get_hub_status()` after `refresh --framework-version v0.0.96` — response
+    includes `framework_version: "v0.0.96"` (confirms pinned version persisted
+    and surfaced)
+39. `refresh --framework-version nonexistent-tag-xyz` — fails with a clear
+    `ValueError` mentioning "not found" and listing available tags (confirms
+    tag validation rejects invalid input)
 
 If any of these fail, investigate before merging — the unit test suite will
 not catch the regression.
