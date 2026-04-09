@@ -46,7 +46,7 @@ Out of scope for this document unless they directly affect the server runtime:
 Path:
 
 - `docs.pipecat.ai/llms-full.txt`
-- [`docs_crawler.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/docs_crawler.py)
+- [`docs_crawler.py`](src/pipecat_context_hub/services/ingest/docs_crawler.py)
 - local chunking and index writes
 
 Risks:
@@ -71,8 +71,8 @@ Follow-up checks:
 Path:
 
 - configured default repos plus `PIPECAT_HUB_EXTRA_REPOS`
-- [`github_ingest.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/github_ingest.py)
-- [`source_ingest.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/source_ingest.py)
+- [`github_ingest.py`](src/pipecat_context_hub/services/ingest/github_ingest.py)
+- [`source_ingest.py`](src/pipecat_context_hub/services/ingest/source_ingest.py)
 
 Risks:
 
@@ -162,8 +162,8 @@ Follow-up checks:
 
 Path:
 
-- [`server/main.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/server/main.py)
-- [`server/transport.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/server/transport.py)
+- [`server/main.py`](src/pipecat_context_hub/server/main.py)
+- [`server/transport.py`](src/pipecat_context_hub/server/transport.py)
 - local IDE or agent client over stdio
 
 Risks:
@@ -209,7 +209,7 @@ Current exception:
 
 - `pip-audit` ignores `CVE-2026-4539` for `pygments` because the advisory does
   not currently surface a fixed PyPI version. This accepted risk is tracked in
-  [AGENTS.md](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/AGENTS.md) and
+  [AGENTS.md](AGENTS.md) and
   should be revisited as soon as upstream publishes a fix.
 
 ## Residual Risks

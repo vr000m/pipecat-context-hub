@@ -1,31 +1,165 @@
 # Pipecat Context Hub
 
-Local-first MCP server providing fresh Pipecat docs and examples context for Claude Code, Cursor, VS Code, and Zed.
+Local-first MCP server providing fresh Pipecat docs and examples context for
+Claude Code, Cursor, VS Code, and Zed.
+
+> **Quick links:**
+> [Client Setup](#client-setup) |
+> [MCP Tools](#mcp-tools) |
+> [Version-Aware Queries](#version-aware-queries) |
+> [Environment Variables](#environment-variables) |
+> [Report an Issue](https://github.com/pipecat-ai/pipecat-context-hub/issues/new/choose)
 
 ## What It Does
 
-When your AI coding assistant needs Pipecat context, it calls MCP tools exposed by this server. The server queries a local index (ChromaDB + SQLite FTS5) and returns relevant documentation, code examples, and snippets — all with source citations.
+When your AI coding assistant needs Pipecat context, it calls MCP tools exposed
+by this server. The server queries a local index (ChromaDB + SQLite FTS5) and
+returns relevant documentation, code examples, and API source — all with source
+citations.
 
 ```
 IDE/Agent  ←stdio→  pipecat-context-hub serve  ←→  Local index (~/.pipecat-context-hub/)
 ```
 
-### MCP Tools
+## Install
 
-| Tool | Purpose |
-|------|---------|
-| `search_docs` | Search Pipecat documentation for conceptual questions and guides |
-| `get_doc` | Fetch a specific doc page by chunk ID or path (e.g. `/guides/learn/transports`) |
-| `search_examples` | Find working code examples by task, modality, or component. Filter by `language`, `domain`, `tags`, or `repo`. Pass `pipecat_version` for compatibility scoring and `version_filter="compatible_only"` to exclude newer-only results |
-| `get_example` | Retrieve full example with source files and metadata |
-| `get_code_snippet` | Get targeted code spans by intent, symbol, or path. Pass `pipecat_version` for compatibility annotations. Returns enriched output with dependencies, called methods, related type definitions, and interface contracts |
-| `search_api` | Search framework internals — class definitions, method signatures, type definitions, inheritance. Filter by `module`, `class_name`, `chunk_type`, `yields`, or `calls`. Pass `pipecat_version` for compatibility scoring and `version_filter="compatible_only"` |
-| `check_deprecation` | Check if a pipecat import path is deprecated. Returns replacement path, deprecation/removal version. Use when you see pipecat imports to verify they are current |
-| `get_hub_status` | Get index health: last refresh time, record counts, commit SHAs |
+```bash
+git clone https://github.com/pipecat-ai/pipecat-context-hub.git
+cd pipecat-context-hub
+uv sync
+```
 
-All responses include an `EvidenceReport` with `known`/`unknown` items, confidence scores, and suggested follow-up queries.
+## Populate the Local Index
 
-### Version-Aware Queries
+Before the server can answer queries, build the local index:
+
+```bash
+# First-time setup (downloads docs, clones repos, computes embeddings)
+uv run pipecat-context-hub refresh
+
+# Force full re-ingest (ignores cached state)
+uv run pipecat-context-hub refresh --force
+
+# Recover from an unhealthy local index
+uv run pipecat-context-hub refresh --force --reset-index
+```
+
+> **Tip:** When `gh` CLI is authenticated, `refresh` also fetches GitHub release
+> notes for deprecation data. Without it, `check_deprecation` coverage will be
+> limited.
+
+## Start the Server
+
+```bash
+uv run pipecat-context-hub serve
+```
+
+## Client Setup
+
+Point your IDE's MCP config at the cloned repo using `uv run --directory`.
+Per-client setup guides:
+
+| Client | Setup Guide |
+|--------|-------------|
+| **Claude Code** | [docs/setup/claude-code.md](setup/claude-code.md) |
+| **Cursor** | [docs/setup/cursor.md](setup/cursor.md) |
+| **VS Code** | [docs/setup/vscode.md](setup/vscode.md) |
+| **Zed** | [docs/setup/zed.md](setup/zed.md) |
+
+**Example** (Claude Code `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "pipecat-context-hub": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/pipecat-context-hub", "pipecat-context-hub", "serve"],
+      "env": {}
+    }
+  }
+}
+```
+
+Config templates for all clients are in [`config/clients/`](../config/clients/).
+
+### Add CLAUDE.md Instructions (Recommended)
+
+Add this to your project's `CLAUDE.md` (or `~/.claude/CLAUDE.md` globally) so
+your coding agent prefers the MCP tools for Pipecat questions:
+
+```markdown
+## MCP Tools
+
+When pipecat-context-hub MCP is available, always prefer its tools
+(`search_docs`, `search_api`, `search_examples`, `get_example`, `get_doc`,
+`get_code_snippet`, `check_deprecation`) for Pipecat framework questions.
+Do not read `.venv` or source files directly.
+
+- "How do I ...?" → `search_docs`
+- "Show me an example of ..." → `search_examples`, then `get_example`
+- Class constructors, method signatures, frame types → `search_api`
+- Specific code span or symbol → `get_code_snippet`
+- Retrieve a specific doc page → `get_doc`
+- Check if an import is deprecated → `check_deprecation`
+
+**Multi-concept queries:** Use ` + ` or ` & ` as delimiters
+(e.g., `search_docs("TTS + STT")`). Each concept is searched independently
+and results are interleaved.
+
+When suggesting commands for Pipecat projects, always use `uv` as the
+package manager:
+- Install dependencies: `uv sync` (not `pip install`)
+- Run scripts: `uv run python bot.py` (not `python bot.py`)
+- Add packages: `uv add <package>` (not `pip install <package>`)
+```
+
+## MCP Tools
+
+| Tool | Use when... |
+|------|-------------|
+| `search_docs` | "How do I ...?" — conceptual questions, guides, configuration |
+| `get_doc` | Retrieve a specific doc page by ID or path (e.g. `/guides/learn/transports`) |
+| `search_examples` | "Show me an example of ..." — find working code by task or component |
+| `get_example` | Retrieve full source files for a specific example |
+| `search_api` | Class definitions, method signatures, frame types, inheritance |
+| `get_code_snippet` | Get targeted code by symbol name, intent, or file path + line range |
+| `check_deprecation` | Verify whether a pipecat import path is deprecated |
+| `get_hub_status` | Index health: last refresh time, record counts, commit SHAs |
+
+All search results include an **EvidenceReport** with confidence scores,
+source-grounded facts, unresolved questions, and suggested follow-up queries.
+
+### Filters
+
+`search_examples` supports filters to narrow results:
+
+- `domain` — `"backend"` (Python), `"frontend"` (JS/TS), `"config"`, `"infra"`
+- `language` — `"python"`, `"typescript"`
+- `repo` — filter by GitHub repo slug
+- `tags` — filter by capability tags
+
+`search_api` supports filters for framework internals:
+
+- `module` — module path prefix (e.g. `"pipecat.services"`)
+- `class_name` — class name prefix (e.g. `"DailyTransport"`)
+- `chunk_type` — `"method"`, `"function"`, `"class_overview"`, `"module_overview"`, `"type_definition"`
+- `yields` — methods that yield a specific frame type
+- `calls` — methods that call a specific method
+
+### Multi-Concept Queries
+
+Use ` + ` or ` & ` to search for multiple concepts at once:
+
+```
+search_docs("TTS + STT")
+search_examples("idle timeout + function calling + Gemini")
+search_api("BaseTransport + WebSocketTransport")
+```
+
+Each concept is searched independently and results are interleaved for balanced
+coverage.
+
+## Version-Aware Queries
 
 If your project targets a specific pipecat version, pass `pipecat_version` to
 get results scored for compatibility:
@@ -37,295 +171,58 @@ search_api("DailyTransport", pipecat_version="0.0.96")
 
 Results are annotated with `version_compatibility`: `"compatible"`,
 `"newer_required"`, `"older_targeted"`, or `"unknown"`. Use
-`version_filter="compatible_only"` to exclude results that require a newer
-version than yours.
+`version_filter="compatible_only"` to exclude results requiring a newer version.
 
-**Note:** By default, the index reflects the latest framework HEAD. You can pin
-the framework to a specific version using `PIPECAT_HUB_FRAMEWORK_VERSION=v0.0.96`
-or `refresh --framework-version v0.0.96`. Version scoring also penalizes
-incompatible results for unpinned queries.
-
-## Quick Start
+You can also pin the framework index to a specific version:
 
 ```bash
-# Install the project and dev tooling from the lockfile
-uv sync --extra dev --group dev
-
-# Populate the local index (crawls docs + clones repos + computes embeddings)
-# When `gh` CLI is authenticated, also fetches GitHub release notes for
-# deprecation data. Authenticated `gh` is a practical prerequisite for
-# meaningful check_deprecation coverage — without it, most deprecation
-# entries will be absent.
-uv run pipecat-context-hub refresh
-
-# Force full re-ingest, ignoring cached state
-uv run pipecat-context-hub refresh --force
-
-# Recover from an unhealthy local Chroma index and rebuild from scratch
-uv run pipecat-context-hub refresh --force --reset-index
-
-# Start the MCP server
-uv run pipecat-context-hub serve
+uv run pipecat-context-hub refresh --framework-version v0.0.96
+# or via env var:
+PIPECAT_HUB_FRAMEWORK_VERSION=v0.0.96 uv run pipecat-context-hub refresh
 ```
 
-## Client Setup
-
-Add the server to your IDE's MCP config. Pre-built templates are in `config/clients/`.
-
-| Client | Guide | Config template |
-|--------|-------|-----------------|
-| Claude Code | [docs/setup/claude-code.md](setup/claude-code.md) | `config/clients/claude-code.json` |
-| Cursor | [docs/setup/cursor.md](setup/cursor.md) | `config/clients/cursor.json` |
-| VS Code | [docs/setup/vscode.md](setup/vscode.md) | `config/clients/vscode.json` |
-| Zed | [docs/setup/zed.md](setup/zed.md) | `config/clients/zed.json` |
-
-See [docs/setup/README.md](setup/README.md) for the full setup overview.
-
-> **Tip:** Add a `CLAUDE.md` snippet to your project (or `~/.claude/CLAUDE.md` globally) so Claude
-> prefers the MCP tools for Pipecat questions. See [docs/setup/claude-code.md](setup/claude-code.md#recommended-claudemd-instructions)
-> for the recommended instructions.
-
-## Security
-
-The MCP server threat model and trust-boundary review live in
-[docs/security/threat-model.md](security/threat-model.md).
-
-Local upstream denylisting is available when a repo or release is suspected to
-be tainted:
-
-- `PIPECAT_HUB_TAINTED_REPOS` skips a repo entirely
-- `PIPECAT_HUB_TAINTED_REFS` skips specific `org/repo@ref` entries where `ref`
-  is a tag or commit SHA/prefix
-
-## Architecture
-
-```
-Ingestion:
-  DocsCrawler (llms-full.txt)    ──┐
-  GitHubRepoIngester (N repos)   ──┤→ EmbeddingIndexWriter → IndexStore
-  SourceIngester (AST + tree-sitter)─┤   (sentence-transformers)   (ChromaDB + FTS5)
-  TaxonomyBuilder (auto-infer)   ──┘
-    ↑                                         ↑
-    Per-file taxonomy enrichment:             Metadata stored per chunk:
-    foundational_class, capability_tags,      language, domain, execution_mode,
-    key_files, execution_mode                 line_start, line_end
-
-Retrieval:
-  MCP Tool Call → HybridRetriever → decompose_query (split on + / &)
-                    ↓                     ↓
-              single-concept         multi-concept (parallel per-concept)
-                    ↓                     ↓
-              vector + keyword      round-robin interleave + dedup
-                    ↓                     ↓
-                  rerank (RRF)      evidence assembly
-                    ↓
-                  Cited response with EvidenceReport
-```
-
-### Data Sources (v0)
-
-- `https://docs.pipecat.ai/llms-full.txt` — primary documentation (pre-rendered markdown, 200+ pages)
-- `pipecat-ai/pipecat` — framework repo (including `examples/foundational`)
-  - Supports flat file layout (e.g. `01-say-one-thing.py`) and subdirectory layout
-- `pipecat-ai/pipecat-examples` — project-level examples
-  - Discovered via root-level directory scanning (no `examples/` dir required)
-- `daily-co/daily-python` — Daily Python SDK (`.pyi` type stub AST-indexed for `search_api`)
-  - Indexes `CallClient`, `EventHandler`, 87 types, all method signatures via `daily.pyi`
-  - Indexes type definitions from `docs/src/types.rst` (72 dict schemas, enums, aliases) as `type_definition` chunks for `search_api`
-  - Demos indexed as code examples
-- **TypeScript SDK repos** (default since v0.0.12):
-  - `pipecat-ai/pipecat-client-web` — core JS/React SDK (interfaces, classes, types)
-  - `pipecat-ai/pipecat-client-web-transports` — WebSocket, WebRTC, Daily transports
-  - `pipecat-ai/voice-ui-kit` — React components (VoiceVisualizer, etc.)
-  - `pipecat-ai/pipecat-flows-editor` — visual flow editor
-  - `pipecat-ai/web-client-ui`, `pipecat-ai/small-webrtc-prebuilt` — prebuilt UI
-  - TS exported declarations (interfaces, classes, types, functions, enums, const exports)
-    are tree-sitter-extracted and indexed as `content_type="source"` with `language="typescript"`,
-    including individual method chunks with full signatures
-- Additional repos via `PIPECAT_HUB_EXTRA_REPOS` env var (comma-separated slugs)
-  - Supports single-project repos (`src/`-layout, root-level entry scripts)
-  - Repos with `src/` layouts are AST-indexed for `search_api` (class definitions, method signatures)
-  - Repos with `.pyi` stubs at root (no Python in `src/`) are also AST-indexed
-  - Repos with `package.json`/`tsconfig.json` are tree-sitter-indexed for `search_api`
-  - See `.env.example` for usage and copy-ready curated repo bundles
-
-### Technology
-
-- **Embeddings:** `all-MiniLM-L6-v2` via sentence-transformers (local, no API key)
-- **AST parsing:** Python `ast` module (Python), `tree-sitter` (TypeScript/TSX)
-- **Vector store:** ChromaDB with cosine distance
-- **Keyword index:** SQLite FTS5 with porter tokenizer
-- **Reranking:** Reciprocal Rank Fusion + code-intent heuristics + cross-encoder (enabled by default) + result diversity
-- **Transport:** stdio (MCP JSON-RPC)
-
-### Environment Variables
+## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PIPECAT_HUB_EXTRA_REPOS` | *(empty)* | Comma-separated repo slugs to ingest alongside defaults |
-| `PIPECAT_HUB_TAINTED_REPOS` | *(empty)* | Comma-separated repo slugs to skip entirely and remove from the active refresh set |
-| `PIPECAT_HUB_TAINTED_REFS` | *(empty)* | Comma-separated `org/repo@ref` entries. `ref` may be a tag or commit SHA/prefix; refresh skips a repo when fetched HEAD matches one of these refs |
-| `PIPECAT_HUB_FRAMEWORK_VERSION` | *(empty)* | Pin the framework repo (`pipecat-ai/pipecat`) to a specific git tag (e.g. `v0.0.96`). Source chunks come from that version instead of HEAD. Also available as `refresh --framework-version` CLI flag |
-| `PIPECAT_HUB_RERANKER_ENABLED` | `1` (enabled) | Set to `0` to disable cross-encoder reranking |
-| `PIPECAT_HUB_ENABLE_QUALITY_BENCHMARK` | *(empty)* | Set to `1` to opt into the retrieval-quality benchmark when running it directly with `pytest` |
-| `PIPECAT_HUB_BENCHMARK_OUTPUT` | *(empty)* | Optional JSON output path for the retrieval-quality benchmark report |
-| `PIPECAT_HUB_ENABLE_STABILITY_BENCHMARK` | *(empty)* | Set to `1` to opt into the runtime stability benchmark when running it directly with `pytest` |
-| `PIPECAT_HUB_STABILITY_OUTPUT` | *(empty)* | Optional JSON output path for the runtime stability benchmark report |
+| `PIPECAT_HUB_FRAMEWORK_VERSION` | *(empty)* | Pin framework repo to a specific git tag (e.g. `v0.0.96`) |
+| `PIPECAT_HUB_TAINTED_REPOS` | *(empty)* | Comma-separated repo slugs to skip entirely |
+| `PIPECAT_HUB_TAINTED_REFS` | *(empty)* | Comma-separated `org/repo@ref` entries to skip |
+| `PIPECAT_HUB_RERANKER_ENABLED` | `1` | Set to `0` to disable cross-encoder reranking |
 
+See [`.env.example`](../.env.example) for curated repo bundles you can copy
+into your `.env`.
 
-## Dashboard
+## Data Sources
 
-The project includes an interactive dashboard for understanding the index — what's
-in it, how chunks distribute across repos and content types, and how concepts
-relate in embedding space. We built it because tuning retrieval quality requires
-seeing the data: which repos dominate, where docs and source code overlap
-semantically, and whether cluster boundaries match our intuition about concept
-groupings.
+The default index includes:
 
-- **Index Explorer** (`dashboard/public/index.html`) — treemap of repo × content
-  type distribution, content type doughnut, AST chunk type breakdown, method
-  length histogram, and chunk size comparison. All data loaded from
-  `dashboard_data.json` (generated, not hardcoded).
+- **Pipecat documentation** — `docs.pipecat.ai` (200+ pages)
+- **Pipecat framework** — `pipecat-ai/pipecat` (Python AST-indexed: classes, methods, imports, call graphs)
+- **Pipecat examples** — `pipecat-ai/pipecat-examples` (project-level code examples)
+- **Daily Python SDK** — `daily-co/daily-python` (`.pyi` stubs + RST type definitions)
+- **TypeScript SDKs** — `pipecat-client-web`, `pipecat-client-web-transports`, `voice-ui-kit`, and more (tree-sitter-indexed)
 
-  ![Index Explorer](sshot-dashboard-index.jpg)
+Add more repos via `PIPECAT_HUB_EXTRA_REPOS`.
 
-- **Latent Space Explorer** (`dashboard/public/latent-space.html`) — 3D
-  point cloud of all chunks projected from 384D embeddings to 3D via UMAP
-  (cosine metric). Supports rotate/zoom/pan, content type filtering, search
-  highlighting, and cluster expansion with labels. Uses Three.js with
-  additive blending so overlapping content types produce mixed colours.
+## Security
 
-  ![Latent Space Explorer](sshot-dashboard-latent-space.png)
+- Threat model: [docs/security/threat-model.md](security/threat-model.md)
+- Vulnerability reporting: [SECURITY.md](../SECURITY.md)
+- Upstream denylisting: `PIPECAT_HUB_TAINTED_REPOS` and `PIPECAT_HUB_TAINTED_REFS`
 
-```bash
-# Rebuild dashboard data from the current index
-just dashboard-build
+## Troubleshooting
 
-# Or refresh the index first, then rebuild
-just dashboard-refresh
+- **Empty results** — run `uv run pipecat-context-hub refresh` to populate the index
+- **Stale results** — run `uv run pipecat-context-hub refresh --force` to re-ingest from latest upstream
+- **Index corruption** — run `uv run pipecat-context-hub refresh --force --reset-index` to wipe and rebuild
 
-# Serve on localhost:8765
-just dashboard-serve
-```
+If the server returns poor or missing results, [file a retrieval quality issue](https://github.com/pipecat-ai/pipecat-context-hub/issues/new?template=retrieval-quality.yml) —
+the issue template includes a diagnostic prompt your coding agent can run to
+generate a structured report.
 
-## Development
+## Contributing
 
-A [`justfile`](https://github.com/casey/just) provides common tasks. Install with `brew install just` ([other platforms](https://github.com/casey/just#installation)). Run `just` to see all recipes.
-
-```bash
-just check    # lint + format check + typecheck
-just test     # run tests
-just audit    # pip-audit on the frozen env + bandit
-just sbom     # generate a reproducible CycloneDX SBOM
-just benchmark-quality   # live retrieval-quality benchmark on the local index
-```
-
-Or use `uv` directly:
-
-```bash
-# Install dev dependencies
-uv sync --extra dev --group dev
-
-# Run tests
-uv run pytest tests/ -v
-
-# Type checking
-uv run mypy src/ tests/
-
-# Lint
-uv run ruff check
-```
-
-## Benchmarking
-
-Two benchmark modes exist:
-
-- `tests/benchmarks/test_latency.py` measures component and end-to-end latency on a seeded local corpus.
-- `tests/benchmarks/test_retrieval_quality.py` measures retrieval quality against the current local index.
-- `tests/benchmarks/test_runtime_stability.py` measures repeated `refresh` / `serve` lifecycle stability and concurrent retrieval growth in RSS, thread count, and open file descriptors.
-
-The retrieval-quality benchmark is intended for the default corpus:
-
-- Pipecat docs
-- `pipecat-ai/pipecat`
-- `pipecat-ai/pipecat-examples`
-- No `PIPECAT_HUB_EXTRA_REPOS`
-
-Run it after `uv run pipecat-context-hub refresh`:
-
-```bash
-just benchmark-quality
-```
-
-Run the runtime stability benchmark when you want an opt-in soak/leak pass:
-
-```bash
-just benchmark-stability
-```
-
-If the benchmark reports an unhealthy local vector index, rebuild it with:
-
-```bash
-uv run pipecat-context-hub refresh --force --reset-index
-```
-
-To persist a versioned report for later comparison:
-
-```bash
-PIPECAT_HUB_BENCHMARK_OUTPUT=artifacts/benchmarks/retrieval-quality-0.0.9.json just benchmark-quality
-just benchmark-stability-report
-```
-
-Each JSON report includes:
-
-- `schema_version` and `matrix_version` so query-set changes are explicit
-- `server_version`
-- `last_refresh_at`
-- `docs_content_hash`
-- `repo_shas` and `repo_counts`
-- per-case scores and top hits
-
-That metadata is the version-to-version trail. If a score changes, you can first check whether the retrieval logic changed, the indexed repo SHAs changed, the docs content hash changed, or the benchmark matrix itself changed.
-
-If extra repos are present, the benchmark still runs and writes a scorecard, but threshold failures are downgraded to warnings because the corpus is no longer comparable to the default baseline.
-
-## Project Structure
-
-```
-src/pipecat_context_hub/
-├── cli.py                          # CLI entry point (serve + refresh)
-├── shared/
-│   ├── types.py                    # 25+ Pydantic models (data contracts)
-│   ├── interfaces.py               # Service protocols
-│   └── config.py                   # Configuration models
-├── services/
-│   ├── embedding.py                # EmbeddingService + EmbeddingIndexWriter
-│   ├── ingest/
-│   │   ├── ast_extractor.py        # Python AST analysis (classes, methods, imports, yields, calls)
-│   │   ├── docs_crawler.py         # llms-full.txt ingester + markdown chunker
-│   │   ├── github_ingest.py        # Git clone/fetch + code chunking
-│   │   ├── source_ingest.py        # Source code chunking + module metadata
-│   │   └── taxonomy.py             # Automated capability inference
-│   ├── index/
-│   │   ├── vector.py               # ChromaDB vector index
-│   │   ├── fts.py                  # SQLite FTS5 keyword index
-│   │   └── store.py                # Unified IndexStore facade
-│   └── retrieval/
-│       ├── decompose.py            # Multi-concept query decomposition
-│       ├── hybrid.py               # HybridRetriever (7 tool methods)
-│       ├── rerank.py               # RRF + code-intent reranking
-│       └── evidence.py             # Citation + evidence assembly
-└── server/
-    ├── main.py                     # MCP server with 7 tools
-    ├── transport.py                # stdio transport
-    └── tools/                      # Per-tool handler modules
-
-dashboard/
-├── public/                         # Served by `just dashboard-serve`
-│   ├── index.html                  # Stats dashboard (loads dashboard_data.json)
-│   └── latent-space.html           # 3D embedding space explorer (Three.js)
-└── scripts/                        # Data extraction pipeline
-    ├── extract_embeddings.py       # ChromaDB → UMAP 3D projection
-    ├── compute_clusters.py         # K-means clustering for LOD
-    └── extract_dashboard.py        # Index stats extraction
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture, development workflow,
+benchmarking, and project structure.

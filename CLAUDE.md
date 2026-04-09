@@ -117,7 +117,7 @@ GitHub releases must follow this format for consistency. Pull content from
 ---
 
 **Upgrade:** `uv sync --extra dev --group dev` then `uv run pipecat-context-hub refresh --force`
-**Full changelog:** https://github.com/<owner>/pipecat-context-hub/compare/vPREVIOUS...vCURRENT
+**Full changelog:** https://github.com/pipecat-ai/pipecat-context-hub/compare/vPREVIOUS...vCURRENT
 ```
 
 Rules:

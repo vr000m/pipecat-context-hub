@@ -20,19 +20,19 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
 
 ## Initial Findings (Historical Baseline)
 
-- **High:** Before this branch, the install guidance in [docs/README.md](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/docs/README.md) used `uv pip install -e ".[dev]"`, while the repo also carried `uv.lock`. That bypassed lockfile-based reproducibility and increased dependency drift risk on developer machines.
+- **High:** Before this branch, the install guidance in [docs/README.md](docs/README.md) used `uv pip install -e ".[dev]"`, while the repo also carried `uv.lock`. That bypassed lockfile-based reproducibility and increased dependency drift risk on developer machines.
 - **High:** Before this branch, the repository did not include committed CI/security automation under `.github/workflows/`, and there was no repo-local evidence of automated vulnerability scanning, OSV scanning, SBOM generation, or dependency update policy enforcement.
 - **High:** Before this branch, existing tests covered correctness and retrieval benchmarks, but there was no dedicated soak or leak harness for repeated `refresh`/`serve` cycles, concurrent tool calls, or RSS/thread/file-descriptor growth over time.
 - **High:** Before this branch, the refresh path tracked mutable upstream content directly: docs were fetched live, Git repos were reset to remote HEAD, and extra repos could be appended from environment configuration. There was no repo-local policy for marking an upstream repo, tag, release, or commit as tainted and skipping it.
-- **Medium:** The highest-risk manual review targets are the remote ingestion and local persistence boundaries in [`cli.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/cli.py), [`server/main.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/server/main.py), [`server/transport.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/server/transport.py), [`docs_crawler.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/docs_crawler.py), [`github_ingest.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/github_ingest.py), [`source_ingest.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/source_ingest.py), [`embedding.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/embedding.py), [`cross_encoder.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/retrieval/cross_encoder.py), [`vector.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/index/vector.py), and [`store.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/index/store.py).
+- **Medium:** The highest-risk manual review targets are the remote ingestion and local persistence boundaries in [`cli.py`](src/pipecat_context_hub/cli.py), [`server/main.py`](src/pipecat_context_hub/server/main.py), [`server/transport.py`](src/pipecat_context_hub/server/transport.py), [`docs_crawler.py`](src/pipecat_context_hub/services/ingest/docs_crawler.py), [`github_ingest.py`](src/pipecat_context_hub/services/ingest/github_ingest.py), [`source_ingest.py`](src/pipecat_context_hub/services/ingest/source_ingest.py), [`embedding.py`](src/pipecat_context_hub/services/embedding.py), [`cross_encoder.py`](src/pipecat_context_hub/services/retrieval/cross_encoder.py), [`vector.py`](src/pipecat_context_hub/services/index/vector.py), and [`store.py`](src/pipecat_context_hub/services/index/store.py).
 - **Medium:** The repo has useful point defenses already, but they are not yet backed by a documented threat model or release gate. That raises the chance of future regressions in path containment, model loading policy, or resource cleanup.
 
 ## Existing Hardening To Preserve
 
-- Repo slug sanitization and resolved-path containment in [`github_ingest.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/github_ingest.py).
-- Symlink and out-of-repo guards before file reads in [`source_ingest.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/ingest/source_ingest.py).
-- Cross-encoder model allowlisting in [`cross_encoder.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/retrieval/cross_encoder.py).
-- Async offloading of synchronous vector and keyword queries in [`store.py`](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/src/pipecat_context_hub/services/index/store.py).
+- Repo slug sanitization and resolved-path containment in [`github_ingest.py`](src/pipecat_context_hub/services/ingest/github_ingest.py).
+- Symlink and out-of-repo guards before file reads in [`source_ingest.py`](src/pipecat_context_hub/services/ingest/source_ingest.py).
+- Cross-encoder model allowlisting in [`cross_encoder.py`](src/pipecat_context_hub/services/retrieval/cross_encoder.py).
+- Async offloading of synchronous vector and keyword queries in [`store.py`](src/pipecat_context_hub/services/index/store.py).
 - Recent Chroma reset and shutdown support in the index lifecycle.
 
 ## Requirements
@@ -43,7 +43,7 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
 - Add runtime validation for resource cleanup, leak detection, and concurrent request behavior.
 - Add a local upstream-taint policy so a repo, release, tag, or commit can be skipped if a security incident or compromised release is identified upstream.
 - Review module boundaries and duplicated logic, but only refactor when duplication creates correctness, security, or maintenance risk.
-- Record accepted risks explicitly in [AGENTS.md](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/AGENTS.md) so future reviews do not rediscover deliberate trade-offs.
+- Record accepted risks explicitly in [AGENTS.md](AGENTS.md) so future reviews do not rediscover deliberate trade-offs.
 
 ## Implementation Checklist
 
@@ -88,7 +88,7 @@ This plan is intentionally scoped to the MCP server and refresh/runtime surfaces
   - Dependency install and update paths must rely on pinned inputs instead of version ranges alone.
   - Release notes or security advisories from upstream projects are signals, not enforcement. The enforcement path must be local configuration that can skip a tainted repo or specific upstream ref even when it still exists upstream.
   - The refresh path currently tracks mutable upstream state; the audit must decide whether to add denylisting only, optional ref pinning, or both.
-  - Review output should separate true findings from accepted trade-offs already documented in [AGENTS.md](/Users/vr000m/Code/pipecat-ai/pipecat-code-mcp/AGENTS.md).
+  - Review output should separate true findings from accepted trade-offs already documented in [AGENTS.md](AGENTS.md).
 
 ## Review Focus
 

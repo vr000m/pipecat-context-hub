@@ -1,0 +1,42 @@
+name: Bug Report
+description: Report a crash, error, or unexpected behavior
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and how to reproduce it.
+      placeholder: |
+        1. Ran `pipecat-context-hub refresh --force`
+        2. Got error: "ChromaDB collection not found"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Run this in your terminal and paste the output:
+        ```
+        echo "Python: $(python3 --version)" && echo "uv: $(uv --version)" && echo "OS: $(uname -srm)" && uv run pipecat-context-hub --version 2>/dev/null || echo "version: unknown"
+        ```
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: Paste any relevant error messages or stack traces.
+      render: text

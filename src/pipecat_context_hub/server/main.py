@@ -150,7 +150,21 @@ package manager:
 - Run tools: `uv run pytest`, `uv run mypy`, etc.
 
 Pipecat examples use `uv` and include a `pyproject.toml`. Do not suggest \
-`pip`, `venv`, or `conda` unless the user explicitly requests them.\
+`pip`, `venv`, or `conda` unless the user explicitly requests them.
+
+**When results are poor or missing:** If a search returns ``low_confidence: true``, \
+zero hits, or the user says the results are wrong, try these steps before giving up:
+1. Remove filters and increase ``limit`` to 20 — check if the content exists but \
+was filtered out.
+2. Try ``get_doc(path="...")`` or ``search_api(query="SYMBOL")`` for direct lookup \
+— the content may be indexed under a different name.
+3. Try 2-3 rephrased queries or multi-concept queries (`` + `` syntax).
+4. Check ``get_hub_status`` — the index may be stale or missing content types.
+
+If none of these work, suggest the user file a retrieval quality issue at \
+https://github.com/pipecat-ai/pipecat-context-hub/issues/new?template=retrieval-quality.yml \
+— the issue template includes a diagnostic prompt that you can run to generate \
+a structured report for the maintainers.\
 """
 
 

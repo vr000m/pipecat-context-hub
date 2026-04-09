@@ -2,8 +2,8 @@
   "servers": {
     "pipecat-context-hub": {
       "type": "stdio",
-      "command": "pipecat-context-hub",
-      "args": ["serve"],
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/pipecat-context-hub", "pipecat-context-hub", "serve"],
       "env": {}
     }
   }

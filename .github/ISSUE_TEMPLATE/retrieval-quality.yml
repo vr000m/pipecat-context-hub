@@ -1,0 +1,140 @@
+name: Retrieval Quality Issue
+description: Report missing, irrelevant, or poorly ranked results from the MCP server
+labels: ["retrieval-quality"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Before filing
+
+        Run the diagnostic prompt below in your coding agent (Claude Code, Cursor, etc.)
+        to generate a structured report. Paste the output in the **Diagnostic Report** field.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you search for, and what was wrong with the results?
+      placeholder: |
+        I searched for "WebSocket transport" using search_docs but got results
+        about HTTP transports instead. The actual WebSocket docs page wasn't
+        in the results at all.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: What result or content should have been returned?
+      placeholder: |
+        I expected the docs page at /guides/learn/transports with the WebSocket
+        section to be the top result.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue type
+      options:
+        - Missing result (expected content not returned)
+        - Wrong ranking (right content buried below irrelevant results)
+        - Bad chunking (result truncated or split at wrong boundary)
+        - Stale content (result is outdated, index not reflecting latest)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which MCP tool?
+      options:
+        - search_docs
+        - search_examples
+        - search_api
+        - get_doc
+        - get_example
+        - get_code_snippet
+        - check_deprecation
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostic-report
+    attributes:
+      label: Diagnostic Report
+      description: |
+        Paste the output from the diagnostic prompt below. Copy the prompt into your
+        coding agent, fill in YOUR_QUERY and YOUR_TOOL, and paste the full output here.
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostic-prompt
+    attributes:
+      label: Diagnostic Prompt (copy this into your agent)
+      description: Copy the prompt below, replace the placeholders, and run it in your coding agent.
+      render: markdown
+      value: |
+        ```
+        I'm diagnosing a retrieval quality issue with the pipecat-context-hub MCP server.
+        Run the following steps using the MCP tools and format the output as a single
+        markdown report I can paste into a GitHub issue.
+
+        ## Parameters
+        - Query: "YOUR_QUERY_HERE"
+        - Tool: YOUR_TOOL_HERE (search_docs | search_examples | search_api | get_code_snippet)
+        - Filters used: YOUR_FILTERS_HERE (e.g., area="guides", domain="backend", class_name="DailyTransport", or "none")
+        - Pipecat version (if applicable): YOUR_VERSION_HERE (e.g., "0.0.95" or "not set")
+
+        ## Steps
+
+        1. **Hub status** — call `get_hub_status` and report:
+           - server_version
+           - last_refresh_at
+           - total_records and counts_by_type
+           - framework_version (if set)
+
+        2. **Reproduce the search** — call the failing tool with the exact query and
+           filters above. For the results, report:
+           - Number of hits returned
+           - For each of the top 5 hits: score, title or chunk_id, snippet (first 100 chars),
+             match_type, version_compatibility (if present), citation.path
+           - The full evidence report: confidence, low_confidence, confidence_rationale,
+             next_retrieval_queries
+
+        3. **Broaden the search** — re-run the same query with all filters removed and
+           limit=20. Report:
+           - Did the expected result appear? At what rank and score?
+           - If yes, which filter excluded it?
+           - If no, proceed to step 4.
+
+        4. **Check if content is indexed** — if the expected result is a doc page, try
+           `get_doc(path="EXPECTED_PATH")`. If it's an API symbol, try
+           `search_api(query="SYMBOL_NAME", limit=5)`. If it's an example, try
+           `search_examples(query="EXAMPLE_NAME", limit=5)`. Report:
+           - Was the content found by direct lookup?
+           - If found: what was its chunk_id, content_type, and metadata?
+           - If not found: the content is likely not indexed.
+
+        5. **Try alternative queries** — run 2-3 rephrased queries or multi-concept
+           queries (using ` + ` syntax) against the same tool. Report:
+           - Each query tried and the top 3 results (score, title/chunk_id)
+           - Did any alternative surface the expected result?
+
+        ## Output format
+
+        Format everything as a single markdown block with these sections:
+        - **Hub Status**: table of status fields
+        - **Original Query Results**: numbered list of top 5 hits with scores
+        - **Evidence Report**: confidence, rationale, and next queries
+        - **Broadened Search**: whether expected result appeared and at what rank
+        - **Direct Lookup**: whether content exists in the index
+        - **Alternative Queries**: table of queries tried and top results
+        - **Diagnosis**: your assessment of why the result is missing or poorly ranked
+          (e.g., "content not indexed", "filter too narrow", "embedding mismatch",
+          "chunking split the relevant content", "staleness penalty")
+        ```

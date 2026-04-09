@@ -1,8 +1,9 @@
 {
   "context_servers": {
     "pipecat-context-hub": {
-      "command": "pipecat-context-hub",
-      "args": ["serve"],
+      "source": "custom",
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/pipecat-context-hub", "pipecat-context-hub", "serve"],
       "env": {}
     }
   }
