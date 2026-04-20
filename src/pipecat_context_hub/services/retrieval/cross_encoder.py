@@ -15,17 +15,15 @@ import threading
 from pathlib import Path
 from typing import Protocol, cast
 
+from pipecat_context_hub.shared.config import _ALLOWED_RERANKER_MODELS
 from pipecat_context_hub.shared.types import IndexResult
 
 logger = logging.getLogger(__name__)
 
-# Allowed cross-encoder models to prevent arbitrary model loading.
-# Add new models here as they are vetted for safety and quality.
-_ALLOWED_MODELS = frozenset({
-    "cross-encoder/ms-marco-MiniLM-L-6-v2",
-    "cross-encoder/ms-marco-MiniLM-L-12-v2",
-    "cross-encoder/ms-marco-TinyBERT-L-2-v2",
-})
+# Re-export for backwards compatibility with any internal callers that
+# previously imported the allowlist from this module. The canonical
+# definition lives in ``shared/config.py`` (single source of truth).
+_ALLOWED_MODELS = _ALLOWED_RERANKER_MODELS
 
 
 class _CrossEncoderModel(Protocol):

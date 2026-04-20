@@ -493,6 +493,11 @@ class GetHubStatusInput(BaseModel):
     """Input for the get_hub_status MCP tool (no parameters needed)."""
 
 
+# Typed alias for the reranker disabled-reason sentinel. Literal so mypy and
+# Pydantic both enforce the valid set at boundaries.
+RerankerDisabledReason = Literal["config_disabled", "not_cached", "load_failed"]
+
+
 class HubStatusOutput(BaseModel):
     """Output for the get_hub_status MCP tool."""
 
@@ -515,6 +520,52 @@ class HubStatusOutput(BaseModel):
     framework_version: str | None = Field(
         default=None,
         description="Pinned framework version tag (e.g. 'v0.0.96') if set, else None (HEAD).",
+    )
+    reranker_enabled: bool = Field(
+        default=False,
+        description="Whether cross-encoder reranking is ACTIVE right now "
+        "(reflects runtime availability, not just configured intent).",
+    )
+    reranker_model: str | None = Field(
+        default=None,
+        description="Active cross-encoder model name when running, else None.",
+    )
+    reranker_configured_model: str | None = Field(
+        default=None,
+        description="The model the operator literally requested (raw env-var "
+        "value or field value, pre-validation). Differs from reranker_model "
+        "when the request was invalid and silently fell back to a different "
+        "model — surfaces misconfiguration without requiring log inspection.",
+    )
+    reranker_disabled_reason: RerankerDisabledReason | None = Field(
+        default=None,
+        description="Why reranking is not active. 'config_disabled' "
+        "(explicitly turned off), 'not_cached' (model not pre-downloaded), "
+        "'load_failed' (model failed to load at runtime). None when active "
+        "or when the state is unknown.",
+    )
+
+
+class RerankerStatus(BaseModel):
+    """Snapshot of the live reranker's state at status-query time.
+
+    Built by cli.py after ``CrossEncoderReranker`` construction (or skip)
+    and passed into ``create_server`` so ``get_hub_status`` reflects
+    runtime reality, not just configured intent.
+    """
+
+    enabled: bool = Field(description="Whether reranking is actually active.")
+    model: str | None = Field(
+        default=None, description="Active model name (None when disabled)."
+    )
+    configured_model: str | None = Field(
+        default=None,
+        description="Operator's raw requested model (pre-validation). "
+        "May differ from .model if the request fell back to the default.",
+    )
+    disabled_reason: RerankerDisabledReason | None = Field(
+        default=None,
+        description="Reason for disabled state, or None when active/unknown.",
     )
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 import mcp.types as types
 from mcp.server.lowlevel import Server
@@ -16,6 +16,7 @@ from pipecat_context_hub.shared.types import (
     GetDocInput,
     GetExampleInput,
     GetHubStatusInput,
+    RerankerStatus,
     SearchApiInput,
     SearchDocsInput,
     SearchExamplesInput,
@@ -168,11 +169,20 @@ a structured report for the maintainers.\
 """
 
 
-def create_server(retriever: Retriever, index_store: IndexStore | None = None) -> Server:
+def create_server(
+    retriever: Retriever,
+    index_store: IndexStore | None = None,
+    reranker_status_provider: Callable[[], RerankerStatus] | None = None,
+) -> Server:
     """Create and configure the MCP server with all tool handlers.
 
     When *index_store* is provided the ``get_hub_status`` tool is registered;
     otherwise it is omitted so clients never discover an unusable tool.
+
+    *reranker_status_provider* is a zero-arg callable returning the
+    current reranker state. Evaluated on every ``get_hub_status`` call so
+    post-startup availability changes (e.g. first-query load failures)
+    are reflected. When omitted, reranking is reported as disabled.
     """
     # Build the tool list — only include get_hub_status when store is available
     tool_registry = list(_BASE_TOOLS)
@@ -202,7 +212,8 @@ def create_server(retriever: Retriever, index_store: IndexStore | None = None) -
 
         # get_hub_status has a different dispatch signature (needs index_store)
         if name == "get_hub_status" and index_store is not None:
-            result_json = await handle_get_hub_status(args, index_store)
+            status = reranker_status_provider() if reranker_status_provider else None
+            result_json = await handle_get_hub_status(args, index_store, status)
             return [types.TextContent(type="text", text=result_json)]
 
         # check_deprecation dispatches via retriever.deprecation_map

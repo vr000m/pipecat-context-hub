@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 # Environment variable for adding extra repos (comma-separated).
 _EXTRA_REPOS_ENV = "PIPECAT_HUB_EXTRA_REPOS"
@@ -23,6 +23,21 @@ _TAINTED_REFS_ENV = "PIPECAT_HUB_TAINTED_REFS"
 
 # Environment variable for enabling cross-encoder reranking.
 _RERANKER_ENABLED_ENV = "PIPECAT_HUB_RERANKER_ENABLED"
+
+# Environment variable for selecting the cross-encoder reranker model.
+_RERANKER_MODEL_ENV = "PIPECAT_HUB_RERANKER_MODEL"
+
+# Default cross-encoder model used when no override is supplied.
+_DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+# Allowlisted cross-encoder models. Kept in the shared config layer so both
+# the config resolver and the reranker service import it from the same place
+# (single source of truth, upward dependency direction).
+_ALLOWED_RERANKER_MODELS: frozenset[str] = frozenset({
+    _DEFAULT_RERANKER_MODEL,
+    "cross-encoder/ms-marco-MiniLM-L-12-v2",
+    "cross-encoder/ms-marco-TinyBERT-L-2-v2",
+})
 
 # Environment variable for pinning the framework repo to a specific git tag.
 _FRAMEWORK_VERSION_ENV = "PIPECAT_HUB_FRAMEWORK_VERSION"
@@ -138,8 +153,9 @@ class RerankerConfig(BaseModel):
             return True
         return self.enabled
     cross_encoder_model: str = Field(
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        description="Cross-encoder model name from sentence-transformers.",
+        default=_DEFAULT_RERANKER_MODEL,
+        description="Cross-encoder model name from sentence-transformers. "
+        "Override via PIPECAT_HUB_RERANKER_MODEL env var.",
     )
     top_n: int = Field(
         default=20,
@@ -147,6 +163,65 @@ class RerankerConfig(BaseModel):
         le=100,
         description="Number of top candidates to score with cross-encoder.",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_model(self) -> str:
+        """Resolve the active reranker model.
+
+        Precedence: ``PIPECAT_HUB_RERANKER_MODEL`` env var >
+        ``cross_encoder_model`` field > hardcoded default. Invalid values
+        at either layer silently fall back — the server never fails to
+        boot on a misconfigured env var or field. Warnings for invalid
+        configuration are emitted once at construction time by
+        ``_warn_on_invalid_model`` (a ``model_validator``); this property
+        is a pure derivation so it is safe to call repeatedly (e.g. from
+        ``model_dump()``).
+        """
+        env_value = os.environ.get(_RERANKER_MODEL_ENV, "").strip()
+        if env_value and env_value in _ALLOWED_RERANKER_MODELS:
+            return env_value
+        if self.cross_encoder_model in _ALLOWED_RERANKER_MODELS:
+            return self.cross_encoder_model
+        return _DEFAULT_RERANKER_MODEL
+
+    @model_validator(mode="after")
+    def _warn_on_invalid_model(self) -> "RerankerConfig":
+        """Emit configuration warnings exactly once, at construction time.
+
+        Keeps ``effective_model`` free of side effects so the property is
+        safe for repeated access during serialization.
+        """
+        import logging
+
+        log = logging.getLogger(__name__)
+        allowed_list = ", ".join(sorted(_ALLOWED_RERANKER_MODELS))
+
+        env_value = os.environ.get(_RERANKER_MODEL_ENV, "").strip()
+
+        # Compute the true fallback target so warnings name the real value.
+        if self.cross_encoder_model in _ALLOWED_RERANKER_MODELS:
+            fallback = self.cross_encoder_model
+        else:
+            fallback = _DEFAULT_RERANKER_MODEL
+
+        if env_value and env_value not in _ALLOWED_RERANKER_MODELS:
+            log.warning(
+                "Unknown %s value '%s' — falling back to '%s'. Allowed: %s",
+                _RERANKER_MODEL_ENV,
+                env_value,
+                fallback,
+                allowed_list,
+            )
+        if self.cross_encoder_model not in _ALLOWED_RERANKER_MODELS:
+            log.warning(
+                "RerankerConfig.cross_encoder_model '%s' is not allowlisted — "
+                "using default '%s'. Allowed: %s",
+                self.cross_encoder_model,
+                _DEFAULT_RERANKER_MODEL,
+                allowed_list,
+            )
+        return self
 
 
 class ServerConfig(BaseModel):

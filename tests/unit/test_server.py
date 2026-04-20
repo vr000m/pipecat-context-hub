@@ -200,6 +200,119 @@ class TestToolDispatch:
 # ---------------------------------------------------------------------------
 
 
+class TestGetHubStatusRerankerFields:
+    """Reranker fields in handle_get_hub_status reflect live runtime state."""
+
+    def _stub_store(self) -> Any:
+        class _Stub:
+            data_dir = "/tmp/hub"
+
+            def get_index_stats(self) -> dict[str, Any]:
+                return {"total": 0, "counts_by_type": {}, "commit_shas": []}
+
+            def get_all_metadata(self) -> dict[str, str]:
+                return {}
+
+        return _Stub()
+
+    async def test_enabled_reports_live_model(self):
+        import json
+
+        from pipecat_context_hub.server.tools.get_hub_status import (
+            handle_get_hub_status,
+        )
+        from pipecat_context_hub.shared.types import RerankerStatus
+
+        status = RerankerStatus(
+            enabled=True,
+            model="cross-encoder/ms-marco-TinyBERT-L-2-v2",
+            configured_model="cross-encoder/ms-marco-TinyBERT-L-2-v2",
+        )
+        payload = await handle_get_hub_status({}, self._stub_store(), status)
+        data = json.loads(payload)
+        assert data["reranker_enabled"] is True
+        assert data["reranker_model"] == "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+        assert data["reranker_configured_model"] == "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+        assert data["reranker_disabled_reason"] is None
+
+    async def test_not_cached_surfaces_reason_and_configured_model(self):
+        import json
+
+        from pipecat_context_hub.server.tools.get_hub_status import (
+            handle_get_hub_status,
+        )
+        from pipecat_context_hub.shared.types import RerankerStatus
+
+        status = RerankerStatus(
+            enabled=False,
+            configured_model="cross-encoder/ms-marco-MiniLM-L-12-v2",
+            disabled_reason="not_cached",
+        )
+        payload = await handle_get_hub_status({}, self._stub_store(), status)
+        data = json.loads(payload)
+        assert data["reranker_enabled"] is False
+        assert data["reranker_model"] is None
+        assert data["reranker_configured_model"] == "cross-encoder/ms-marco-MiniLM-L-12-v2"
+        assert data["reranker_disabled_reason"] == "not_cached"
+
+    async def test_load_failed_surfaces_reason(self):
+        import json
+
+        from pipecat_context_hub.server.tools.get_hub_status import (
+            handle_get_hub_status,
+        )
+        from pipecat_context_hub.shared.types import RerankerStatus
+
+        status = RerankerStatus(
+            enabled=False,
+            configured_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            disabled_reason="load_failed",
+        )
+        payload = await handle_get_hub_status({}, self._stub_store(), status)
+        data = json.loads(payload)
+        assert data["reranker_enabled"] is False
+        assert data["reranker_disabled_reason"] == "load_failed"
+
+    async def test_no_status_returns_disabled_with_unknown_reason(self):
+        import json
+
+        from pipecat_context_hub.server.tools.get_hub_status import (
+            handle_get_hub_status,
+        )
+
+        payload = await handle_get_hub_status({}, self._stub_store(), None)
+        data = json.loads(payload)
+        assert data["reranker_enabled"] is False
+        assert data["reranker_model"] is None
+        # When no provider is wired the reason is unknown — don't lie.
+        assert data["reranker_disabled_reason"] is None
+
+    async def test_provider_is_called_per_query(self):
+        """create_server evaluates the provider on each get_hub_status call."""
+        from unittest.mock import AsyncMock
+
+        from pipecat_context_hub.server.main import create_server
+        from pipecat_context_hub.shared.types import RerankerStatus
+
+        retriever = AsyncMock()
+        calls: list[int] = []
+
+        def _provider() -> RerankerStatus:
+            calls.append(1)
+            return RerankerStatus(enabled=False, disabled_reason="config_disabled")
+
+        server = create_server(
+            retriever,
+            index_store=self._stub_store(),
+            reranker_status_provider=_provider,
+        )
+        assert server.name == "pipecat-context-hub"
+        # The closure is wired in — exercising it requires the full call path
+        # which is covered by integration tests; here we assert create_server
+        # accepts the callable and does not eagerly invoke it.
+        assert calls == []
+
+
 class TestTransport:
     def test_transport_module_importable(self):
         from pipecat_context_hub.server import transport

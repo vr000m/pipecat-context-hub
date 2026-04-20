@@ -7,6 +7,7 @@
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
+| 2026-04-20 | feature | Configurable Cross-Encoder Reranker Model Selection | Complete (v0.0.17) | vr000m | `feature/reranker-model-selection` | `20260420-feature-reranker-model-selection.md` |
 | 2026-04-20 | bug | Windows Refresh Resilience (corrupt clone recovery + non-UTF-8 console) | Complete (v0.0.17) | vr000m | `bug/windows-refresh-resilience` | `20260420-bug-windows-refresh-resilience.md` |
 | 2026-03-31 | feature | Version-Aware Indexing Phase 1a+1b+2 | Complete (v0.0.15) | vr000m | `feature/version-aware-indexing` | `20260331-feature-version-aware-indexing.md` |
 | 2026-03-31 | feature | Phase 2: Tree-sitter TypeScript Extraction | Complete (v0.0.13) | vr000m | `feature/tree-sitter-ts-phase2` | `20260330-feature-tree-sitter-ts-phase2.md` |
