@@ -351,7 +351,11 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
                 frozen_sha_repos.add(repo_slug)
                 continue
 
-            if not force and stored_sha == commit_sha:
+            if (
+                not force
+                and stored_sha == commit_sha
+                and repo_slug not in github.recovered_repos
+            ):
                 logger.info(
                     "Repo %s unchanged (sha=%s…), skipping",
                     repo_slug,
@@ -364,6 +368,12 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
                     "updated": "—",
                 }
             else:
+                if repo_slug in github.recovered_repos and stored_sha == commit_sha:
+                    logger.warning(
+                        "Repo %s SHA unchanged but local clone was recovered "
+                        "from corrupt state — forcing re-ingest",
+                        repo_slug,
+                    )
                 changed_repos.append(repo_slug)
 
         # Delete and re-ingest each changed repo atomically to minimise
@@ -539,19 +549,43 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
         index_store.close()
 
 
+def _stdout_can_encode(text: str) -> bool:
+    """Return True if ``sys.stdout`` can encode ``text`` without errors.
+
+    Re-reads ``sys.stdout`` on every call so tests (and callers) can swap
+    the stream. A missing ``encoding`` attribute is treated as ``ascii``.
+    """
+    encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        text.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
+
+
 def _safe_hr(width: int) -> str:
     """Return a horizontal-rule string of ``width`` characters.
 
     Uses U+2500 (box-drawing light horizontal) when ``sys.stdout`` can encode
-    it; falls back to ASCII ``-`` on non-UTF-8 consoles (e.g. Windows cp1252,
-    cp1254) so the refresh summary never crashes after a successful index.
+    it; falls back to ASCII ``-`` on non-UTF-8 consoles (cp1252, cp1254,
+    cp437, etc.) so the refresh summary never crashes after a successful
+    index.
     """
-    encoding = getattr(sys.stdout, "encoding", None) or "ascii"
-    try:
-        "\u2500".encode(encoding)
-    except (UnicodeEncodeError, LookupError):
+    if not _stdout_can_encode("\u2500"):
         return "-" * width
     return "\u2500" * width
+
+
+def _safe_placeholder() -> str:
+    """Return a missing-value placeholder that the current stdout can encode.
+
+    U+2014 em dash on UTF-8 terminals; ASCII ``-`` when stdout cannot encode
+    it (cp437 notably rejects U+2014). Used for empty SHA / count cells in
+    the refresh summary.
+    """
+    if _stdout_can_encode("\u2014"):
+        return "\u2014"
+    return "-"
 
 
 def _print_refresh_summary(
@@ -575,6 +609,7 @@ def _print_refresh_summary(
         f"{_safe_hr(name_width)}  {_safe_hr(8)}  {_safe_hr(10)}  "
         f"{_safe_hr(8)}  {_safe_hr(8)}"
     )
+    placeholder = _safe_placeholder()
 
     # Header
     click.echo()
@@ -590,6 +625,8 @@ def _print_refresh_summary(
         entry = source_status[name]
         status = str(entry["status"])
         sha = str(entry["sha"])
+        if sha == "\u2014":
+            sha = placeholder
         existing = entry["existing"]
         updated = entry["updated"]
 
@@ -603,12 +640,12 @@ def _print_refresh_summary(
             # Skipped repos carry forward their existing count —
             # their chunks are still in the index unchanged.
             total_updated += existing_int
-            updated_str = "—"
+            updated_str = placeholder
         else:
             # Error repos: don't carry forward (chunks may have been deleted).
-            updated_str = "—"
+            updated_str = placeholder
 
-        existing_str = f"{existing_int:,}" if existing_int else "—"
+        existing_str = f"{existing_int:,}" if existing_int else placeholder
 
         click.echo(
             f"{name:<{name_width}}  {status:<8}  {sha:<10}  {existing_str:>8}  {updated_str:>8}"

@@ -245,6 +245,50 @@ class TestRefreshCommand:
     @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
     @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
     @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
+    def test_recovered_repo_forces_reingest_even_when_sha_matches(
+        self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
+        mock_eiw_cls, mock_es_cls, mock_is_cls,
+        tmp_path, monkeypatch,
+    ):
+        """A repo whose corrupt clone was recovered must be re-ingested even
+        when its remote SHA matches the stored one — otherwise the index
+        keeps reflecting the empty/broken prior state."""
+        mock_store, mock_crawler, mock_github, mock_source = self._make_mocks()
+        mock_is_cls.return_value = mock_store
+        mock_dc_cls.return_value = mock_crawler
+        mock_gh_cls.return_value = mock_github
+        mock_si_cls.return_value = mock_source
+        mock_ref_tainted.return_value = False
+
+        # Mark every configured repo as recovered this run.
+        config = HubConfig()
+        recovered = set(config.sources.effective_repos)
+        mock_github.recovered_repos = recovered
+
+        import hashlib
+        content = "# Page\nSource: https://example.com\nContent here"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        meta = {"docs:content_hash": content_hash, **_sha_metadata("abc123")}
+        mock_store.get_metadata = MagicMock(side_effect=lambda key: meta.get(key))
+
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(main, ["refresh"])
+
+        assert result.exit_code == 0, result.output
+        # Docs hash still matches — docs path untouched.
+        mock_crawler.ingest.assert_not_called()
+        # But every recovered repo must be re-ingested despite matching SHA.
+        assert mock_github.ingest.call_count == _DEFAULT_REPO_COUNT
+        assert mock_source.ingest.call_count == _DEFAULT_REPO_COUNT
+
+    @patch("pipecat_context_hub.services.index.store.IndexStore")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingService")
+    @patch("pipecat_context_hub.services.embedding.EmbeddingIndexWriter")
+    @patch("pipecat_context_hub.services.ingest.docs_crawler.DocsCrawler")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.GitHubRepoIngester")
+    @patch("pipecat_context_hub.services.ingest.github_ingest.repo_ref_is_tainted")
+    @patch("pipecat_context_hub.services.ingest.source_ingest.SourceIngester")
     def test_full_ingest_when_sha_differs(
         self, mock_si_cls, mock_ref_tainted, mock_gh_cls, mock_dc_cls,
         mock_eiw_cls, mock_es_cls, mock_is_cls,
@@ -606,6 +650,13 @@ class TestSafeHr:
         monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", fake_stdout)
         assert _safe_hr(3) == "---"
 
+    def test_cp437_keeps_box_drawing(self, monkeypatch):
+        """cp437 is an OEM codepage that does include U+2500 — keep the glyph."""
+        fake_stdout = MagicMock()
+        fake_stdout.encoding = "cp437"
+        monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", fake_stdout)
+        assert _safe_hr(3) == "\u2500\u2500\u2500"
+
     def test_missing_encoding_falls_back_to_ascii(self, monkeypatch):
         fake_stdout = MagicMock(spec=[])  # no .encoding attribute
         monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", fake_stdout)
@@ -635,6 +686,44 @@ class TestPrintRefreshSummaryEncoding:
         raw = cp1254_stdout.buffer.getvalue().decode("cp1254")
         assert "\u2500" not in raw
         assert "-" * 8 in raw
+
+    def test_does_not_raise_on_cp437_with_placeholder_rows(self, monkeypatch):
+        """cp437 cannot encode U+2014 em dash — every placeholder must fall back."""
+        import io
+
+        cp437_stdout = io.TextIOWrapper(
+            io.BytesIO(), encoding="cp437", errors="strict", write_through=True
+        )
+        monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", cp437_stdout)
+
+        # Exercise every placeholder code path: docs row (sha="—"),
+        # skipped repo (updated="—"), error repo, and zero-existing repo.
+        source_status = {
+            "docs.pipecat.ai": {
+                "status": "updated",
+                "sha": "\u2014",
+                "existing": 0,
+                "updated": 500,
+            },
+            "pipecat-ai/pipecat": {
+                "status": "skipped",
+                "sha": "abcdef12",
+                "existing": 1000,
+                "updated": "\u2014",
+            },
+            "pipecat-ai/other": {
+                "status": "error",
+                "sha": "\u2014",
+                "existing": 0,
+                "updated": "\u2014",
+            },
+        }
+        # No exception — and the em dash (which cp437 cannot encode) must
+        # have been swapped for an ASCII placeholder on every row.
+        _print_refresh_summary(source_status, 500, 1, 2.3)
+        cp437_stdout.flush()
+        raw = cp437_stdout.buffer.getvalue().decode("cp437")
+        assert "\u2014" not in raw
 
     def test_recovered_repos_surfaced_in_summary(self, capsys):
         source_status = {

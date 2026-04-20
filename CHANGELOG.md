@@ -11,16 +11,19 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 - **Corrupt clone recovery** — `refresh` now detects repo clones left in a
   half-initialized state (e.g., `.git/objects/pack/` present but `HEAD` /
-  `config` / `refs/` missing after an interrupted clone) and re-clones them
-  instead of silently treating the corrupt dir as "already cloned". Affected
-  users previously saw zero code/source chunks from the broken repo with no
-  obvious signal. The refresh summary now reports recovered repos.
+  `config` / `refs/` missing after an interrupted clone), re-clones them,
+  and force-re-ingests the repo even when its remote SHA matches the
+  previously stored one (the prior `stored_sha == commit_sha` skip path
+  would otherwise keep the empty/broken corpus in place). Affected users
+  previously saw zero code/source chunks from the broken repo with no
+  obvious signal. The refresh summary reports recovered repos.
 - **Non-UTF-8 console safety** — `refresh`'s summary table no longer crashes
-  with `UnicodeEncodeError` on Windows consoles whose code page cannot encode
-  U+2500 (cp1252, cp1254, cp437, etc.). Falls back to ASCII `-` when the
-  active stdout encoding rejects the box-drawing character; UTF-8 terminals
-  are unchanged. Set `PYTHONIOENCODING=utf-8` to opt into the box-drawing
-  output on Windows.
+  with `UnicodeEncodeError` on Windows consoles whose code page cannot
+  encode U+2500 (cp1252, cp1254, etc.) or U+2014 em dash used for empty
+  SHA/count cells (cp437, cp1252, etc.). Every non-ASCII glyph in the
+  summary falls back to ASCII when the active stdout encoding rejects it;
+  UTF-8 terminals are unchanged. Set `PYTHONIOENCODING=utf-8` to opt into
+  the full box-drawing output on Windows.
 
 ## [0.0.16] - 2026-04-07
 
