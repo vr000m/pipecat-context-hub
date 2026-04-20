@@ -138,3 +138,15 @@ for semantic relevance after RRF merge, significantly improving result quality
 - **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2` (configurable via `RerankerConfig`)
 - **Latency:** ~50-100ms per query on CPU
 - **Offline:** gracefully disabled if model not cached (falls back to RRF-only)
+
+## Windows tips
+
+- The refresh summary uses U+2500 box-drawing characters. On non-UTF-8 consoles
+  (cp1252, cp1254, cp437, etc.) the hub falls back to ASCII `-` automatically —
+  no crash, no lost output. To get the box-drawing look, set
+  `PYTHONIOENCODING=utf-8` before invoking `refresh` (or use Windows Terminal,
+  which defaults to UTF-8).
+- If `refresh` previously ran but returns zero code results, the local clone may
+  be half-initialized from an interrupted run. The hub now detects this on the
+  next `refresh` and re-clones; look for `Recovered N corrupt clone(s)` in the
+  summary. As a manual remedy you can delete `%LOCALAPPDATA%\pipecat-context-hub\repos\`.

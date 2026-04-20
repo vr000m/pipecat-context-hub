@@ -214,13 +214,14 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
 
     total_upserted = 0
     all_errors: list[str] = []
+    recovered_repos: list[str] = []
 
     # Per-source tracking for the summary table.
     # Each entry: {status, sha, existing, updated}
     source_status: dict[str, dict[str, str | int]] = {}
 
     async def _run_refresh() -> None:
-        nonlocal total_upserted, all_errors
+        nonlocal total_upserted, all_errors, recovered_repos
 
         # Snapshot per-repo chunk counts before any changes.
         pre_counts = index_store.get_counts_by_repo()
@@ -273,6 +274,8 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
 
         # ----- 2. Repos (code + source) -----
         github = GitHubRepoIngester(config, writer)
+        # Expose recovery signal to the outer-scope summary.
+        recovered_repos[:] = []
         changed_repos: list[str] = []
         repo_shas: dict[str, str] = {}
         prefetched: dict[str, tuple[Path, str]] = {}
@@ -489,6 +492,8 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
                     framework_slug,
                 )
 
+        recovered_repos.extend(sorted(github.recovered_repos))
+
     try:
         asyncio.run(_run_refresh())
 
@@ -523,9 +528,30 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
             index_store.set_metadata("last_refresh_errored_at", now)
 
         # ----- Summary table -----
-        _print_refresh_summary(source_status, total_upserted, len(all_errors), duration)
+        _print_refresh_summary(
+            source_status,
+            total_upserted,
+            len(all_errors),
+            duration,
+            recovered_repos=list(recovered_repos),
+        )
     finally:
         index_store.close()
+
+
+def _safe_hr(width: int) -> str:
+    """Return a horizontal-rule string of ``width`` characters.
+
+    Uses U+2500 (box-drawing light horizontal) when ``sys.stdout`` can encode
+    it; falls back to ASCII ``-`` on non-UTF-8 consoles (e.g. Windows cp1252,
+    cp1254) so the refresh summary never crashes after a successful index.
+    """
+    encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        "\u2500".encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return "-" * width
+    return "\u2500" * width
 
 
 def _print_refresh_summary(
@@ -533,6 +559,8 @@ def _print_refresh_summary(
     total_upserted: int,
     error_count: int,
     duration: float,
+    *,
+    recovered_repos: list[str] | None = None,
 ) -> None:
     """Print a summary table after refresh."""
     if not source_status:
@@ -543,12 +571,17 @@ def _print_refresh_summary(
     name_width = max(len(name) for name in source_status)
     name_width = max(name_width, len("Repository"))
 
+    hr = (
+        f"{_safe_hr(name_width)}  {_safe_hr(8)}  {_safe_hr(10)}  "
+        f"{_safe_hr(8)}  {_safe_hr(8)}"
+    )
+
     # Header
     click.echo()
     click.echo(
         f"{'Repository':<{name_width}}  {'Status':<8}  {'SHA':<10}  {'Existing':>8}  {'Updated':>8}"
     )
-    click.echo(f"{'─' * name_width}  {'─' * 8}  {'─' * 10}  {'─' * 8}  {'─' * 8}")
+    click.echo(hr)
 
     # Rows — updated/error first, then skipped
     total_existing = 0
@@ -582,11 +615,16 @@ def _print_refresh_summary(
         )
 
     # Footer
-    click.echo(f"{'─' * name_width}  {'─' * 8}  {'─' * 10}  {'─' * 8}  {'─' * 8}")
+    click.echo(hr)
     click.echo(
         f"{'Total':<{name_width}}  {'':<8}  {'':<10}  {total_existing:>8,}  {total_updated:>8,}"
     )
     click.echo()
+    if recovered_repos:
+        click.echo(
+            f"Recovered {len(recovered_repos)} corrupt clone(s): "
+            f"{', '.join(recovered_repos)}"
+        )
     click.echo(
         f"Refresh complete: {total_upserted:,} upserted, "
         f"{error_count} errors, {duration}s."

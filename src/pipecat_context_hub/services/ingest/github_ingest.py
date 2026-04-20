@@ -10,13 +10,14 @@ import asyncio
 import hashlib
 import logging
 import re
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from git import Repo as GitRepo
-from git.exc import BadObject, GitCommandError
+from git.exc import BadObject, GitCommandError, InvalidGitRepositoryError, NoSuchPathError
 
 from pipecat_context_hub.shared.config import HubConfig
 from pipecat_context_hub.shared.types import ChunkedRecord, IngestResult, TaxonomyEntry
@@ -96,6 +97,22 @@ _REPO_SLUG_RE = re.compile(
 )
 # Validation for git tag names (e.g. "v0.0.96", "0.0.96").
 _TAG_RE = re.compile(r"^v?[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
+
+
+def _is_valid_clone(repo_path: Path) -> bool:
+    """Return True if ``repo_path`` is a valid git working tree.
+
+    Uses GitPython to defer to git's own definition of a repository. Catches
+    the failure modes seen in the wild when a prior clone was interrupted
+    (missing HEAD, config, or refs/ under .git/).
+    """
+    if not repo_path.exists() or not (repo_path / ".git").is_dir():
+        return False
+    try:
+        GitRepo(str(repo_path))
+    except (InvalidGitRepositoryError, NoSuchPathError):
+        return False
+    return True
 
 
 def _estimate_tokens(text: str) -> int:
@@ -830,6 +847,12 @@ class GitHubRepoIngester:
         self._config = config
         self._writer = writer
         self._repos_dir = config.storage.data_dir / "repos"
+        self._recovered_repos: set[str] = set()
+
+    @property
+    def recovered_repos(self) -> set[str]:
+        """Repo slugs whose local clone was corrupt and re-cloned this session."""
+        return self._recovered_repos
 
     # -- Ingester protocol ---------------------------------------------------
 
@@ -1154,6 +1177,18 @@ class GitHubRepoIngester:
         # Verify resolved path stays under repos dir
         self._repos_dir.mkdir(parents=True, exist_ok=True)
         repo_path.resolve().relative_to(self._repos_dir.resolve())
+
+        if repo_path.exists() and not _is_valid_clone(repo_path):
+            # Guard: only remove paths that resolve under the hub's repos dir.
+            repo_path.resolve().relative_to(self._repos_dir.resolve())
+            logger.warning(
+                "Detected corrupt clone for %s at %s (not a valid git repo); "
+                "removing and re-cloning",
+                repo_slug,
+                repo_path,
+            )
+            shutil.rmtree(repo_path, ignore_errors=False)
+            self._recovered_repos.add(repo_slug)
 
         if (repo_path / ".git").is_dir():
             git_repo = GitRepo(str(repo_path))

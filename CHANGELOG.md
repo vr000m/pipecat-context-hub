@@ -5,6 +5,23 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.17] - 2026-04-20
+
+### Fixed
+
+- **Corrupt clone recovery** — `refresh` now detects repo clones left in a
+  half-initialized state (e.g., `.git/objects/pack/` present but `HEAD` /
+  `config` / `refs/` missing after an interrupted clone) and re-clones them
+  instead of silently treating the corrupt dir as "already cloned". Affected
+  users previously saw zero code/source chunks from the broken repo with no
+  obvious signal. The refresh summary now reports recovered repos.
+- **Non-UTF-8 console safety** — `refresh`'s summary table no longer crashes
+  with `UnicodeEncodeError` on Windows consoles whose code page cannot encode
+  U+2500 (cp1252, cp1254, cp437, etc.). Falls back to ASCII `-` when the
+  active stdout encoding rejects the box-drawing character; UTF-8 terminals
+  are unchanged. Set `PYTHONIOENCODING=utf-8` to opt into the box-drawing
+  output on Windows.
+
 ## [0.0.16] - 2026-04-07
 
 ### Added

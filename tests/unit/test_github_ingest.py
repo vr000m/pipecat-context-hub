@@ -18,6 +18,7 @@ from pipecat_context_hub.services.ingest.github_ingest import (
     _discover_root_level_examples,
     _find_example_dirs,
     _infer_domain,
+    _is_valid_clone,
     _iter_code_files,
     _iter_root_level_code_files,
     _make_chunk_id,
@@ -344,6 +345,67 @@ class TestCloneOrFetchCheckoutControl:
         assert upserted_records
         assert any("print('new')" in record.content for record in upserted_records)
         assert GitRepo(str(clone_dir)).head.commit.hexsha == new_sha
+
+
+class TestIsValidClone:
+    def test_missing_path_returns_false(self, tmp_path: Path):
+        assert _is_valid_clone(tmp_path / "does_not_exist") is False
+
+    def test_path_without_git_dir_returns_false(self, tmp_path: Path):
+        (tmp_path / "file.txt").write_text("hi", encoding="utf-8")
+        assert _is_valid_clone(tmp_path) is False
+
+    def test_half_clone_pack_only_returns_false(self, tmp_path: Path):
+        """Interrupted clone: .git/objects/pack/ only, no HEAD/config/refs."""
+        git_dir = tmp_path / ".git"
+        (git_dir / "objects" / "pack").mkdir(parents=True)
+        assert _is_valid_clone(tmp_path) is False
+
+    def test_valid_clone_returns_true(self, tmp_path: Path):
+        _create_fake_repo(tmp_path, "good_repo", {"x.py": "print('hi')\n"})
+        assert _is_valid_clone(tmp_path / "good_repo") is True
+
+
+class TestCloneOrFetchCorruptRecovery:
+    def test_corrupt_clone_is_removed_and_recloned(self, tmp_path: Path):
+        repo_slug = "test-org/test-repo"
+        source_dir, clone_dir = _create_remote_and_clone(
+            tmp_path,
+            repo_slug,
+            {"main.py": "print('hi')\n"},
+        )
+        # Corrupt the clone: drop HEAD/config/refs, keep only pack/.
+        import shutil as _shutil
+
+        _shutil.rmtree(clone_dir / ".git")
+        pack_dir = clone_dir / ".git" / "objects" / "pack"
+        pack_dir.mkdir(parents=True)
+        assert _is_valid_clone(clone_dir) is False
+
+        config = HubConfig(
+            storage=StorageConfig(data_dir=tmp_path / "data"),
+            sources=HubConfig().sources.model_copy(update={"repos": [repo_slug]}),
+        )
+        ingester = GitHubRepoIngester(config, _make_mock_writer())
+
+        # Redirect cloning to our bare origin instead of real GitHub.
+        bare_remote = tmp_path / "origin.git"
+        from git import Repo as GitRepo
+        real_clone_from = GitRepo.clone_from
+
+        def fake_clone_from(url, to_path, **kwargs):
+            return real_clone_from(str(bare_remote), to_path, **kwargs)
+
+        with patch(
+            "pipecat_context_hub.services.ingest.github_ingest.GitRepo.clone_from",
+            side_effect=fake_clone_from,
+        ) as mock_clone:
+            repo_path, sha = ingester.clone_or_fetch(repo_slug, checkout=False)
+
+        assert mock_clone.called, "expected re-clone after corrupt state"
+        assert repo_slug in ingester.recovered_repos
+        assert _is_valid_clone(repo_path) is True
+        assert sha
 
 
 class TestResolveOriginHeadCommit:

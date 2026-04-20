@@ -9,7 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from pipecat_context_hub.cli import _load_dotenv, main
+from pipecat_context_hub.cli import (
+    _load_dotenv,
+    _print_refresh_summary,
+    _safe_hr,
+    main,
+)
 from pipecat_context_hub.shared.config import HubConfig
 
 
@@ -580,3 +585,73 @@ class TestRefreshCommand:
             call.args[0] for call in mock_store.set_metadata.call_args_list
         }
         assert "repo:pipecat-ai/pipecat:commit_sha" not in set_calls
+
+
+class TestSafeHr:
+    def test_utf8_returns_box_drawing(self, monkeypatch):
+        fake_stdout = MagicMock()
+        fake_stdout.encoding = "utf-8"
+        monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", fake_stdout)
+        assert _safe_hr(5) == "\u2500" * 5
+
+    def test_cp1252_falls_back_to_ascii(self, monkeypatch):
+        fake_stdout = MagicMock()
+        fake_stdout.encoding = "cp1252"
+        monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", fake_stdout)
+        assert _safe_hr(4) == "----"
+
+    def test_cp1254_falls_back_to_ascii(self, monkeypatch):
+        fake_stdout = MagicMock()
+        fake_stdout.encoding = "cp1254"
+        monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", fake_stdout)
+        assert _safe_hr(3) == "---"
+
+    def test_missing_encoding_falls_back_to_ascii(self, monkeypatch):
+        fake_stdout = MagicMock(spec=[])  # no .encoding attribute
+        monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", fake_stdout)
+        assert _safe_hr(2) == "--"
+
+
+class TestPrintRefreshSummaryEncoding:
+    def test_does_not_raise_on_cp1254(self, monkeypatch):
+        import io
+
+        cp1254_stdout = io.TextIOWrapper(
+            io.BytesIO(), encoding="cp1254", errors="strict", write_through=True
+        )
+        monkeypatch.setattr("pipecat_context_hub.cli.sys.stdout", cp1254_stdout)
+
+        source_status = {
+            "pipecat-ai/pipecat": {
+                "status": "updated",
+                "sha": "abcdef12",
+                "existing": 100,
+                "updated": 200,
+            },
+        }
+        # Should not raise UnicodeEncodeError; _safe_hr falls back to ASCII.
+        _print_refresh_summary(source_status, 200, 0, 1.2)
+        cp1254_stdout.flush()
+        raw = cp1254_stdout.buffer.getvalue().decode("cp1254")
+        assert "\u2500" not in raw
+        assert "-" * 8 in raw
+
+    def test_recovered_repos_surfaced_in_summary(self, capsys):
+        source_status = {
+            "pipecat-ai/pipecat": {
+                "status": "updated",
+                "sha": "abcdef12",
+                "existing": 0,
+                "updated": 5,
+            },
+        }
+        _print_refresh_summary(
+            source_status,
+            5,
+            0,
+            1.0,
+            recovered_repos=["pipecat-ai/pipecat"],
+        )
+        out = capsys.readouterr().out
+        assert "Recovered 1 corrupt clone(s)" in out
+        assert "pipecat-ai/pipecat" in out
