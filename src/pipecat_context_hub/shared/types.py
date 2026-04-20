@@ -516,6 +516,14 @@ class HubStatusOutput(BaseModel):
         default=None,
         description="Pinned framework version tag (e.g. 'v0.0.96') if set, else None (HEAD).",
     )
+    reranker_enabled: bool = Field(
+        default=False,
+        description="Whether cross-encoder reranking is active (after env-var override).",
+    )
+    reranker_model: str | None = Field(
+        default=None,
+        description="Active cross-encoder model name, or None when reranking is disabled.",
+    )
 
 
 class SearchApiInput(BaseModel):

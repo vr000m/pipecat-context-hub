@@ -7,6 +7,22 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [0.0.17] - 2026-04-20
 
+### Added
+
+- **Configurable cross-encoder reranker model** — new
+  `PIPECAT_HUB_RERANKER_MODEL` env var selects between three allowlisted
+  cross-encoder models without editing Python config:
+  `cross-encoder/ms-marco-MiniLM-L-6-v2` (~80 MB, default, balanced),
+  `cross-encoder/ms-marco-MiniLM-L-12-v2` (~130 MB, higher quality), and
+  `cross-encoder/ms-marco-TinyBERT-L-2-v2` (~17 MB, fastest download, lower
+  quality). Unknown values log a warning and fall back to the default — the
+  server never fails to start on a misconfigured env var. Useful on slow or
+  throttled HuggingFace Hub connections where the default model download
+  would stall.
+- `get_hub_status` now surfaces `reranker_enabled` and `reranker_model` so
+  clients and agents can confirm which reranker is active without reading
+  server logs.
+
 ### Fixed
 
 - **Corrupt clone recovery** — `refresh` now detects repo clones left in a

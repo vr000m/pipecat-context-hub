@@ -133,11 +133,24 @@ Cross-encoder reranking is **enabled by default**. It scores query-result pairs
 for semantic relevance after RRF merge, significantly improving result quality
 (especially for `search_examples` and multi-concept queries).
 
-- **First run:** `uv run pipecat-context-hub refresh` downloads the model (~80MB)
+- **First run:** `uv run pipecat-context-hub refresh` downloads the model (size
+  depends on selection — see table below)
 - **Disable:** `PIPECAT_HUB_RERANKER_ENABLED=0` env var
-- **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2` (configurable via `RerankerConfig`)
-- **Latency:** ~50-100ms per query on CPU
+- **Swap models:** `PIPECAT_HUB_RERANKER_MODEL=<name>` env var (unknown values
+  log a warning and fall back to the default — server always boots)
+- **Latency:** ~50-100ms per query on CPU (MiniLM-L-6-v2)
 - **Offline:** gracefully disabled if model not cached (falls back to RRF-only)
+- **Verify active model:** call `get_hub_status` — `reranker_enabled` and
+  `reranker_model` fields show the effective state
+
+| Model | Size | Notes |
+|-------|------|-------|
+| `cross-encoder/ms-marco-MiniLM-L-6-v2` | ~80 MB | Default — balanced quality/speed |
+| `cross-encoder/ms-marco-MiniLM-L-12-v2` | ~130 MB | Higher quality, slower |
+| `cross-encoder/ms-marco-TinyBERT-L-2-v2` | ~17 MB | Fastest download, lower quality — use on slow/throttled networks |
+
+After swapping models, run `uv run pipecat-context-hub refresh` once to
+pre-download the new model before the first MCP query.
 
 ## Windows tips
 

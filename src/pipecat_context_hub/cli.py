@@ -116,7 +116,7 @@ def serve(ctx: click.Context) -> None:
     # Optional cross-encoder reranker (env var or config)
     cross_encoder: CrossEncoderReranker | None = None
     if config.reranker.effective_enabled:
-        model_name = config.reranker.cross_encoder_model
+        model_name = config.reranker.effective_model
         # Check cache at startup — disable if model not downloaded
         if CrossEncoderReranker.is_model_cached(model_name):
             cross_encoder = CrossEncoderReranker(
@@ -144,7 +144,7 @@ def serve(ctx: click.Context) -> None:
             "Loaded deprecation map: %d entries", len(retriever.deprecation_map.entries)
         )
 
-    server = create_server(retriever, index_store)
+    server = create_server(retriever, index_store, reranker_config=config.reranker)
     try:
         serve_stdio(server)
     finally:
@@ -212,7 +212,7 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
         from pipecat_context_hub.services.retrieval.cross_encoder import CrossEncoderReranker
 
         ce = CrossEncoderReranker(
-            model_name=config.reranker.cross_encoder_model,
+            model_name=config.reranker.effective_model,
             enabled=True,
         )
         ce.ensure_model()

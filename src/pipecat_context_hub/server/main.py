@@ -9,6 +9,7 @@ import mcp.types as types
 from mcp.server.lowlevel import Server
 
 from pipecat_context_hub.services.index.store import IndexStore
+from pipecat_context_hub.shared.config import RerankerConfig
 from pipecat_context_hub.shared.interfaces import Retriever
 from pipecat_context_hub.shared.types import (
     CheckDeprecationInput,
@@ -168,11 +169,18 @@ a structured report for the maintainers.\
 """
 
 
-def create_server(retriever: Retriever, index_store: IndexStore | None = None) -> Server:
+def create_server(
+    retriever: Retriever,
+    index_store: IndexStore | None = None,
+    reranker_config: RerankerConfig | None = None,
+) -> Server:
     """Create and configure the MCP server with all tool handlers.
 
     When *index_store* is provided the ``get_hub_status`` tool is registered;
     otherwise it is omitted so clients never discover an unusable tool.
+
+    *reranker_config* (optional) feeds the reranker's effective state into
+    ``get_hub_status`` so clients can diagnose which model is active.
     """
     # Build the tool list — only include get_hub_status when store is available
     tool_registry = list(_BASE_TOOLS)
@@ -202,7 +210,7 @@ def create_server(retriever: Retriever, index_store: IndexStore | None = None) -
 
         # get_hub_status has a different dispatch signature (needs index_store)
         if name == "get_hub_status" and index_store is not None:
-            result_json = await handle_get_hub_status(args, index_store)
+            result_json = await handle_get_hub_status(args, index_store, reranker_config)
             return [types.TextContent(type="text", text=result_json)]
 
         # check_deprecation dispatches via retriever.deprecation_map

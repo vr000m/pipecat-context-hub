@@ -10,10 +10,13 @@ from pipecat_context_hub.shared.config import (
     ChunkingConfig,
     EmbeddingConfig,
     HubConfig,
+    RerankerConfig,
     ServerConfig,
     SourceConfig,
     StorageConfig,
+    _DEFAULT_RERANKER_MODEL,
     _EXTRA_REPOS_ENV,
+    _RERANKER_MODEL_ENV,
     _TAINTED_REFS_ENV,
     _TAINTED_REPOS_ENV,
 )
@@ -170,6 +173,47 @@ class TestSourceConfig:
             assert s.tainted_refs_by_repo == {
                 "pipecat-ai/pipecat": ["v0.0.9", "deadbeef"],
             }
+
+
+class TestRerankerConfigEffectiveModel:
+    """Env-var resolution for PIPECAT_HUB_RERANKER_MODEL."""
+
+    _ALT_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+    _TINY_MODEL = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+
+    def test_unset_returns_field_default(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(_RERANKER_MODEL_ENV, None)
+            assert RerankerConfig().effective_model == _DEFAULT_RERANKER_MODEL
+
+    def test_env_selects_allowed_model(self):
+        with patch.dict(os.environ, {_RERANKER_MODEL_ENV: self._ALT_MODEL}):
+            assert RerankerConfig().effective_model == self._ALT_MODEL
+
+    def test_env_tiny_model(self):
+        with patch.dict(os.environ, {_RERANKER_MODEL_ENV: self._TINY_MODEL}):
+            assert RerankerConfig().effective_model == self._TINY_MODEL
+
+    def test_invalid_env_falls_back_to_field(self, caplog):
+        with patch.dict(os.environ, {_RERANKER_MODEL_ENV: "cross-encoder/not-real"}):
+            with caplog.at_level("WARNING"):
+                model = RerankerConfig().effective_model
+        assert model == _DEFAULT_RERANKER_MODEL
+        assert any("Unknown" in rec.message for rec in caplog.records)
+
+    def test_empty_env_uses_field(self):
+        with patch.dict(os.environ, {_RERANKER_MODEL_ENV: "   "}):
+            assert RerankerConfig().effective_model == _DEFAULT_RERANKER_MODEL
+
+    def test_env_is_whitespace_trimmed(self):
+        with patch.dict(os.environ, {_RERANKER_MODEL_ENV: f"  {self._ALT_MODEL}  "}):
+            assert RerankerConfig().effective_model == self._ALT_MODEL
+
+    def test_invalid_field_and_env_fall_back_to_default(self, caplog):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(_RERANKER_MODEL_ENV, None)
+            cfg = RerankerConfig(cross_encoder_model="cross-encoder/not-real")
+            assert cfg.effective_model == _DEFAULT_RERANKER_MODEL
 
 
 class TestHubConfig:

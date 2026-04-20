@@ -200,6 +200,74 @@ class TestToolDispatch:
 # ---------------------------------------------------------------------------
 
 
+class TestGetHubStatusRerankerFields:
+    """Reranker fields surface through handle_get_hub_status."""
+
+    def _stub_store(self) -> Any:
+        class _Stub:
+            data_dir = "/tmp/hub"
+
+            def get_index_stats(self) -> dict[str, Any]:
+                return {"total": 0, "counts_by_type": {}, "commit_shas": []}
+
+            def get_all_metadata(self) -> dict[str, str]:
+                return {}
+
+        return _Stub()
+
+    async def test_enabled_surfaces_effective_model(self, monkeypatch):
+        import json
+
+        from pipecat_context_hub.server.tools.get_hub_status import (
+            handle_get_hub_status,
+        )
+        from pipecat_context_hub.shared.config import (
+            _RERANKER_ENABLED_ENV,
+            _RERANKER_MODEL_ENV,
+            RerankerConfig,
+        )
+
+        monkeypatch.setenv(_RERANKER_ENABLED_ENV, "1")
+        monkeypatch.setenv(
+            _RERANKER_MODEL_ENV, "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+        )
+
+        payload = await handle_get_hub_status({}, self._stub_store(), RerankerConfig())
+        data = json.loads(payload)
+        assert data["reranker_enabled"] is True
+        assert data["reranker_model"] == "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+
+    async def test_disabled_returns_none(self, monkeypatch):
+        import json
+
+        from pipecat_context_hub.server.tools.get_hub_status import (
+            handle_get_hub_status,
+        )
+        from pipecat_context_hub.shared.config import (
+            _RERANKER_ENABLED_ENV,
+            RerankerConfig,
+        )
+
+        monkeypatch.setenv(_RERANKER_ENABLED_ENV, "0")
+
+        payload = await handle_get_hub_status({}, self._stub_store(), RerankerConfig())
+        data = json.loads(payload)
+        assert data["reranker_enabled"] is False
+        assert data["reranker_model"] is None
+
+    async def test_no_reranker_config_returns_disabled(self):
+        import json
+
+        from pipecat_context_hub.server.tools.get_hub_status import (
+            handle_get_hub_status,
+        )
+
+        payload = await handle_get_hub_status({}, self._stub_store(), None)
+        data = json.loads(payload)
+        assert data["reranker_enabled"] is False
+        assert data["reranker_model"] is None
+
+
 class TestTransport:
     def test_transport_module_importable(self):
         from pipecat_context_hub.server import transport

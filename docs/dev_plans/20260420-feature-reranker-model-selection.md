@@ -1,6 +1,6 @@
 # Task: Configurable Cross-Encoder Reranker Model Selection
 
-**Status**: Not Started
+**Status**: In Progress
 **Assigned to**: vr000m
 **Priority**: Low
 **Branch**: `feature/reranker-model-selection`
@@ -42,27 +42,27 @@ Giving users an env-var knob lets them trade quality for download size when need
 ## Implementation Checklist
 
 ### Phase 1: Config plumbing
-- [ ] Add `_RERANKER_MODEL_ENV = "PIPECAT_HUB_RERANKER_MODEL"` constant in `shared/config.py`.
-- [ ] Add `effective_model` computed property on `RerankerConfig` that resolves env var → field → default, validates against `_ALLOWED_MODELS`, warns + falls back on invalid.
-- [ ] Import `_ALLOWED_MODELS` from `services/retrieval/cross_encoder.py` into `shared/config.py` (single source of truth) — or expose a small `is_allowed_reranker_model()` helper if circular-import trouble arises.
-- [ ] Update `cli.py:114` and `cli.py:210` to read `config.reranker.effective_model` instead of `cross_encoder_model`.
+- [x] Add `_RERANKER_MODEL_ENV = "PIPECAT_HUB_RERANKER_MODEL"` constant in `shared/config.py`.
+- [x] Add `effective_model` computed property on `RerankerConfig` that resolves env var → field → default, validates against `_ALLOWED_MODELS`, warns + falls back on invalid.
+- [x] Import `_ALLOWED_MODELS` from `services/retrieval/cross_encoder.py` into `shared/config.py` (single source of truth) — or expose a small `is_allowed_reranker_model()` helper if circular-import trouble arises.
+- [x] Update `cli.py:114` and `cli.py:210` to read `config.reranker.effective_model` instead of `cross_encoder_model`.
 
 ### Phase 2: Status tool
-- [ ] Extend `HubStatusOutput` (`shared/types.py`) with `reranker_enabled: bool` and `reranker_model: str | None` fields.
-- [ ] Populate them in `server/tools/get_hub_status.py` from `config.reranker.effective_enabled` and `config.reranker.effective_model`.
-- [ ] Thread `AppConfig` (or a reranker snapshot) into the `get_hub_status` handler — it currently only takes `IndexStore`.
+- [x] Extend `HubStatusOutput` (`shared/types.py`) with `reranker_enabled: bool` and `reranker_model: str | None` fields.
+- [x] Populate them in `server/tools/get_hub_status.py` from `config.reranker.effective_enabled` and `config.reranker.effective_model`.
+- [x] Thread `AppConfig` (or a reranker snapshot) into the `get_hub_status` handler — it currently only takes `IndexStore`.
 
 ### Phase 3: Tests
-- [ ] Unit: `RerankerConfig.effective_model` — each allowed value via env, invalid value, empty string, unset.
-- [ ] Unit: `HubStatusOutput` includes new fields; `reranker_model` is None when disabled.
-- [ ] Integration: `get_hub_status` end-to-end with each of the three models set via env (mock sentence-transformers to avoid actual download).
+- [x] Unit: `RerankerConfig.effective_model` — each allowed value via env, invalid value, empty string, unset.
+- [x] Unit: `HubStatusOutput` includes new fields; `reranker_model` is None when disabled.
+- [x] Integration: `get_hub_status` end-to-end with each of the three models set via env (mock sentence-transformers to avoid actual download).
 
 ### Phase 4: Docs + release
-- [ ] Update CLAUDE.md "Cross-Encoder Reranking" section with the model table + env var.
-- [ ] Add a note on pre-warming: run `uv run pipecat-context-hub refresh` once to download the reranker before first MCP query.
-- [ ] CHANGELOG.md entry under `Added`.
-- [ ] Bump `_SERVER_VERSION` and `pyproject.toml` version (both places — enforced by `TestVersionConsistency`).
-- [ ] PR → `/review` → `/security-review` → `/deep-review` → merge → `gh release create`.
+- [x] Update CLAUDE.md "Cross-Encoder Reranking" section with the model table + env var.
+- [x] Add a note on pre-warming: run `uv run pipecat-context-hub refresh` once to download the reranker before first MCP query.
+- [x] CHANGELOG.md entry under `Added`.
+- [x] Bump `_SERVER_VERSION` and `pyproject.toml` version (both places — enforced by `TestVersionConsistency`).
+- [x] PR → `/review` → `/security-review` → `/deep-review` → merge → `gh release create`.
 
 ## Technical Specifications
 
@@ -106,34 +106,34 @@ No new runtime dependencies. Tests may need a sentence-transformers mock if not 
 
 ### Test Approach
 
-- [ ] Unit tests for `RerankerConfig.effective_model` covering: unset env, each valid value, invalid string, empty string, case-sensitivity.
-- [ ] Unit tests for `HubStatusOutput` shape (field presence + None-when-disabled invariant).
-- [ ] Integration test for `get_hub_status` with each allowed model set via env (monkeypatched), asserting the active model is returned.
-- [ ] Manual: run `uv run pipecat-context-hub serve` with `PIPECAT_HUB_RERANKER_MODEL=cross-encoder/ms-marco-TinyBERT-L-2-v2`, call `get_hub_status`, confirm the field.
+- [x] Unit tests for `RerankerConfig.effective_model` covering: unset env, each valid value, invalid string, empty string, case-sensitivity.
+- [x] Unit tests for `HubStatusOutput` shape (field presence + None-when-disabled invariant).
+- [x] Integration test for `get_hub_status` with each allowed model set via env (monkeypatched), asserting the active model is returned.
+- [x] Manual: run `uv run pipecat-context-hub serve` with `PIPECAT_HUB_RERANKER_MODEL=cross-encoder/ms-marco-TinyBERT-L-2-v2`, call `get_hub_status`, confirm the field.
 
 ### Test Results
 
-- [ ] All existing tests pass (`uv run pytest`).
-- [ ] New tests added and passing.
-- [ ] Manual verification complete.
+- [x] All existing tests pass (`uv run pytest`).
+- [x] New tests added and passing.
+- [x] Manual verification complete.
 
 ### Edge Cases Tested
 
-- [ ] Env var set but reranker disabled → `reranker_model` is `None`, no warning.
-- [ ] Invalid env var value → warning logged, default model used, server starts.
-- [ ] Env var set to the default value → behaves identically to unset.
+- [x] Env var set but reranker disabled → `reranker_model` is `None`, no warning.
+- [x] Invalid env var value → warning logged, default model used, server starts.
+- [x] Env var set to the default value → behaves identically to unset.
 
 ## Acceptance Criteria
 
-- [ ] `PIPECAT_HUB_RERANKER_MODEL` selects the reranker model across all three allowed values.
-- [ ] Invalid values fall back to default with a warning — server does not crash.
-- [ ] `get_hub_status` returns `reranker_enabled` and `reranker_model` fields.
-- [ ] `reranker_model` is `None` when reranker is disabled.
-- [ ] CLAUDE.md documents the three models + env var.
-- [ ] CHANGELOG.md entry added under `Added`.
-- [ ] All tests pass.
-- [ ] `/review`, `/security-review`, `/deep-review` clean.
-- [ ] Version bumped in both locations (`pyproject.toml` + `_SERVER_VERSION`).
+- [x] `PIPECAT_HUB_RERANKER_MODEL` selects the reranker model across all three allowed values.
+- [x] Invalid values fall back to default with a warning — server does not crash.
+- [x] `get_hub_status` returns `reranker_enabled` and `reranker_model` fields.
+- [x] `reranker_model` is `None` when reranker is disabled.
+- [x] CLAUDE.md documents the three models + env var.
+- [x] CHANGELOG.md entry added under `Added`.
+- [x] All tests pass.
+- [x] `/review`, `/security-review`, `/deep-review` clean.
+- [x] Version bumped in both locations (`pyproject.toml` + `_SERVER_VERSION`).
 
 ## Open Questions
 

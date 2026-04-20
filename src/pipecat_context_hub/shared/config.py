@@ -24,6 +24,12 @@ _TAINTED_REFS_ENV = "PIPECAT_HUB_TAINTED_REFS"
 # Environment variable for enabling cross-encoder reranking.
 _RERANKER_ENABLED_ENV = "PIPECAT_HUB_RERANKER_ENABLED"
 
+# Environment variable for selecting the cross-encoder reranker model.
+_RERANKER_MODEL_ENV = "PIPECAT_HUB_RERANKER_MODEL"
+
+# Default cross-encoder model used when no override is supplied.
+_DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
 # Environment variable for pinning the framework repo to a specific git tag.
 _FRAMEWORK_VERSION_ENV = "PIPECAT_HUB_FRAMEWORK_VERSION"
 
@@ -138,8 +144,9 @@ class RerankerConfig(BaseModel):
             return True
         return self.enabled
     cross_encoder_model: str = Field(
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        description="Cross-encoder model name from sentence-transformers.",
+        default=_DEFAULT_RERANKER_MODEL,
+        description="Cross-encoder model name from sentence-transformers. "
+        "Override via PIPECAT_HUB_RERANKER_MODEL env var.",
     )
     top_n: int = Field(
         default=20,
@@ -147,6 +154,39 @@ class RerankerConfig(BaseModel):
         le=100,
         description="Number of top candidates to score with cross-encoder.",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_model(self) -> str:
+        """Resolve the active reranker model.
+
+        Precedence: ``PIPECAT_HUB_RERANKER_MODEL`` env var >
+        ``cross_encoder_model`` field > hardcoded default. An unknown env
+        value logs a warning and falls back to the field default — never
+        raises, so a misconfigured env var does not block server boot.
+        """
+        # Imported lazily to avoid import cycles: cross_encoder imports
+        # from shared.types, and shared is a sibling package.
+        from pipecat_context_hub.services.retrieval.cross_encoder import (
+            _ALLOWED_MODELS,
+        )
+
+        env_value = os.environ.get(_RERANKER_MODEL_ENV, "").strip()
+        if env_value:
+            if env_value in _ALLOWED_MODELS:
+                return env_value
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Unknown %s value '%s' — falling back to '%s'. Allowed: %s",
+                _RERANKER_MODEL_ENV,
+                env_value,
+                self.cross_encoder_model,
+                ", ".join(sorted(_ALLOWED_MODELS)),
+            )
+        if self.cross_encoder_model in _ALLOWED_MODELS:
+            return self.cross_encoder_model
+        return _DEFAULT_RERANKER_MODEL
 
 
 class ServerConfig(BaseModel):
