@@ -32,7 +32,7 @@ from pipecat_context_hub.server.tools.search_examples import handle_search_examp
 
 logger = logging.getLogger(__name__)
 
-_SERVER_VERSION = "0.0.18"
+_SERVER_VERSION = "0.0.17"
 
 # Tool name → (description, input schema, handler)
 _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [

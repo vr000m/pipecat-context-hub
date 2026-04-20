@@ -5,18 +5,6 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
-## [0.0.18] - 2026-04-20
-
-### Changed
-
-- **`serve` fails fast on unusable indexes** — the server now exits with a
-  non-zero status and a clear remediation hint when the index is empty
-  (zero records) or cannot be opened, instead of starting up and silently
-  returning no results. MCP clients previously hung waiting for meaningful
-  responses; they now see stdio close at boot and can surface a real
-  error. Run `pipecat-context-hub refresh` before `serve` on a fresh
-  install; use `refresh --force --reset-index` to rebuild a corrupt index.
-
 ## [0.0.17] - 2026-04-20
 
 ### Added
@@ -39,6 +27,16 @@ This project uses [Semantic Versioning](https://semver.org/).
   `load_failed`) explains degraded runs. Lets operators diagnose cases
   where the selected model is not cached or failed to load without
   reading server logs.
+
+### Changed
+
+- **`serve` fails fast on unusable indexes** — the server now exits with a
+  non-zero status and a clear remediation hint when the index is empty
+  (zero records) or cannot be opened, instead of starting up and silently
+  returning no results. MCP clients previously hung waiting for meaningful
+  responses; they now see stdio close at boot and can surface a real
+  error. Run `pipecat-context-hub refresh` before `serve` on a fresh
+  install; use `refresh --force --reset-index` to rebuild a corrupt index.
 
 ### Fixed
 
