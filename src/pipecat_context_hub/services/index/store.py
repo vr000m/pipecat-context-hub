@@ -30,7 +30,16 @@ class IndexStore:
         config.data_dir.mkdir(parents=True, exist_ok=True)
         self._data_dir = config.data_dir
         self._vector = VectorIndex(config.chroma_path)
-        self._fts = FTSIndex(config.sqlite_path)
+        try:
+            self._fts = FTSIndex(config.sqlite_path)
+        except Exception:
+            # Roll back the already-opened vector backend so callers don't
+            # inherit a leaked Chroma handle/lock on a half-constructed store.
+            try:
+                self._vector.close()
+            except Exception:
+                logger.exception("Vector backend close failed during rollback")
+            raise
         logger.info("IndexStore initialized with data_dir=%s", config.data_dir)
 
     @property

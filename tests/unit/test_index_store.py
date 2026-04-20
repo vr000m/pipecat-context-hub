@@ -710,6 +710,25 @@ class TestFTSIndex:
 # ---------------------------------------------------------------------------
 
 
+class TestIndexStoreInitRollback:
+    """If FTS construction fails after Vector opens, the Vector handle must
+    be closed before the exception propagates."""
+
+    def test_fts_failure_closes_vector(self, tmp_path: Path, monkeypatch):
+        from unittest.mock import MagicMock
+        from pipecat_context_hub.services.index import store as store_mod
+
+        fake_vector = MagicMock()
+        monkeypatch.setattr(store_mod, "VectorIndex", MagicMock(return_value=fake_vector))
+        monkeypatch.setattr(
+            store_mod, "FTSIndex", MagicMock(side_effect=RuntimeError("sqlite boom"))
+        )
+
+        with pytest.raises(RuntimeError, match="sqlite boom"):
+            IndexStore(StorageConfig(data_dir=tmp_path / "hub-data"))
+        fake_vector.close.assert_called_once()
+
+
 class TestIndexStore:
     @pytest.fixture()
     def store(self, tmp_path: Path) -> Generator[IndexStore, None, None]:

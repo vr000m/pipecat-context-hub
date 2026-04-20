@@ -672,6 +672,26 @@ class TestServeEmptyIndex:
         assert result.exit_code == 2
         mock_store.close.assert_called_once()
 
+    @patch("pipecat_context_hub.services.embedding.EmbeddingService")
+    @patch("pipecat_context_hub.services.index.store.IndexStore")
+    def test_post_open_exception_closes_store(
+        self, mock_is_cls, mock_es_cls, tmp_path, monkeypatch
+    ):
+        """An exception after successful open must still close the store."""
+        mock_store = MagicMock()
+        mock_store.get_index_stats = MagicMock(return_value={
+            "counts_by_type": {"doc": 1}, "total": 1, "commit_shas": [],
+        })
+        mock_store.close = MagicMock()
+        mock_is_cls.return_value = mock_store
+        mock_es_cls.side_effect = RuntimeError("embedding model missing")
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(main, ["serve"])
+
+        assert result.exit_code != 0
+        mock_store.close.assert_called_once()
+
 
 class TestSafeHr:
     def test_utf8_returns_box_drawing(self, monkeypatch):

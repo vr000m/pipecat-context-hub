@@ -125,7 +125,7 @@ def serve(ctx: click.Context) -> None:
             try:
                 index_store.close()
             except Exception:
-                pass
+                logger.exception("Failed to close partially-opened index store")
         logger.error(
             "Failed to open index at %s: %s. "
             "Run 'uv run pipecat-context-hub refresh --force --reset-index' to rebuild.",
@@ -144,82 +144,85 @@ def serve(ctx: click.Context) -> None:
         index_store.close()
         raise SystemExit(_EXIT_INDEX_UNREADY)
 
-    embedding_svc = EmbeddingService(config.embedding)
+    # From here on, any failure must close the index_store — otherwise a
+    # crash between open and serve_stdio() leaks Chroma/SQLite handles and
+    # hinders the `refresh --reset-index` recovery path.
+    try:
+        embedding_svc = EmbeddingService(config.embedding)
 
-    # Optional cross-encoder reranker (env var or config)
-    from pipecat_context_hub.shared.config import _RERANKER_MODEL_ENV
-    from pipecat_context_hub.shared.types import (
-        RerankerDisabledReason,
-        RerankerStatus,
-    )
+        # Optional cross-encoder reranker (env var or config)
+        from pipecat_context_hub.shared.config import _RERANKER_MODEL_ENV
+        from pipecat_context_hub.shared.types import (
+            RerankerDisabledReason,
+            RerankerStatus,
+        )
 
-    cross_encoder: CrossEncoderReranker | None = None
-    active_model = config.reranker.effective_model  # post-validation, in allowlist
-    # Capture the operator's raw request so get_hub_status can surface
-    # misconfigurations (e.g. typo in env var) even when silently falling
-    # back to the default. Env wins over field when set.
-    env_request = os.environ.get(_RERANKER_MODEL_ENV, "").strip()
-    requested_model = env_request or config.reranker.cross_encoder_model
-    startup_disabled_reason: RerankerDisabledReason | None = None
-    if not config.reranker.effective_enabled:
-        startup_disabled_reason = "config_disabled"
-    else:
-        # Check cache at startup — disable if model not downloaded
-        if CrossEncoderReranker.is_model_cached(active_model):
-            cross_encoder = CrossEncoderReranker(
-                model_name=active_model,
-                top_n=config.reranker.top_n,
-                enabled=True,
-            )
-            logger.info("Cross-encoder reranker enabled: %s", active_model)
+        cross_encoder: CrossEncoderReranker | None = None
+        active_model = config.reranker.effective_model  # post-validation, in allowlist
+        # Capture the operator's raw request so get_hub_status can surface
+        # misconfigurations (e.g. typo in env var) even when silently falling
+        # back to the default. Env wins over field when set.
+        env_request = os.environ.get(_RERANKER_MODEL_ENV, "").strip()
+        requested_model = env_request or config.reranker.cross_encoder_model
+        startup_disabled_reason: RerankerDisabledReason | None = None
+        if not config.reranker.effective_enabled:
+            startup_disabled_reason = "config_disabled"
         else:
-            logger.warning(
-                "Cross-encoder enabled but model '%s' not cached — disabling. "
-                "Run 'pipecat-context-hub refresh' to pre-download.",
-                active_model,
-            )
-            startup_disabled_reason = "not_cached"
+            # Check cache at startup — disable if model not downloaded
+            if CrossEncoderReranker.is_model_cached(active_model):
+                cross_encoder = CrossEncoderReranker(
+                    model_name=active_model,
+                    top_n=config.reranker.top_n,
+                    enabled=True,
+                )
+                logger.info("Cross-encoder reranker enabled: %s", active_model)
+            else:
+                logger.warning(
+                    "Cross-encoder enabled but model '%s' not cached — disabling. "
+                    "Run 'pipecat-context-hub refresh' to pre-download.",
+                    active_model,
+                )
+                startup_disabled_reason = "not_cached"
 
-    def _reranker_status() -> RerankerStatus:
-        """Compute live reranker status at get_hub_status query time."""
-        if cross_encoder is None:
+        def _reranker_status() -> RerankerStatus:
+            """Compute live reranker status at get_hub_status query time."""
+            if cross_encoder is None:
+                return RerankerStatus(
+                    enabled=False,
+                    configured_model=requested_model,
+                    disabled_reason=startup_disabled_reason,
+                )
+            if cross_encoder.enabled:
+                return RerankerStatus(
+                    enabled=True,
+                    model=active_model,
+                    configured_model=requested_model,
+                )
+            # Reranker was constructed but its .enabled flipped to False —
+            # first model-load attempt failed at runtime.
             return RerankerStatus(
                 enabled=False,
                 configured_model=requested_model,
-                disabled_reason=startup_disabled_reason,
+                disabled_reason="load_failed",
             )
-        if cross_encoder.enabled:
-            return RerankerStatus(
-                enabled=True,
-                model=active_model,
-                configured_model=requested_model,
+
+        retriever = HybridRetriever(index_store, embedding_svc, cross_encoder=cross_encoder)
+
+        # Load deprecation map from disk if available
+        from pipecat_context_hub.services.ingest.deprecation_map import DeprecationMap
+
+        dep_map_path = config.storage.data_dir / "deprecation_map.json"
+        retriever.deprecation_map = DeprecationMap.load(dep_map_path)
+        if retriever.deprecation_map.entries:
+            logger.info(
+                "Loaded deprecation map: %d entries", len(retriever.deprecation_map.entries)
             )
-        # Reranker was constructed but its .enabled flipped to False —
-        # first model-load attempt failed at runtime.
-        return RerankerStatus(
-            enabled=False,
-            configured_model=requested_model,
-            disabled_reason="load_failed",
+
+        server = create_server(
+            retriever,
+            index_store,
+            reranker_status_provider=_reranker_status,
         )
-
-    retriever = HybridRetriever(index_store, embedding_svc, cross_encoder=cross_encoder)
-
-    # Load deprecation map from disk if available
-    from pipecat_context_hub.services.ingest.deprecation_map import DeprecationMap
-
-    dep_map_path = config.storage.data_dir / "deprecation_map.json"
-    retriever.deprecation_map = DeprecationMap.load(dep_map_path)
-    if retriever.deprecation_map.entries:
-        logger.info(
-            "Loaded deprecation map: %d entries", len(retriever.deprecation_map.entries)
-        )
-
-    server = create_server(
-        retriever,
-        index_store,
-        reranker_status_provider=_reranker_status,
-    )
-    try:
         serve_stdio(server)
     finally:
         index_store.close()
