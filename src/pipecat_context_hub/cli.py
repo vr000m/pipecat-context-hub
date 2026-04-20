@@ -518,9 +518,8 @@ def refresh(ctx: click.Context, force: bool, reset_index: bool, framework_versio
         else:
             index_store.delete_metadata("framework_version")
 
-        if not all_errors:
-            index_store.set_metadata("last_refresh_at", now)
-        else:
+        index_store.set_metadata("last_refresh_at", now)
+        if all_errors:
             index_store.set_metadata("last_refresh_errored_at", now)
 
         # ----- Summary table -----
