@@ -3,6 +3,7 @@
 ## Current Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
+| 2026-04-20 | feature | Configurable Cross-Encoder Reranker Model Selection | Not Started | vr000m | `feature/reranker-model-selection` | `20260420-feature-reranker-model-selection.md` |
 
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
