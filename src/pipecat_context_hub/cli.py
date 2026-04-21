@@ -177,12 +177,26 @@ def serve(ctx: click.Context) -> None:
                 )
                 logger.info("Cross-encoder reranker enabled: %s", active_model)
             else:
-                logger.warning(
-                    "Cross-encoder enabled but model '%s' not cached — disabling. "
-                    "Run 'pipecat-context-hub refresh' to pre-download.",
-                    active_model,
-                )
                 startup_disabled_reason = "not_cached"
+
+        # Single telemetry line when the reranker is off at boot. Operators
+        # grep this from MCP traces to diagnose degraded startups without
+        # calling get_hub_status.
+        if startup_disabled_reason is not None:
+            _REASON_HINTS = {
+                "config_disabled": "PIPECAT_HUB_RERANKER_ENABLED=0 (or config). "
+                "Unset the env var (or set it to 1) to re-enable.",
+                "not_cached": "model not downloaded. "
+                "Run 'pipecat-context-hub refresh' to pre-download, or set "
+                "PIPECAT_HUB_RERANKER_MODEL to a smaller cached model "
+                "(e.g. cross-encoder/ms-marco-TinyBERT-L-2-v2).",
+            }
+            logger.warning(
+                "Reranker disabled at startup: reason=%s configured_model=%s — %s",
+                startup_disabled_reason,
+                requested_model or "(default)",
+                _REASON_HINTS.get(startup_disabled_reason, ""),
+            )
 
         def _reranker_status() -> RerankerStatus:
             """Compute live reranker status at get_hub_status query time."""

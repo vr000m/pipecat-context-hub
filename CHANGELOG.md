@@ -27,6 +27,11 @@ This project uses [Semantic Versioning](https://semver.org/).
   `load_failed`) explains degraded runs. Lets operators diagnose cases
   where the selected model is not cached or failed to load without
   reading server logs.
+- **Reranker disabled-at-startup warning** — when `serve` boots with the
+  reranker off, a single consolidated `WARNING` log line now reports
+  `reason=<config_disabled|not_cached> configured_model=<name>` plus a
+  one-line remediation hint. Operators can grep this from an MCP JSONL
+  trace to diagnose degraded boots without calling `get_hub_status`.
 
 ### Changed
 
