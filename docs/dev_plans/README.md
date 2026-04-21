@@ -7,6 +7,8 @@
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
+| 2026-04-20 | feature | Reranker Startup Telemetry (banner, HF cache-path diagnostics, degraded-hub guideline) | Complete (v0.0.17) | vr000m | `feature/reranker-startup-telemetry` | _(no plan file)_ |
+| 2026-04-20 | feature | Fail-fast on empty or unopenable index in `serve` | Complete (v0.0.17) | vr000m | `feature/fail-fast-empty-index` | _(no plan file)_ |
 | 2026-04-20 | feature | Configurable Cross-Encoder Reranker Model Selection | Complete (v0.0.17) | vr000m | `feature/reranker-model-selection` | `20260420-feature-reranker-model-selection.md` |
 | 2026-04-20 | bug | Windows Refresh Resilience (corrupt clone recovery + non-UTF-8 console) | Complete (v0.0.17) | vr000m | `bug/windows-refresh-resilience` | `20260420-bug-windows-refresh-resilience.md` |
 | 2026-03-31 | feature | Version-Aware Indexing Phase 1a+1b+2 | Complete (v0.0.15) | vr000m | `feature/version-aware-indexing` | `20260331-feature-version-aware-indexing.md` |

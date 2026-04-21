@@ -121,6 +121,16 @@ always passes regardless of `gh` availability.
 39. `refresh --framework-version nonexistent-tag-xyz` — fails with a clear
     `ValueError` mentioning "not found" and listing available tags (confirms
     tag validation rejects invalid input)
+40. `uv run pipecat-context-hub serve` — startup `INFO` log line
+    `pipecat-context-hub vX.Y.Z starting: data_dir=<path> total=N docs=… code=… source=…`
+    appears with non-zero `total` (confirms version banner and index-populated
+    state are observable from the MCP trace)
+41. `PIPECAT_HUB_RERANKER_ENABLED=0 uv run pipecat-context-hub serve` — startup
+    `WARNING` log line `Reranker disabled at startup: reason=config_disabled
+    configured_model=…` appears. Then re-run with
+    `PIPECAT_HUB_RERANKER_MODEL=cross-encoder/does-not-exist` — the warning
+    reports `reason=not_cached` and the remediation hint includes the HF cache
+    path that was probed (e.g. `checked HF cache: /…/huggingface/hub`)
 
 If any of these fail, investigate before merging — the unit test suite will
 not catch the regression.

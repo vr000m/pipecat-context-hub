@@ -37,15 +37,22 @@ This project uses [Semantic Versioning](https://semver.org/).
   Operators can grep this from an MCP JSONL trace to diagnose degraded
   boots without calling `get_hub_status`.
 - **Startup banner** — `serve` now logs one `INFO` line at boot reporting
-  version, data directory, and record counts by content type
-  (`total`, `docs`, `code`, `source`). Confirms which binary is actually
-  running after an upgrade and exposes partially-populated indexes
-  (e.g. docs ingested but code missing) without a separate tool call.
+  version, data directory, and the raw `counts_by_type` mapping
+  (`doc` / `code` / `source` keys as they appear in FTS, rendered as
+  `counts_by_type={doc=N,code=N,source=N}`). Confirms which binary is
+  actually running after an upgrade and exposes partially-populated
+  indexes without a separate tool call. The `data_dir` path is redacted
+  to `~/…` because server instructions now encourage clients to share
+  startup log lines with maintainers.
 - **Degraded-hub reporting guideline** — server instructions now direct
   MCP clients to share the full `get_hub_status` response and startup
   log lines with the user (and point them at the bug-report template)
-  when the hub is running in a degraded mode (non-null
-  `reranker_disabled_reason` or non-zero boot exit).
+  when the hub is running in a degraded mode — specifically
+  `reranker_disabled_reason ∈ {not_cached, load_failed}` or a non-zero
+  boot exit. `config_disabled` is explicitly called out as a supported
+  operator choice, not a degraded state, so intentional
+  `PIPECAT_HUB_RERANKER_ENABLED=0` deployments are not escalated as
+  incidents.
 
 ### Changed
 

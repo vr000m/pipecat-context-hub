@@ -30,6 +30,23 @@ _MISSING_SENTINEL = "\u2014"
 _EXIT_INDEX_UNREADY = 2
 
 
+def _redact_home(path: Path | str) -> str:
+    """Replace the user's home-directory prefix with ``~`` for logs.
+
+    Startup telemetry is included in the "share this with maintainers"
+    guidance, so stripping usernames out of absolute paths keeps routine
+    bug reports from leaking local filesystem layout.
+    """
+    try:
+        s = str(path)
+        home = str(Path.home())
+        if home and (s == home or s.startswith(home + os.sep)):
+            return "~" + s[len(home):]
+        return s
+    except Exception:
+        return str(path)
+
+
 def _load_dotenv() -> None:
     """Load ``.env`` file from the current directory if it exists.
 
@@ -148,17 +165,22 @@ def serve(ctx: click.Context) -> None:
     # and content-type shape from an MCP JSONL trace. Helps diagnose
     # "upgraded but still running the old exe" and "docs indexed but code
     # didn't" without extra tooling.
+    #
+    # Logs the raw counts_by_type mapping (whose keys — doc, code, source —
+    # come straight from FTS) so a future content_type rename or new type
+    # cannot silently zero out this signal. `data_dir` is redacted to ~/…
+    # because server instructions now encourage clients to share startup
+    # log lines in bug reports.
     from pipecat_context_hub.server.main import _SERVER_VERSION
 
     counts_by_type = stats.get("counts_by_type", {}) or {}
+    counts_repr = ",".join(f"{k}={v}" for k, v in sorted(counts_by_type.items()))
     logger.info(
-        "pipecat-context-hub v%s starting: data_dir=%s total=%d docs=%d code=%d source=%d",
+        "pipecat-context-hub v%s starting: data_dir=%s total=%d counts_by_type={%s}",
         _SERVER_VERSION,
-        config.storage.data_dir,
+        _redact_home(config.storage.data_dir),
         stats.get("total", 0),
-        counts_by_type.get("docs", 0),
-        counts_by_type.get("code", 0),
-        counts_by_type.get("source", 0),
+        counts_repr or "(empty)",
     )
 
     # From here on, any failure must close the index_store — otherwise a
@@ -207,7 +229,7 @@ def serve(ctx: click.Context) -> None:
                     "Unset the env var (or set it to 1) to re-enable."
                 )
             elif startup_disabled_reason == "not_cached":
-                probed = CrossEncoderReranker.resolve_hf_cache_dir()
+                probed = _redact_home(CrossEncoderReranker.resolve_hf_cache_dir())
                 hint = (
                     f"model not downloaded (checked HF cache: {probed}). "
                     "Run 'pipecat-context-hub refresh' to pre-download, or set "
