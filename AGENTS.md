@@ -13,15 +13,15 @@ surface against real indexed data.
 1. `get_hub_status()` — returns a non-empty index and a recent
    `last_refresh_at`, so smoke-test failures are not caused by a stale or empty
    local corpus
-2. `get_doc(path="/server/frames/system-frames")` — returns full multi-chunk
-   page (not a single 500-char chunk), confidence 1.0
-3. `get_doc(path="/server/frames/system-frames", section="StartFrame")` —
-   returns only the StartFrame section from the assembled page
+2. `get_doc(path="/api-reference/server/frames/system-frames")` — returns
+   full multi-chunk page (not a single 500-char chunk), confidence 1.0
+3. `get_doc(path="/api-reference/server/frames/system-frames", section="StartFrame")`
+   — returns only the StartFrame section from the assembled page
 4. `get_doc(doc_id=<id from a search_docs result>)` — returns non-empty content
    and is not `Not Found`
 5. `get_doc(path="")` and `get_doc(doc_id="")` — both raise validation errors
-6. `get_doc(doc_id="", path="/server/frames/system-frames")` — falls back to
-   the path lookup and returns the assembled page
+6. `get_doc(doc_id="", path="/api-reference/server/frames/system-frames")` —
+   falls back to the path lookup and returns the assembled page
 7. `search_api("send_dtmf", class_name="DailyTransport")` — returns
    `DailyTransportClient.send_dtmf` (prefix match)
 8. `search_examples("TTS pipeline", domain="backend")` — returns hits with
