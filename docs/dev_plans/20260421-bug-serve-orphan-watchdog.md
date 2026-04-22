@@ -85,3 +85,25 @@ Edit `src/pipecat_context_hub/server/transport.py`:
 
 - ~~Does the existing `serve_stdio` actually exit cleanly on stdin EOF today?~~ **Answered**: yes — verified by `test_stdin_close_exits_cleanly` (process exits in ~0.1s on stdin close). Phase 2 watchdog covers the orphan case where stdin stays open.
 - Windows behaviour of orphaned MCP children: watchdog is disabled there (`sys.platform != "win32"` gate), and the integration test is skipped. Stdin EOF still works on Windows. Add a real fix when a user reports the case.
+
+## Codex Review Findings (addressed before merge)
+
+Codex flagged two real defects in the initial implementation:
+
+1. **P1 — Startup-window blind spot.** The PPID was being snapshotted inside `run_stdio`, *after* `cli.serve` spent several seconds opening the IndexStore, loading the embedding model, resolving the reranker, and loading the deprecation map. A client death during that window would have already reparented the process to `init`, so the watchdog locked in the reparented PID as its baseline and never fired. **Fix:** snapshot `os.getppid()` at the top of `cli.serve` before any slow work, thread it through `serve_stdio` → `run_stdio` as `original_ppid`. `transport.py:14-19`, `cli.py` (near `def serve`).
+2. **P2 — Integration test didn't exercise the watchdog path.** The original `test_orphaned_serve_exits_via_watchdog` used `os._exit(0)` in the wrapper, which closes the wrapper's pipe descriptors — the child then saw stdin EOF and exited through the pre-existing EOF path, *not* the new watchdog. The test would have passed even with a broken watchdog. **Fix:** the test now creates an `os.pipe()` and spawns a separate "holder" subprocess that inherits the write-end via `pass_fds`, so `serve`'s stdin stays open after the wrapper dies. A sanity assertion confirms the holder is alive when the watchdog should fire. Cleanup kills the holder in `finally`.
+
+While implementing the P2 fix, a third defect surfaced:
+
+3. **`stdio_server` cleanup hang.** Cancelling the MCP `server_task` is not enough — MCP's `stdio_server` uses an anyio TaskGroup containing a `stdin_reader` blocked on `async for line in stdin`. That reader only unblocks when stdin closes. So when the watchdog fired, the log line appeared but the `async with stdio_server()` context manager hung forever waiting for its TaskGroup. **Fix:** after logging the shutdown reason, forcibly `os.close(sys.stdin.fileno())` so the reader sees EOF and the TaskGroup unwinds cleanly. Without this, the watchdog "fired" but the process never actually exited.
+
+## Known Gap: `uv run` wrapper
+
+The watchdog polls the *immediate* PPID. When `serve` is launched via `uv run pipecat-context-hub serve` (the default invocation in this project's docs and most MCP-client configs), `uv` stays alive as an intermediate parent. When the outer client dies, `uv` is reparented to init but does not itself exit. Python's `getppid()` therefore never flips — the watchdog does not fire.
+
+Real-world impact: the 10+ zombie pairs that motivated this fix all ran under `uv run`. This PR does **not** clean those up. It does prevent accumulation in deployments where Python is launched directly (e.g. MCP config pointing at `.venv/bin/pipecat-context-hub serve` with `exec`).
+
+Follow-up options for the `uv` case:
+- Walk the ancestor chain at each poll tick and shut down if any ancestor is PID 1. Portable via `psutil` or `/proc` on Linux; `libproc` bindings on macOS. Heavier implementation, worth pricing.
+- Teach `uv run` upstream to exit when its own parent dies (likely a non-starter — that's a general tool, not our call).
+- Add an idle-timeout in `serve`: no MCP request in N minutes → exit. Cleanest for the Claude-holds-pipes-open failure mode we actually observed.

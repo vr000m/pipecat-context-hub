@@ -9,18 +9,28 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **Orphan `serve` processes no longer accumulate** — a parent-death
-  watchdog inside the stdio transport polls `os.getppid()` every 2s and
-  triggers a clean shutdown when the MCP client disappears without
-  closing stdio (e.g., editor crash, abandoned session, transport blip).
-  Previously, every Claude Code / Cursor / etc. session that ended
-  without a graceful close left a `pipecat-context-hub serve` zombie
-  holding the Chroma + SQLite handles for `~/.pipecat-context-hub`,
-  contending on the same index. The watchdog logs
-  `parent_died original_ppid=N current_ppid=1` at INFO when it fires.
-  Honors hidden env var `PIPECAT_HUB_PARENT_WATCH_INTERVAL` (seconds,
-  default `2.0`) for tests. Disabled on Windows where orphan-reparent
-  semantics differ — stdin EOF still works there.
+- **Orphan `serve` processes no longer accumulate** (direct-invocation
+  path) — a parent-death watchdog inside the stdio transport polls
+  `os.getppid()` every 2s and triggers a clean shutdown when the MCP
+  client disappears without closing stdio. The PPID is snapshotted at
+  CLI entry (before IndexStore / embedding / reranker construction) so
+  client deaths during startup are still detected. On trigger, stdin is
+  forcibly closed to unblock MCP's internal `stdin_reader` task,
+  allowing the `stdio_server` context manager to unwind and the
+  `IndexStore` finally-block to close handles cleanly. The watchdog
+  logs `parent_died original_ppid=N current_ppid=1` at INFO when it
+  fires. Honors hidden env var `PIPECAT_HUB_PARENT_WATCH_INTERVAL`
+  (seconds, default `2.0`) for tests. Disabled on Windows where
+  orphan-reparent semantics differ — stdin EOF still works there.
+
+  **Known gap:** when `serve` is launched via `uv run
+  pipecat-context-hub serve` (the default in this project's docs and
+  in most MCP-client configs), `uv` stays alive as an intermediate
+  parent and the inner Python process's PPID never flips — the
+  watchdog does not fire. For the watchdog to catch orphans, launch
+  Python directly (e.g. `.venv/bin/pipecat-context-hub serve` in the
+  MCP client config) or use `exec` in a wrapper script. A follow-up
+  will address the `uv`-wrapper case explicitly.
 
 ## [0.0.17] - 2026-04-20
 

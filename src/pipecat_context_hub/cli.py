@@ -120,6 +120,13 @@ def main(ctx: click.Context, log_level: str) -> None:
 @click.pass_context
 def serve(ctx: click.Context) -> None:
     """Start the MCP server (stdio transport)."""
+    # Capture PPID at the very top — before IndexStore/embedding/reranker
+    # construction, which can take several seconds. If the client dies
+    # during that startup window, os.getppid() has already flipped to 1
+    # by the time run_stdio() snapshots it, and the watchdog would lock
+    # in the already-reparented PID and never fire.
+    _original_ppid = os.getppid()
+
     from pipecat_context_hub.server.main import create_server
     from pipecat_context_hub.server.transport import serve_stdio
     from pipecat_context_hub.services.embedding import EmbeddingService
@@ -283,7 +290,7 @@ def serve(ctx: click.Context) -> None:
             index_store,
             reranker_status_provider=_reranker_status,
         )
-        serve_stdio(server)
+        serve_stdio(server, original_ppid=_original_ppid)
     finally:
         index_store.close()
 

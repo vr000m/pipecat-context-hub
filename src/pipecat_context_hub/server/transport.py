@@ -33,19 +33,26 @@ async def _watch_parent(original_ppid: int, interval: float) -> str:
             return f"parent_died original_ppid={original_ppid} current_ppid={current}"
 
 
-async def run_stdio(server: Server) -> None:
+async def run_stdio(server: Server, original_ppid: int | None = None) -> None:
     """Run the MCP server over stdio transport.
 
     Spawns a parent-death watchdog alongside the MCP loop. If the client
     disappears without closing stdin (e.g. crashed editor that orphans
     its FDs), the watchdog notices reparenting and triggers shutdown so
     the hub does not accumulate as a zombie holding the index.
+
+    ``original_ppid`` is the PPID snapshot to compare against. The caller
+    should capture it at process entry (before any slow startup work),
+    because startup can take several seconds and the client may die
+    during that window — if we snapshotted here, we'd lock in the
+    already-reparented PID and the watchdog would never fire.
     """
     logger.info("Starting MCP server on stdio transport")
 
     interval = _resolve_watch_interval()
     enable_watchdog = sys.platform != "win32" and interval > 0
-    original_ppid = os.getppid() if enable_watchdog else 0
+    if original_ppid is None:
+        original_ppid = os.getppid() if enable_watchdog else 0
 
     async with stdio_server() as (read_stream, write_stream):
         init_options = server.create_initialization_options()
@@ -74,6 +81,17 @@ async def run_stdio(server: Server) -> None:
 
         if watchdog_task is not None and watchdog_task in done:
             logger.info("Shutting down: %s", watchdog_task.result())
+            # Cancelling server_task alone is not enough: stdio_server's
+            # internal TaskGroup still awaits a stdin_reader that's
+            # blocked on `async for line in stdin`. If the client
+            # orphaned us without closing the pipe, that reader never
+            # unblocks and `async with stdio_server()` hangs on exit.
+            # Forcibly close stdin so the reader sees EOF / ClosedResource
+            # and the TaskGroup can unwind.
+            try:
+                os.close(sys.stdin.fileno())
+            except OSError:
+                pass
 
         # Surface server-task exceptions (e.g. unexpected protocol error)
         # while still letting the index_store finally-block run.
@@ -83,9 +101,14 @@ async def run_stdio(server: Server) -> None:
                 raise exc
 
 
-def serve_stdio(server: Server) -> None:
-    """Blocking entry point that runs the stdio server."""
-    asyncio.run(run_stdio(server))
+def serve_stdio(server: Server, original_ppid: int | None = None) -> None:
+    """Blocking entry point that runs the stdio server.
+
+    ``original_ppid`` should be captured by the caller at process entry
+    (before any index/service construction) so that a parent-death that
+    happens during startup is still detected by the watchdog.
+    """
+    asyncio.run(run_stdio(server, original_ppid=original_ppid))
 
 
 def _resolve_watch_interval() -> float:
