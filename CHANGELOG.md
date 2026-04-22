@@ -18,6 +18,17 @@ This project uses [Semantic Versioning](https://semver.org/).
   `lxml>=6.1.0` dev pin was added so future transitive bumps cannot regress
   below the patched version.
 
+### Added
+
+- **Idle-timeout shutdown for `serve`** — the server now exits on its
+  own when no MCP tool dispatch arrives for `PIPECAT_HUB_IDLE_TIMEOUT_SECS`
+  seconds (default `1800`, i.e. 30 minutes). Catches the production
+  failure mode the parent-death watchdog cannot: when the client stays
+  alive but stops using a hub it spawned without closing the pipe (the
+  case responsible for most accumulated zombies under `uv run`). Set
+  `PIPECAT_HUB_IDLE_TIMEOUT_SECS=0` to disable. Logs
+  `idle_timeout idle_seconds=N timeout_seconds=N` at INFO when it fires.
+
 ### Fixed
 
 - **Orphan `serve` processes no longer accumulate** (direct-invocation
@@ -38,10 +49,11 @@ This project uses [Semantic Versioning](https://semver.org/).
   pipecat-context-hub serve` (the default in this project's docs and
   in most MCP-client configs), `uv` stays alive as an intermediate
   parent and the inner Python process's PPID never flips — the
-  watchdog does not fire. For the watchdog to catch orphans, launch
-  Python directly (e.g. `.venv/bin/pipecat-context-hub serve` in the
-  MCP client config) or use `exec` in a wrapper script. A follow-up
-  will address the `uv`-wrapper case explicitly.
+  parent-death watchdog does not fire. The new idle-timeout (above)
+  covers this case as a backstop. For instant cleanup on parent
+  death, configure your MCP client to launch Python directly
+  (e.g. `.venv/bin/pipecat-context-hub serve`); see the README's
+  "MCP client configuration" section for examples.
 
 ## [0.0.17] - 2026-04-20
 

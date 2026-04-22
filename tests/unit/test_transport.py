@@ -56,6 +56,70 @@ class TestWatchParent:
             await task
 
 
+class TestResolveIdleTimeout:
+    def test_default_when_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(transport._IDLE_TIMEOUT_ENV, raising=False)
+        assert transport._resolve_idle_timeout() == transport._DEFAULT_IDLE_TIMEOUT_SECS
+
+    def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(transport._IDLE_TIMEOUT_ENV, "60")
+        assert transport._resolve_idle_timeout() == pytest.approx(60.0)
+
+    def test_zero_disables(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(transport._IDLE_TIMEOUT_ENV, "0")
+        assert transport._resolve_idle_timeout() == 0.0
+
+    def test_invalid_falls_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(transport._IDLE_TIMEOUT_ENV, "garbage")
+        assert transport._resolve_idle_timeout() == transport._DEFAULT_IDLE_TIMEOUT_SECS
+
+    def test_negative_clamped_to_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(transport._IDLE_TIMEOUT_ENV, "-30")
+        assert transport._resolve_idle_timeout() == 0.0
+
+
+class TestIdleTracker:
+    def test_starts_at_zero_seconds_idle(self) -> None:
+        t = transport.IdleTracker()
+        assert t.seconds_since_last() < 0.5  # essentially zero
+
+    def test_touch_resets_clock(self) -> None:
+        import time as _time
+
+        t = transport.IdleTracker()
+        _time.sleep(0.05)
+        assert t.seconds_since_last() >= 0.05
+        t.touch()
+        assert t.seconds_since_last() < 0.05
+
+
+class TestWatchIdle:
+    @pytest.mark.asyncio
+    async def test_returns_when_timeout_exceeded(self) -> None:
+        t = transport.IdleTracker()
+        # Force tracker to "look" stale by reaching in directly — avoids
+        # sleeping the test for the full timeout window.
+        import time as _time
+
+        t._last = _time.monotonic() - 100.0
+        result = await asyncio.wait_for(
+            transport._watch_idle(t, timeout=10.0, interval=0.01),
+            timeout=1.0,
+        )
+        assert "idle_timeout" in result
+        assert "timeout_seconds=10" in result
+
+    @pytest.mark.asyncio
+    async def test_does_not_return_while_active(self) -> None:
+        t = transport.IdleTracker()
+        task = asyncio.create_task(transport._watch_idle(t, timeout=10.0, interval=0.01))
+        await asyncio.sleep(0.05)
+        assert not task.done()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="watchdog disabled on win32")
 class TestRunStdioWatchdogWiring:
     """Verify run_stdio exits when its parent disappears, by stubbing the

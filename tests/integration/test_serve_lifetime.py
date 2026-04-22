@@ -70,6 +70,38 @@ def test_stdin_close_exits_cleanly() -> None:
             proc.wait(timeout=5)
 
 
+def test_idle_timeout_exits_serve() -> None:
+    """`serve` must exit on its own when no requests arrive within the
+    idle window, even if stdin stays open and the parent stays alive
+    (the `uv run` failure mode where neither EOF nor PPID watchdog
+    fires).
+    """
+    env = os.environ.copy()
+    env["PIPECAT_HUB_IDLE_TIMEOUT_SECS"] = "3"
+    # Disable PPID watchdog by setting an absurd interval so we
+    # demonstrate the idle path in isolation.
+    env["PIPECAT_HUB_PARENT_WATCH_INTERVAL"] = "3600"
+    proc = subprocess.Popen(
+        _serve_cmd(),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write(_initialize_payload())
+        proc.stdin.flush()
+        # Do NOT close stdin, do NOT send any further requests.
+        # serve should exit via idle timeout within ~timeout + poll margin.
+        rc = proc.wait(timeout=20)
+        assert rc == 0, f"expected clean exit, got {rc}"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="orphan-reparent semantics differ on Windows")
 def test_orphaned_serve_exits_via_watchdog(tmp_path: Path) -> None:
     """Orphan `serve` (parent dies without closing stdio) must exit via watchdog.

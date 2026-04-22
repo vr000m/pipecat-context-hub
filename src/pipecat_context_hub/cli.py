@@ -128,7 +128,7 @@ def serve(ctx: click.Context) -> None:
     _original_ppid = os.getppid()
 
     from pipecat_context_hub.server.main import create_server
-    from pipecat_context_hub.server.transport import serve_stdio
+    from pipecat_context_hub.server.transport import IdleTracker, serve_stdio
     from pipecat_context_hub.services.embedding import EmbeddingService
     from pipecat_context_hub.services.index.store import IndexStore
     from pipecat_context_hub.services.retrieval.cross_encoder import CrossEncoderReranker
@@ -285,12 +285,14 @@ def serve(ctx: click.Context) -> None:
                 "Loaded deprecation map: %d entries", len(retriever.deprecation_map.entries)
             )
 
+        idle_tracker = IdleTracker()
         server = create_server(
             retriever,
             index_store,
             reranker_status_provider=_reranker_status,
+            idle_tracker=idle_tracker,
         )
-        serve_stdio(server, original_ppid=_original_ppid)
+        serve_stdio(server, original_ppid=_original_ppid, idle_tracker=idle_tracker)
     finally:
         index_store.close()
 

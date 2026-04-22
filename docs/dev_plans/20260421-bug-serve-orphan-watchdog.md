@@ -104,6 +104,30 @@ The watchdog polls the *immediate* PPID. When `serve` is launched via `uv run pi
 Real-world impact: the 10+ zombie pairs that motivated this fix all ran under `uv run`. This PR does **not** clean those up. It does prevent accumulation in deployments where Python is launched directly (e.g. MCP config pointing at `.venv/bin/pipecat-context-hub serve` with `exec`).
 
 Follow-up options for the `uv` case:
-- Walk the ancestor chain at each poll tick and shut down if any ancestor is PID 1. Portable via `psutil` or `/proc` on Linux; `libproc` bindings on macOS. Heavier implementation, worth pricing.
-- Teach `uv run` upstream to exit when its own parent dies (likely a non-starter — that's a general tool, not our call).
-- Add an idle-timeout in `serve`: no MCP request in N minutes → exit. Cleanest for the Claude-holds-pipes-open failure mode we actually observed.
+- ~~Walk the ancestor chain at each poll tick~~ — deferred (heavy, fragile).
+- ~~Teach `uv run` upstream~~ — out of our control.
+- ~~Add an idle-timeout in `serve`~~ — **shipped in this PR** (Phase 5 below).
+
+## Phase 5 — Idle-timeout backstop + MCP-client configuration docs
+
+Added in the same PR after the Codex-review fixes:
+
+**Idle-timeout backstop:**
+- `IdleTracker` in `server/transport.py`: monotonic-clock-backed `touch()` / `seconds_since_last()`.
+- `_watch_idle(tracker, timeout, interval)` coroutine: returns when idle window exceeded.
+- `cli.serve` constructs one `IdleTracker`, passes it to both `create_server` (for the call_tool dispatcher to `touch()`) and `serve_stdio` (for the watchdog).
+- `run_stdio` spawns the idle-watch task alongside the parent-death watchdog and the MCP server. Same FIRST_COMPLETED gather + stdin-close shutdown unwind as the parent-death path.
+- Default 1800s (30 min). Env var `PIPECAT_HUB_IDLE_TIMEOUT_SECS=0` disables. Documented in `docs/README.md`.
+- This catches the **actual production failure mode**: a client that stays alive but stops using a hub it spawned without closing the pipe (the case responsible for the 10+ zombies under `uv run`).
+
+**MCP-client configuration docs:**
+- New "MCP Client Configuration" section in `docs/README.md` with two JSON examples:
+  - Direct `.venv/bin/pipecat-context-hub` invocation (recommended; parent-death watchdog fires instantly).
+  - `uv run` (convenient; idle-timeout backstop catches orphans within 30 min).
+- Trade-off explained inline so users can pick the right one for their workflow.
+
+Tests added:
+- 5 `_resolve_idle_timeout` env-parsing tests
+- 2 `IdleTracker` invariant tests
+- 2 `_watch_idle` coroutine tests
+- 1 integration test (`test_idle_timeout_exits_serve`): real subprocess via `uv run` with `IDLE_TIMEOUT_SECS=3` and the parent-death watchdog suppressed (interval=3600), proves the idle path exits the orphan in isolation. **This is the test that demonstrates the `uv run` zombie problem is actually solved.**

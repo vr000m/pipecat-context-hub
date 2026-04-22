@@ -195,9 +195,53 @@ PIPECAT_HUB_FRAMEWORK_VERSION=v0.0.96 uv run pipecat-context-hub refresh
 | `PIPECAT_HUB_TAINTED_REFS` | *(empty)* | Comma-separated `org/repo@ref` entries to skip |
 | `PIPECAT_HUB_RERANKER_ENABLED` | `1` | Set to `0` to disable cross-encoder reranking |
 | `PIPECAT_HUB_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Swap reranker model. Allowed: `cross-encoder/ms-marco-MiniLM-L-6-v2` (~80 MB), `cross-encoder/ms-marco-MiniLM-L-12-v2` (~130 MB), `cross-encoder/ms-marco-TinyBERT-L-2-v2` (~17 MB) |
+| `PIPECAT_HUB_IDLE_TIMEOUT_SECS` | `1800` | Exit `serve` if no MCP request arrives for this many seconds (30 min default). Set to `0` to disable. |
 
 See [`.env.example`](../.env.example) for curated repo bundles you can copy
 into your `.env`.
+
+## MCP Client Configuration
+
+Two ways to point an MCP client (Claude Code, Cursor, Zed, etc.) at this
+hub. They differ in how cleanly the server exits when the client goes away.
+
+**Recommended — direct invocation (instant orphan cleanup):**
+
+```json
+{
+  "mcpServers": {
+    "pipecat-context-hub": {
+      "command": "/absolute/path/to/pipecat-context-hub/.venv/bin/pipecat-context-hub",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Python is the immediate child of the MCP client. When the client dies
+or restarts, the parent-death watchdog fires within ~2s and the hub
+exits cleanly, releasing the Chroma + SQLite handles.
+
+**Alternative — `uv run` (simpler, slower cleanup):**
+
+```json
+{
+  "mcpServers": {
+    "pipecat-context-hub": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/pipecat-context-hub", "pipecat-context-hub", "serve"]
+    }
+  }
+}
+```
+
+Convenient (no need to know the venv path) but `uv` stays alive as an
+intermediate parent, so the parent-death watchdog cannot detect client
+death from inside Python. The 30-minute idle-timeout backstop
+(`PIPECAT_HUB_IDLE_TIMEOUT_SECS`) still fires, so orphans don't
+accumulate forever — they just take longer to clear. Tune the env var
+down (e.g. `300` for 5 minutes) if you spawn lots of short-lived
+sessions.
 
 ## Data Sources
 

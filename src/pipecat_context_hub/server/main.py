@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import mcp.types as types
 from mcp.server.lowlevel import Server
+
+if TYPE_CHECKING:
+    from pipecat_context_hub.server.transport import IdleTracker
 
 from pipecat_context_hub.services.index.store import IndexStore
 from pipecat_context_hub.shared.interfaces import Retriever
@@ -187,6 +190,7 @@ def create_server(
     retriever: Retriever,
     index_store: IndexStore | None = None,
     reranker_status_provider: Callable[[], RerankerStatus] | None = None,
+    idle_tracker: "IdleTracker | None" = None,
 ) -> Server:
     """Create and configure the MCP server with all tool handlers.
 
@@ -222,6 +226,12 @@ def create_server(
 
     @server.call_tool()  # type: ignore[untyped-decorator]
     async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
+        # Reset the idle clock on every tool dispatch — used by the idle
+        # watchdog to shut down hubs that the client has stopped using
+        # but is still holding pipes open for (the failure mode the PPID
+        # watchdog cannot detect under `uv run`).
+        if idle_tracker is not None:
+            idle_tracker.touch()
         args = arguments or {}
 
         # get_hub_status has a different dispatch signature (needs index_store)
