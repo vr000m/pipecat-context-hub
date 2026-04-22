@@ -163,6 +163,8 @@ in future reviews unless the underlying circumstances change.
 
 - **[Security] resolved**: `pygments` CVE-2026-4539 resolved by upgrading to 2.20.0 via PR #34 (2026-03-31). `--ignore-vuln` entry removed from CI and justfile.
 
+- **[Security] resolved**: `lxml` GHSA-vfmq-68hx-4jfw / CVE-2026-41066 (XXE via default `iterparse()` / `ETCompatXMLParser()` config) resolved by pinning `lxml>=6.1.0` in the dev group and bumping `cyclonedx-bom` from `>=4.1,<5.0` to `>=7.3,<8.0` (cyclonedx-bom 4.x transitively pinned `lxml<6`). Landed via PR #50 (2026-04-22).
+
 - **[Security] won't-fix**: `transformers` CVE-2026-1839 — fix requires 5.0.0rc3 (release candidate), but `sentence-transformers` pins `transformers<5.0`. Ignored via `--ignore-vuln CVE-2026-1839` in CI and justfile. Remove when `sentence-transformers` supports `transformers>=5.0`. (2026-04-07)
 
 - **[Architecture] won't-fix**: Removing `pipecat_context_hub.services.ingest.ts_source_parser` is intentional. The module is treated as internal implementation detail, not supported public API, and no external consumers are expected to import it directly. Revisit only if ingestion parser modules become documented extension points. (2026-03-30)

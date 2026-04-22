@@ -5,6 +5,19 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- **lxml GHSA-vfmq-68hx-4jfw / CVE-2026-41066** — bumped `lxml` to `>=6.1.0`
+  to close an XXE vector in the default configuration of `iterparse()` and
+  `ETCompatXMLParser()` (`resolve_entities=True` allowed local-file reads).
+  `lxml` enters the lockfile transitively via `cyclonedx-bom`; the 4.x line
+  pinned `lxml<6`, so the dev floor was raised to `cyclonedx-bom>=7.3,<8.0`
+  (pulls `cyclonedx-python-lib` 11.x, which allows `lxml<7`) and an explicit
+  `lxml>=6.1.0` dev pin was added so future transitive bumps cannot regress
+  below the patched version.
+
 ## [0.0.17] - 2026-04-20
 
 ### Added

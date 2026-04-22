@@ -21,3 +21,4 @@ venv/
 dashboard/public/*.json
 dashboard/video-frames/*.png
 tests/.tmp-chroma-introspect/
+artifacts/
