@@ -5,11 +5,14 @@ Defines chunking policies, embedding settings, storage paths, and server config.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
+
+logger = logging.getLogger(__name__)
 
 # Environment variable for adding extra repos (comma-separated).
 _EXTRA_REPOS_ENV = "PIPECAT_HUB_EXTRA_REPOS"
@@ -41,6 +44,17 @@ _ALLOWED_RERANKER_MODELS: frozenset[str] = frozenset({
 
 # Environment variable for pinning the framework repo to a specific git tag.
 _FRAMEWORK_VERSION_ENV = "PIPECAT_HUB_FRAMEWORK_VERSION"
+
+# `serve` lifetime knobs. Idle timeout is user-facing (default 30 min;
+# 0 disables). Parent-watch interval is hidden / for tests, but lives
+# here for consistency with how every other env var is resolved.
+_IDLE_TIMEOUT_ENV = "PIPECAT_HUB_IDLE_TIMEOUT_SECS"
+_DEFAULT_IDLE_TIMEOUT_SECS = 1800.0
+_PARENT_WATCH_INTERVAL_ENV = "PIPECAT_HUB_PARENT_WATCH_INTERVAL"
+_DEFAULT_PARENT_WATCH_INTERVAL = 2.0
+# Floor for the parent-watch interval when non-zero — prevents a
+# misconfigured tiny value from CPU-spinning on os.getppid().
+_PARENT_WATCH_INTERVAL_FLOOR = 0.1
 
 
 def _split_csv_env(raw: str) -> list[str]:
@@ -229,6 +243,70 @@ class ServerConfig(BaseModel):
 
     transport: Literal["stdio"] = Field(default="stdio", description="Transport type (stdio only in v0).")
     log_level: str = Field(default="INFO", description="Logging level.")
+    idle_timeout_secs: float = Field(
+        default=_DEFAULT_IDLE_TIMEOUT_SECS,
+        description=(
+            "Exit `serve` if no MCP request arrives for this many seconds. "
+            "Catches the orphan-process case where the parent-death watchdog "
+            "cannot fire (e.g. under `uv run`, where uv stays alive as an "
+            "intermediate parent). Override via PIPECAT_HUB_IDLE_TIMEOUT_SECS. "
+            "Set to 0 to disable."
+        ),
+    )
+    parent_watch_interval_secs: float = Field(
+        default=_DEFAULT_PARENT_WATCH_INTERVAL,
+        description=(
+            "Polling interval for the parent-death watchdog inside `serve`. "
+            "Hidden tuning knob — for tests. Override via "
+            "PIPECAT_HUB_PARENT_WATCH_INTERVAL. Set to 0 to disable the "
+            "watchdog entirely."
+        ),
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_idle_timeout_secs(self) -> float:
+        """Resolved idle timeout: env var > field > default. 0 disables."""
+        raw = os.environ.get(_IDLE_TIMEOUT_ENV, "").strip()
+        if not raw:
+            return max(0.0, self.idle_timeout_secs)
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            logger.warning(
+                "Ignoring invalid %s=%r (not a float); using %.0fs",
+                _IDLE_TIMEOUT_ENV,
+                raw,
+                self.idle_timeout_secs,
+            )
+            return max(0.0, self.idle_timeout_secs)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_parent_watch_interval_secs(self) -> float:
+        """Resolved watchdog interval: env var > field > default.
+
+        0 disables the watchdog. Non-zero values are floored at
+        `_PARENT_WATCH_INTERVAL_FLOOR` to prevent a misconfigured tiny
+        value (e.g. ``0.0001``) from CPU-spinning on ``os.getppid()``.
+        """
+        raw = os.environ.get(_PARENT_WATCH_INTERVAL_ENV, "").strip()
+        if not raw:
+            value: float = max(0.0, self.parent_watch_interval_secs)
+        else:
+            try:
+                value = max(0.0, float(raw))
+            except ValueError:
+                logger.warning(
+                    "Ignoring invalid %s=%r (not a float); using %.1fs",
+                    _PARENT_WATCH_INTERVAL_ENV,
+                    raw,
+                    self.parent_watch_interval_secs,
+                )
+                value = max(0.0, self.parent_watch_interval_secs)
+        if value == 0.0:
+            return 0.0
+        return max(value, _PARENT_WATCH_INTERVAL_FLOOR)
 
 
 class SourceConfig(BaseModel):

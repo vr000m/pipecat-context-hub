@@ -24,13 +24,16 @@ def _serve_cmd(direct: bool = False) -> list[str]:
     """Command to launch `serve`.
 
     Default uses `uv run` (matches production / MCP-client invocation).
-    ``direct=True`` launches the venv entrypoint script directly, which
-    makes Python the immediate child of the test wrapper — required for
-    the PPID-watchdog test, because `uv run` keeps a live intermediate
-    process that prevents PPID flips from propagating.
+    ``direct=True`` launches via the test runner's interpreter
+    (``python -m pipecat_context_hub.cli serve``), which makes that
+    Python process the immediate child of the test wrapper — required
+    for the PPID-watchdog test, because `uv run` keeps a live
+    intermediate process that prevents PPID flips from propagating.
+    Using ``sys.executable`` avoids hardcoding ``.venv/bin/`` paths
+    that vary across UV_PROJECT_ENVIRONMENT, OS conventions, and CI.
     """
     if direct:
-        return [str(REPO_ROOT / ".venv" / "bin" / "pipecat-context-hub"), "serve"]
+        return [sys.executable, "-m", "pipecat_context_hub.cli", "serve"]
     return ["uv", "run", "--directory", str(REPO_ROOT), "pipecat-context-hub", "serve"]
 
 

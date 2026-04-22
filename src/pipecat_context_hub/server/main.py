@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 import mcp.types as types
 from mcp.server.lowlevel import Server
-
-if TYPE_CHECKING:
-    from pipecat_context_hub.server.transport import IdleTracker
 
 from pipecat_context_hub.services.index.store import IndexStore
 from pipecat_context_hub.shared.interfaces import Retriever
@@ -19,6 +16,7 @@ from pipecat_context_hub.shared.types import (
     GetDocInput,
     GetExampleInput,
     GetHubStatusInput,
+    IdleTracker,
     RerankerStatus,
     SearchApiInput,
     SearchDocsInput,
@@ -190,7 +188,7 @@ def create_server(
     retriever: Retriever,
     index_store: IndexStore | None = None,
     reranker_status_provider: Callable[[], RerankerStatus] | None = None,
-    idle_tracker: "IdleTracker | None" = None,
+    idle_tracker: IdleTracker | None = None,
 ) -> Server:
     """Create and configure the MCP server with all tool handlers.
 

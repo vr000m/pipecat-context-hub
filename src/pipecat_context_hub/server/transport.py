@@ -6,57 +6,17 @@ import asyncio
 import logging
 import os
 import sys
-import time
 
 from mcp import stdio_server
 from mcp.server.lowlevel import Server
 
+from pipecat_context_hub.shared.types import IdleTracker
+
 logger = logging.getLogger(__name__)
 
-# Hidden env var — for tests, not user-facing. Default 2.0s balances
-# responsiveness against wakeups.
-_PARENT_WATCH_INTERVAL_ENV = "PIPECAT_HUB_PARENT_WATCH_INTERVAL"
-_DEFAULT_PARENT_WATCH_INTERVAL = 2.0
-
-# User-facing — operators can tune. Default 30 minutes covers the
-# Claude-holds-pipes-open failure mode (where neither stdin EOF nor PPID
-# watchdog fires) without killing genuinely-idle-but-still-needed
-# sessions. Set to 0 to disable.
-_IDLE_TIMEOUT_ENV = "PIPECAT_HUB_IDLE_TIMEOUT_SECS"
-_DEFAULT_IDLE_TIMEOUT_SECS = 1800.0
+# Idle-watchdog poll cap. The actual poll interval is min(this, max(timeout/4, 1.0))
+# so very short timeouts (used in tests) still poll frequently enough.
 _IDLE_POLL_INTERVAL_SECS = 30.0
-
-
-class IdleTracker:
-    """Tracks the time since the last MCP tool dispatch.
-
-    Constructed once in ``cli.serve``; passed both to ``create_server``
-    (so the tool dispatcher can call ``touch()`` on every request) and
-    to ``serve_stdio`` (so the idle watchdog can read the timestamp).
-    Uses ``time.monotonic`` so wall-clock changes don't cause spurious
-    fires.
-    """
-
-    def __init__(self) -> None:
-        self._last = time.monotonic()
-
-    def touch(self) -> None:
-        self._last = time.monotonic()
-
-    def seconds_since_last(self) -> float:
-        return time.monotonic() - self._last
-
-
-async def _watch_idle(tracker: IdleTracker, timeout: float, interval: float) -> str:
-    """Return a reason string when the tracker has been idle for ``timeout`` seconds."""
-    while True:
-        await asyncio.sleep(interval)
-        idle = tracker.seconds_since_last()
-        if idle >= timeout:
-            return (
-                f"idle_timeout idle_seconds={idle:.0f} "
-                f"timeout_seconds={timeout:.0f}"
-            )
 
 
 async def _watch_parent(original_ppid: int, interval: float) -> str:
@@ -74,33 +34,51 @@ async def _watch_parent(original_ppid: int, interval: float) -> str:
             return f"parent_died original_ppid={original_ppid} current_ppid={current}"
 
 
+async def _watch_idle(tracker: IdleTracker, timeout: float, interval: float) -> str:
+    """Return a reason string when the tracker has been idle for ``timeout`` seconds."""
+    while True:
+        await asyncio.sleep(interval)
+        idle = tracker.seconds_since_last()
+        if idle >= timeout:
+            return (
+                f"idle_timeout idle_seconds={idle:.0f} "
+                f"timeout_seconds={timeout:.0f}"
+            )
+
+
 async def run_stdio(
     server: Server,
     original_ppid: int | None = None,
     idle_tracker: IdleTracker | None = None,
+    parent_watch_interval_secs: float = 0.0,
+    idle_timeout_secs: float = 0.0,
 ) -> None:
     """Run the MCP server over stdio transport.
 
-    Spawns a parent-death watchdog alongside the MCP loop. If the client
-    disappears without closing stdin (e.g. crashed editor that orphans
-    its FDs), the watchdog notices reparenting and triggers shutdown so
-    the hub does not accumulate as a zombie holding the index.
+    Spawns a parent-death watchdog and (optionally) an idle-timeout
+    watchdog alongside the MCP loop. If the client disappears without
+    closing stdin (e.g. crashed editor that orphans its FDs, or a
+    long-lived editor that stops using a hub it spawned), one of the
+    watchdogs notices and triggers shutdown so the hub does not
+    accumulate as a zombie holding the index.
 
-    ``original_ppid`` is the PPID snapshot to compare against. The caller
-    should capture it at process entry (before any slow startup work),
-    because startup can take several seconds and the client may die
-    during that window — if we snapshotted here, we'd lock in the
+    ``original_ppid`` is the PPID snapshot to compare against. The
+    caller should capture it at process entry (before any slow startup
+    work), because startup can take several seconds and the client may
+    die during that window — if we snapshotted here, we'd lock in the
     already-reparented PID and the watchdog would never fire.
+
+    ``parent_watch_interval_secs`` and ``idle_timeout_secs`` are
+    resolved by the caller (typically from ``ServerConfig`` env-aware
+    properties). A value of 0 disables the corresponding watchdog.
     """
     logger.info("Starting MCP server on stdio transport")
 
-    interval = _resolve_watch_interval()
-    enable_watchdog = sys.platform != "win32" and interval > 0
+    enable_watchdog = sys.platform != "win32" and parent_watch_interval_secs > 0
     if original_ppid is None:
         original_ppid = os.getppid() if enable_watchdog else 0
 
-    idle_timeout = _resolve_idle_timeout()
-    enable_idle_watch = idle_tracker is not None and idle_timeout > 0
+    enable_idle_watch = idle_tracker is not None and idle_timeout_secs > 0
 
     async with stdio_server() as (read_stream, write_stream):
         init_options = server.create_initialization_options()
@@ -113,15 +91,15 @@ async def run_stdio(
         idle_task: asyncio.Task[str] | None = None
         if enable_watchdog:
             watchdog_task = asyncio.create_task(
-                _watch_parent(original_ppid, interval),
+                _watch_parent(original_ppid, parent_watch_interval_secs),
                 name="parent-death-watchdog",
             )
             tasks.append(watchdog_task)
         if enable_idle_watch:
             assert idle_tracker is not None  # type-narrow for mypy
-            poll = min(_IDLE_POLL_INTERVAL_SECS, max(idle_timeout / 4.0, 1.0))
+            poll = min(_IDLE_POLL_INTERVAL_SECS, max(idle_timeout_secs / 4.0, 1.0))
             idle_task = asyncio.create_task(
-                _watch_idle(idle_tracker, idle_timeout, poll),
+                _watch_idle(idle_tracker, idle_timeout_secs, poll),
                 name="idle-watchdog",
             )
             tasks.append(idle_task)
@@ -150,10 +128,13 @@ async def run_stdio(
             # orphaned us without closing the pipe, that reader never
             # unblocks and `async with stdio_server()` hangs on exit.
             # Forcibly close stdin so the reader sees EOF / ClosedResource
-            # and the TaskGroup can unwind.
+            # and the TaskGroup can unwind. ValueError catches the case
+            # where sys.stdin was already closed at the Python level
+            # (fileno() raises on a closed stream); OSError catches
+            # EBADF from os.close on an already-closed FD.
             try:
                 os.close(sys.stdin.fileno())
-            except OSError:
+            except (OSError, ValueError):
                 pass
 
         # Surface server-task exceptions (e.g. unexpected protocol error)
@@ -168,6 +149,8 @@ def serve_stdio(
     server: Server,
     original_ppid: int | None = None,
     idle_tracker: IdleTracker | None = None,
+    parent_watch_interval_secs: float = 0.0,
+    idle_timeout_secs: float = 0.0,
 ) -> None:
     """Blocking entry point that runs the stdio server.
 
@@ -176,41 +159,15 @@ def serve_stdio(
     happens during startup is still detected by the watchdog.
     ``idle_tracker`` is the request-touch tracker used by the idle
     watchdog; the caller passes the same instance to ``create_server``.
+    The two timeouts come from ``ServerConfig`` env-aware computed
+    properties; 0 disables the corresponding watchdog.
     """
     asyncio.run(
-        run_stdio(server, original_ppid=original_ppid, idle_tracker=idle_tracker)
+        run_stdio(
+            server,
+            original_ppid=original_ppid,
+            idle_tracker=idle_tracker,
+            parent_watch_interval_secs=parent_watch_interval_secs,
+            idle_timeout_secs=idle_timeout_secs,
+        )
     )
-
-
-def _resolve_idle_timeout() -> float:
-    raw = os.environ.get(_IDLE_TIMEOUT_ENV, "").strip()
-    if not raw:
-        return _DEFAULT_IDLE_TIMEOUT_SECS
-    try:
-        value = float(raw)
-    except ValueError:
-        logger.warning(
-            "Ignoring invalid %s=%r (not a float); using %.0fs",
-            _IDLE_TIMEOUT_ENV,
-            raw,
-            _DEFAULT_IDLE_TIMEOUT_SECS,
-        )
-        return _DEFAULT_IDLE_TIMEOUT_SECS
-    return max(0.0, value)
-
-
-def _resolve_watch_interval() -> float:
-    raw = os.environ.get(_PARENT_WATCH_INTERVAL_ENV, "").strip()
-    if not raw:
-        return _DEFAULT_PARENT_WATCH_INTERVAL
-    try:
-        value = float(raw)
-    except ValueError:
-        logger.warning(
-            "Ignoring invalid %s=%r (not a float); using %.1fs",
-            _PARENT_WATCH_INTERVAL_ENV,
-            raw,
-            _DEFAULT_PARENT_WATCH_INTERVAL,
-        )
-        return _DEFAULT_PARENT_WATCH_INTERVAL
-    return max(0.0, value)

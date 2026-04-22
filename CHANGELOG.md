@@ -18,6 +18,17 @@ This project uses [Semantic Versioning](https://semver.org/).
   `lxml>=6.1.0` dev pin was added so future transitive bumps cannot regress
   below the patched version.
 
+### Changed
+
+- **`serve` lifetime knobs are now first-class `ServerConfig` fields** —
+  `idle_timeout_secs` and `parent_watch_interval_secs` join the existing
+  `transport` and `log_level` fields on `ServerConfig`, with env-aware
+  computed properties matching the rest of `HubConfig`. Env-var
+  resolution moved out of `transport.py` into `shared/config.py` for
+  consistency. `parent_watch_interval_secs` is now floored at `0.1s`
+  when non-zero (prevents misconfigured tiny values from CPU-spinning
+  on `os.getppid()`). No user-visible behaviour change.
+
 ### Added
 
 - **Idle-timeout shutdown for `serve`** — the server now exits on its

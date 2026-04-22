@@ -128,7 +128,8 @@ def serve(ctx: click.Context) -> None:
     _original_ppid = os.getppid()
 
     from pipecat_context_hub.server.main import create_server
-    from pipecat_context_hub.server.transport import IdleTracker, serve_stdio
+    from pipecat_context_hub.server.transport import serve_stdio
+    from pipecat_context_hub.shared.types import IdleTracker
     from pipecat_context_hub.services.embedding import EmbeddingService
     from pipecat_context_hub.services.index.store import IndexStore
     from pipecat_context_hub.services.retrieval.cross_encoder import CrossEncoderReranker
@@ -292,7 +293,13 @@ def serve(ctx: click.Context) -> None:
             reranker_status_provider=_reranker_status,
             idle_tracker=idle_tracker,
         )
-        serve_stdio(server, original_ppid=_original_ppid, idle_tracker=idle_tracker)
+        serve_stdio(
+            server,
+            original_ppid=_original_ppid,
+            idle_tracker=idle_tracker,
+            parent_watch_interval_secs=config.server.effective_parent_watch_interval_secs,
+            idle_timeout_secs=config.server.effective_idle_timeout_secs,
+        )
     finally:
         index_store.close()
 
@@ -821,3 +828,11 @@ def _print_refresh_summary(
         f"Refresh complete: {total_upserted:,} upserted, "
         f"{error_count} errors, {duration}s."
     )
+
+
+# Enables ``python -m pipecat_context_hub.cli`` invocation, which the
+# integration test uses to launch `serve` as a direct child of the test
+# wrapper (avoiding the `uv run` intermediate that prevents the PPID
+# watchdog from firing).
+if __name__ == "__main__":
+    main()
