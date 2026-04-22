@@ -213,6 +213,12 @@ def create_server(
 
     @server.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
     async def list_tools() -> list[types.Tool]:
+        # Count capability-refresh requests as activity too — some clients
+        # keep the session alive by polling tools/list without ever
+        # dispatching a tool call. Reaping those as idle would be a false
+        # positive.
+        if idle_tracker is not None:
+            idle_tracker.touch()
         return [
             types.Tool(
                 name=name,

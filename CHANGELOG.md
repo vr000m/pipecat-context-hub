@@ -39,12 +39,14 @@ This project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - **Idle-timeout shutdown for `serve`** — the server now exits on its
-  own when no MCP tool dispatch arrives for `PIPECAT_HUB_IDLE_TIMEOUT_SECS`
+  own when no MCP request arrives for `PIPECAT_HUB_IDLE_TIMEOUT_SECS`
   seconds (default `1800`, i.e. 30 minutes). Catches the production
   failure mode the parent-death watchdog cannot: when the client stays
   alive but stops using a hub it spawned without closing the pipe (the
-  case responsible for most accumulated zombies under `uv run`). Set
-  `PIPECAT_HUB_IDLE_TIMEOUT_SECS=0` to disable. Logs
+  case responsible for most accumulated zombies under `uv run`). Both
+  `tools/list` and `tools/call` reset the idle clock, so sessions that
+  only poll capabilities without dispatching a tool still count as
+  active. Set `PIPECAT_HUB_IDLE_TIMEOUT_SECS=0` to disable. Logs
   `idle_timeout idle_seconds=N timeout_seconds=N` at INFO when it fires.
 
 ### Fixed
