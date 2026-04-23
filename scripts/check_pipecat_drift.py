@@ -39,6 +39,7 @@ import json
 import subprocess  # nosec B404 - we construct the args ourselves
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -89,7 +90,8 @@ def _load_pins(path: Path) -> dict[str, dict[str, str]]:
     if not path.is_file():
         raise SystemExit(f"FIXTURE_PINS.json not found at {path}")
     with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        data: dict[str, dict[str, str]] = json.load(fh)
+    return data
 
 
 def _resolve_repos(
@@ -128,11 +130,22 @@ def _clone_repo(slug: str, ref: str, dest: Path) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True)  # nosec B603
 
 
-def _run_checks(repo_root: Path, result: RepoResult) -> None:
-    """Run every invariant helper, collecting pass/fail per helper."""
+def _check_capability_tags(repo_root: Path) -> None:
+    """Populate a fresh builder then assert tags are non-empty."""
     builder = TaxonomyBuilder()
+    builder.build_from_directory(repo_root, repo="drift-check", commit_sha=None)
+    assert_capability_tags_non_empty(builder)
 
-    checks: list[tuple[str, callable]] = [  # type: ignore[valid-type]
+
+def _run_checks(repo_root: Path, result: RepoResult) -> None:
+    """Run every invariant helper, collecting pass/fail per helper.
+
+    Each helper that consumes a ``TaxonomyBuilder`` gets a fresh instance —
+    ``TaxonomyBuilder.build_from_directory`` accumulates entries across calls,
+    so sharing the same builder between helpers double-counts results and
+    garbles error messages.
+    """
+    checks: list[tuple[str, Callable[[], None]]] = [
         (
             "assert_discovery_yields_code_files",
             lambda: assert_discovery_yields_code_files(repo_root),
@@ -140,16 +153,16 @@ def _run_checks(repo_root: Path, result: RepoResult) -> None:
         (
             "assert_every_discovered_dir_has_taxonomy_entry",
             lambda: assert_every_discovered_dir_has_taxonomy_entry(
-                repo_root, builder
+                repo_root, TaxonomyBuilder()
             ),
         ),
         (
             "assert_no_junk_entries",
-            lambda: assert_no_junk_entries(repo_root, builder),
+            lambda: assert_no_junk_entries(repo_root, TaxonomyBuilder()),
         ),
         (
             "assert_capability_tags_non_empty",
-            lambda: assert_capability_tags_non_empty(builder),
+            lambda: _check_capability_tags(repo_root),
         ),
     ]
 

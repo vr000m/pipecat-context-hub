@@ -660,7 +660,7 @@ class TaxonomyBuilder:
                 for ex_dir in sorted(topic.iterdir()):
                     if not ex_dir.is_dir():
                         continue
-                    if ex_dir.name in _TOPIC_SKIP_DIRS:
+                    if ex_dir.name.startswith(".") or ex_dir.name in _TOPIC_SKIP_DIRS:
                         continue
                     entries.append(
                         self._build_entry_for_topic_example(
