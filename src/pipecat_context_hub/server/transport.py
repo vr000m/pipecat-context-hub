@@ -85,6 +85,14 @@ async def run_stdio(
     ``parent_watch_interval_secs`` and ``idle_timeout_secs`` are
     resolved by the caller (typically from ``ServerConfig`` env-aware
     properties). A value of 0 disables the corresponding watchdog.
+
+    ``exit_on_watchdog_shutdown`` decides what happens when a watchdog
+    fires. True (CLI mode): close stdin, arm a hard-exit timer, and
+    call ``os._exit(0)`` after graceful unwind. False (in-process
+    mode): no stdin close, no timer, no ``os._exit`` — tasks are
+    cancelled, the shutdown callback runs once after cancellation, and
+    ``run_stdio`` returns ``shutdown_reason`` so the caller can drive
+    its own teardown. See ``serve_stdio`` for the full rationale.
     """
     logger.info("Starting MCP server on stdio transport")
 
@@ -253,7 +261,9 @@ async def run_stdio(
             # exists; that is the in-process caller's problem to handle
             # (e.g. test setups mock `stdio_server` to avoid it).
             logger.info("Shutting down: %s", shutdown_reason)
-            _invoke_shutdown_cb_once("graceful unwind (in-process)")
+            # Callback runs AFTER cancellation (below) to mirror the
+            # exit branch's ordering and avoid racing a still-pending
+            # tool call that is mid-read against the IndexStore.
 
         for task in pending:
             task.cancel()
@@ -262,6 +272,11 @@ async def run_stdio(
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+
+        if graceful_done is None and shutdown_reason is not None:
+            # In-process safe-mode cleanup: tasks are now cancelled, so
+            # it is safe to release index handles.
+            _invoke_shutdown_cb_once("graceful unwind (in-process)")
 
         if graceful_done is not None:
             # Exit path only (`exit_on_watchdog_shutdown=True`). The
