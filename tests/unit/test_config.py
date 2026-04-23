@@ -88,9 +88,84 @@ class TestServerConfig:
         s = ServerConfig()
         assert s.transport == "stdio"
         assert s.log_level == "INFO"
+        assert s.idle_timeout_secs == 1800.0
+        assert s.parent_watch_interval_secs == 2.0
 
     def test_round_trip(self):
         _round_trip(ServerConfig())
+
+
+class TestServerConfigEffectiveIdleTimeout:
+    def test_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv("PIPECAT_HUB_IDLE_TIMEOUT_SECS", raising=False)
+        assert ServerConfig().effective_idle_timeout_secs == 1800.0
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_IDLE_TIMEOUT_SECS", "60")
+        assert ServerConfig().effective_idle_timeout_secs == 60.0
+
+    def test_env_zero_disables(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_IDLE_TIMEOUT_SECS", "0")
+        assert ServerConfig().effective_idle_timeout_secs == 0.0
+
+    def test_env_invalid_falls_back_to_field(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_IDLE_TIMEOUT_SECS", "garbage")
+        assert ServerConfig(idle_timeout_secs=42.0).effective_idle_timeout_secs == 42.0
+
+    def test_env_negative_clamped_to_zero(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_IDLE_TIMEOUT_SECS", "-30")
+        assert ServerConfig().effective_idle_timeout_secs == 0.0
+
+    def test_field_override_when_no_env(self, monkeypatch):
+        monkeypatch.delenv("PIPECAT_HUB_IDLE_TIMEOUT_SECS", raising=False)
+        assert ServerConfig(idle_timeout_secs=300.0).effective_idle_timeout_secs == 300.0
+
+    def test_env_nan_falls_back_to_field(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_IDLE_TIMEOUT_SECS", "nan")
+        assert ServerConfig(idle_timeout_secs=42.0).effective_idle_timeout_secs == 42.0
+
+    def test_env_inf_falls_back_to_field(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_IDLE_TIMEOUT_SECS", "inf")
+        assert ServerConfig(idle_timeout_secs=42.0).effective_idle_timeout_secs == 42.0
+
+
+class TestServerConfigEffectiveParentWatchInterval:
+    def test_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", raising=False)
+        assert ServerConfig().effective_parent_watch_interval_secs == 2.0
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", "0.5")
+        assert ServerConfig().effective_parent_watch_interval_secs == 0.5
+
+    def test_env_zero_disables(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", "0")
+        assert ServerConfig().effective_parent_watch_interval_secs == 0.0
+
+    def test_env_invalid_falls_back_to_field(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", "garbage")
+        assert ServerConfig(parent_watch_interval_secs=1.5).effective_parent_watch_interval_secs == 1.5
+
+    def test_env_negative_clamped_to_zero(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", "-1")
+        assert ServerConfig().effective_parent_watch_interval_secs == 0.0
+
+    def test_tiny_positive_floored_to_minimum(self, monkeypatch):
+        # Prevents misconfiguration like "0.0001" from CPU-spinning os.getppid().
+        monkeypatch.setenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", "0.0001")
+        assert ServerConfig().effective_parent_watch_interval_secs == 0.1
+
+    def test_at_floor_unchanged(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", "0.1")
+        assert ServerConfig().effective_parent_watch_interval_secs == 0.1
+
+    def test_env_nan_falls_back_to_field(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", "nan")
+        assert ServerConfig(parent_watch_interval_secs=1.5).effective_parent_watch_interval_secs == 1.5
+
+    def test_env_inf_falls_back_to_field(self, monkeypatch):
+        monkeypatch.setenv("PIPECAT_HUB_PARENT_WATCH_INTERVAL", "inf")
+        assert ServerConfig(parent_watch_interval_secs=1.5).effective_parent_watch_interval_secs == 1.5
 
 
 class TestSourceConfig:

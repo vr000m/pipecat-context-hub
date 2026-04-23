@@ -10,6 +10,7 @@ from mcp.server.lowlevel import Server
 
 from pipecat_context_hub.services.index.store import IndexStore
 from pipecat_context_hub.shared.interfaces import Retriever
+from pipecat_context_hub.shared.tracking import IdleTracker
 from pipecat_context_hub.shared.types import (
     CheckDeprecationInput,
     GetCodeSnippetInput,
@@ -32,7 +33,7 @@ from pipecat_context_hub.server.tools.search_examples import handle_search_examp
 
 logger = logging.getLogger(__name__)
 
-_SERVER_VERSION = "0.0.17"
+_SERVER_VERSION = "0.0.18"
 
 # Tool name → (description, input schema, handler)
 _BASE_TOOLS: list[tuple[str, str, dict[str, Any]]] = [
@@ -187,6 +188,7 @@ def create_server(
     retriever: Retriever,
     index_store: IndexStore | None = None,
     reranker_status_provider: Callable[[], RerankerStatus] | None = None,
+    idle_tracker: IdleTracker | None = None,
 ) -> Server:
     """Create and configure the MCP server with all tool handlers.
 
@@ -209,8 +211,34 @@ def create_server(
         instructions=_SERVER_INSTRUCTIONS,
     )
 
+    # MCP's low-level Server routes `ping` requests via its built-in
+    # handler (`types.PingRequest -> _ping_handler`), bypassing our
+    # list/call decorators. Clients that keep an otherwise idle
+    # session alive via periodic pings would otherwise still be
+    # reaped by the idle watchdog after `idle_timeout_secs`. Wrap
+    # the built-in ping handler so it counts as activity.
+    if idle_tracker is not None:
+        _builtin_ping = server.request_handlers.get(types.PingRequest)
+        if _builtin_ping is not None:
+            # Bind a local so the closure captures a non-Optional
+            # reference (avoids mypy narrowing issues and a bandit
+            # B101 `assert`).
+            _tracker = idle_tracker
+
+            async def _ping_with_idle_touch(request: types.PingRequest) -> types.ServerResult:
+                _tracker.touch()
+                return await _builtin_ping(request)
+
+            server.request_handlers[types.PingRequest] = _ping_with_idle_touch
+
     @server.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
     async def list_tools() -> list[types.Tool]:
+        # Count capability-refresh requests as activity too — some clients
+        # keep the session alive by polling tools/list without ever
+        # dispatching a tool call. Reaping those as idle would be a false
+        # positive.
+        if idle_tracker is not None:
+            idle_tracker.touch()
         return [
             types.Tool(
                 name=name,
@@ -222,33 +250,45 @@ def create_server(
 
     @server.call_tool()  # type: ignore[untyped-decorator]
     async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
-        args = arguments or {}
+        # Mark the call in-flight so the idle watchdog treats the whole
+        # dispatch (including slow first-call lazy loads in
+        # EmbeddingService / the cross-encoder) as active. `begin()`
+        # also touches the clock; `end()` resets it again at completion
+        # so the idle window starts from "request finished", not
+        # "request dispatched".
+        if idle_tracker is not None:
+            idle_tracker.begin()
+        try:
+            args = arguments or {}
 
-        # get_hub_status has a different dispatch signature (needs index_store)
-        if name == "get_hub_status" and index_store is not None:
-            status = reranker_status_provider() if reranker_status_provider else None
-            result_json = await handle_get_hub_status(args, index_store, status)
+            # get_hub_status has a different dispatch signature (needs index_store)
+            if name == "get_hub_status" and index_store is not None:
+                status = reranker_status_provider() if reranker_status_provider else None
+                result_json = await handle_get_hub_status(args, index_store, status)
+                return [types.TextContent(type="text", text=result_json)]
+
+            # check_deprecation dispatches via retriever.deprecation_map
+            if name == "check_deprecation":
+                dep_map = getattr(retriever, "deprecation_map", None)
+                result_json = await handle_check_deprecation(args, dep_map)
+                return [types.TextContent(type="text", text=result_json)]
+
+            handler_map: dict[str, Any] = {
+                "search_docs": handle_search_docs,
+                "get_doc": handle_get_doc,
+                "search_examples": handle_search_examples,
+                "get_example": handle_get_example,
+                "get_code_snippet": handle_get_code_snippet,
+                "search_api": handle_search_api,
+            }
+            handler = handler_map.get(name)
+            if handler is None:
+                raise ValueError(f"Unknown tool: {name}")
+
+            result_json = await handler(args, retriever)
             return [types.TextContent(type="text", text=result_json)]
-
-        # check_deprecation dispatches via retriever.deprecation_map
-        if name == "check_deprecation":
-            dep_map = getattr(retriever, "deprecation_map", None)
-            result_json = await handle_check_deprecation(args, dep_map)
-            return [types.TextContent(type="text", text=result_json)]
-
-        handler_map: dict[str, Any] = {
-            "search_docs": handle_search_docs,
-            "get_doc": handle_get_doc,
-            "search_examples": handle_search_examples,
-            "get_example": handle_get_example,
-            "get_code_snippet": handle_get_code_snippet,
-            "search_api": handle_search_api,
-        }
-        handler = handler_map.get(name)
-        if handler is None:
-            raise ValueError(f"Unknown tool: {name}")
-
-        result_json = await handler(args, retriever)
-        return [types.TextContent(type="text", text=result_json)]
+        finally:
+            if idle_tracker is not None:
+                idle_tracker.end()
 
     return server

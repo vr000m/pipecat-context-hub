@@ -120,8 +120,16 @@ def main(ctx: click.Context, log_level: str) -> None:
 @click.pass_context
 def serve(ctx: click.Context) -> None:
     """Start the MCP server (stdio transport)."""
+    # Capture PPID at the very top — before IndexStore/embedding/reranker
+    # construction, which can take several seconds. If the client dies
+    # during that startup window, os.getppid() has already flipped to 1
+    # by the time run_stdio() snapshots it, and the watchdog would lock
+    # in the already-reparented PID and never fire.
+    _original_ppid = os.getppid()
+
     from pipecat_context_hub.server.main import create_server
     from pipecat_context_hub.server.transport import serve_stdio
+    from pipecat_context_hub.shared.tracking import IdleTracker
     from pipecat_context_hub.services.embedding import EmbeddingService
     from pipecat_context_hub.services.index.store import IndexStore
     from pipecat_context_hub.services.retrieval.cross_encoder import CrossEncoderReranker
@@ -278,12 +286,38 @@ def serve(ctx: click.Context) -> None:
                 "Loaded deprecation map: %d entries", len(retriever.deprecation_map.entries)
             )
 
+        idle_tracker = IdleTracker()
         server = create_server(
             retriever,
             index_store,
             reranker_status_provider=_reranker_status,
+            idle_tracker=idle_tracker,
         )
-        serve_stdio(server)
+        def _close_index_store_on_watchdog_shutdown() -> None:
+            """Release index handles on any watchdog-triggered shutdown.
+
+            `run_stdio` calls this on both the graceful watchdog path
+            (inline, while the hard-exit timer is armed) and the
+            hard-exit path (timer thread, if graceful unwind hangs).
+            A single-shot guard in `run_stdio` ensures at most one
+            invocation. Since `os._exit(0)` then skips the outer
+            `finally`, closing the store here keeps Chroma's SQLite
+            WAL / FTS handles from leaking on abrupt exit.
+            """
+            try:
+                index_store.close()
+            except Exception:
+                logger.exception("Failed to close index store on watchdog shutdown")
+
+        serve_stdio(
+            server,
+            original_ppid=_original_ppid,
+            idle_tracker=idle_tracker,
+            parent_watch_interval_secs=config.server.effective_parent_watch_interval_secs,
+            idle_timeout_secs=config.server.effective_idle_timeout_secs,
+            on_watchdog_shutdown=_close_index_store_on_watchdog_shutdown,
+            exit_on_watchdog_shutdown=True,
+        )
     finally:
         index_store.close()
 
@@ -812,3 +846,7 @@ def _print_refresh_summary(
         f"Refresh complete: {total_upserted:,} upserted, "
         f"{error_count} errors, {duration}s."
     )
+
+
+if __name__ == "__main__":
+    main()

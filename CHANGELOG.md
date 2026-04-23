@@ -5,7 +5,27 @@ All notable changes to the Pipecat Context Hub are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.0.18] - 2026-04-21
+
+### Fixed
+
+- **Idle watchdog no longer reaps in-flight requests** — `IdleTracker`
+  now counts active tool dispatches (`begin()` / `end()`) and reports
+  `seconds_since_last() == 0` while any call is active. Previously the
+  clock was only touched on call entry, so a cold `search_*` /
+  `get_code_snippet` that waited on `EmbeddingService` or the
+  cross-encoder lazy load could exceed
+  `PIPECAT_HUB_IDLE_TIMEOUT_SECS` and be killed mid-response. The
+  clock is also reset on `end()` so the idle window starts at "request
+  finished", not "request dispatched".
+- **`exit_on_watchdog_shutdown=False` is now host-safe end-to-end** —
+  the in-process / library-embedding mode previously still closed
+  `sys.stdin` and armed the 2.5 s hard-exit timer, either of which
+  could tear down the host process. The flag now gates every
+  host-affecting action: when `False`, `run_stdio` cancels its own
+  tasks, invokes the shutdown callback once, and returns
+  `shutdown_reason` to the caller without touching stdin or spawning
+  the timer thread.
 
 ### Security
 
@@ -17,6 +37,80 @@ This project uses [Semantic Versioning](https://semver.org/).
   (pulls `cyclonedx-python-lib` 11.x, which allows `lxml<7`) and an explicit
   `lxml>=6.1.0` dev pin was added so future transitive bumps cannot regress
   below the patched version.
+
+### Changed
+
+- **`serve` lifetime knobs are now first-class `ServerConfig` fields** —
+  `idle_timeout_secs` and `parent_watch_interval_secs` join the existing
+  `transport` and `log_level` fields on `ServerConfig`, with env-aware
+  computed properties matching the rest of `HubConfig`. Env-var
+  resolution moved out of `transport.py` into `shared/config.py` for
+  consistency. `parent_watch_interval_secs` is now floored at `0.1s`
+  when non-zero (prevents misconfigured tiny values from CPU-spinning
+  on `os.getppid()`). Both parsers reject non-finite values
+  (`nan`/`inf`) with a warning and fall back to the field default. No
+  user-visible behaviour change.
+- **`IdleTracker` moved from `shared/types.py` to new
+  `shared/tracking.py`** — `shared/types.py` now holds only Pydantic
+  data contracts; stateful runtime helpers live in `shared/tracking.py`.
+  Internal refactor only; imports in `cli.py`, `server/main.py`,
+  `server/transport.py` updated accordingly.
+
+### Added
+
+- **Idle-timeout shutdown for `serve`** — the server now exits on its
+  own when no MCP request arrives for `PIPECAT_HUB_IDLE_TIMEOUT_SECS`
+  seconds (default `1800`, i.e. 30 minutes). Catches the production
+  failure mode the parent-death watchdog cannot: when the client stays
+  alive but stops using a hub it spawned without closing the pipe (the
+  case responsible for most accumulated zombies under `uv run`). Both
+  `tools/list` and `tools/call` reset the idle clock, so sessions that
+  only poll capabilities without dispatching a tool still count as
+  active. Set `PIPECAT_HUB_IDLE_TIMEOUT_SECS=0` to disable. Logs
+  `idle_timeout idle_seconds=N timeout_seconds=N` at INFO when it fires.
+
+### Fixed
+
+- **Orphan `serve` processes no longer accumulate** (direct-invocation
+  path) — a parent-death watchdog inside the stdio transport polls
+  `os.getppid()` every 2s and triggers a clean shutdown when the MCP
+  client disappears without closing stdio. The PPID is snapshotted at
+  CLI entry (before IndexStore / embedding / reranker construction) so
+  client deaths during startup are still detected. On trigger, stdin is
+  forcibly closed to unblock MCP's internal `stdin_reader` task,
+  allowing the `stdio_server` context manager to unwind and the
+  `IndexStore` finally-block to close handles cleanly. The watchdog
+  logs `parent_died original_ppid=N current_ppid=1` at INFO when it
+  fires. Honors hidden env var `PIPECAT_HUB_PARENT_WATCH_INTERVAL`
+  (seconds, default `2.0`) for tests. Disabled on Windows where
+  orphan-reparent semantics differ — stdin EOF still works there.
+
+  **Known gap:** when `serve` is launched via `uv run
+  pipecat-context-hub serve` (the default in this project's docs and
+  in most MCP-client configs), `uv` stays alive as an intermediate
+  parent and the inner Python process's PPID never flips — the
+  parent-death watchdog does not fire. The new idle-timeout (above)
+  covers this case as a backstop. For instant cleanup on parent
+  death, configure your MCP client to launch Python directly
+  (e.g. `.venv/bin/pipecat-context-hub serve`); see the README's
+  "MCP client configuration" section for examples.
+
+- **Hard-exit backstop for Linux `mcp.stdio_server` teardown hang** —
+  on Linux, `mcp.stdio_server` parks its stdin reader in
+  `anyio.to_thread.run_sync(readline, cancellable=False)`. Once
+  parked, the worker thread is stuck in an uninterruptible `read(0)`;
+  both `stdio_server.__aexit__` and CPython's interpreter shutdown
+  wait on it forever. After a watchdog fires, `run_stdio` now
+  releases index handles via the shutdown callback and calls
+  `os._exit(0)` directly — before `__aexit__` can hang. A daemon
+  timer thread (2.5 s budget) provides a secondary backstop if the
+  callback itself hangs inside Chroma close. A single-shot guard
+  prevents the graceful path and the timer from invoking the
+  callback concurrently when the graceful-path call is what's hung.
+  The `on_hard_exit` kwarg was renamed to `on_watchdog_shutdown` to
+  reflect the dual-path semantics; `exit_on_watchdog_shutdown` opts
+  the CLI into the `os._exit` behaviour while keeping in-process
+  callers safe.
 
 ## [0.0.17] - 2026-04-20
 

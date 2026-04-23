@@ -7,6 +7,7 @@
 ## Completed Tasks
 | Date | Type | Name | Status | Assignee | Branch | Plan |
 |---|---|---|---|---|---|---|
+| 2026-04-21 | bug | Bound `serve` process lifetime to its client (parent-death watchdog) | Complete (v0.0.18) | vr000m | `feature/serve-orphan-watchdog` | `20260421-bug-serve-orphan-watchdog.md` |
 | 2026-04-20 | feature | Reranker Startup Telemetry (banner, HF cache-path diagnostics, degraded-hub guideline) | Complete (v0.0.17) | vr000m | `feature/reranker-startup-telemetry` | _(no plan file)_ |
 | 2026-04-20 | feature | Fail-fast on empty or unopenable index in `serve` | Complete (v0.0.17) | vr000m | `feature/fail-fast-empty-index` | _(no plan file)_ |
 | 2026-04-20 | feature | Configurable Cross-Encoder Reranker Model Selection | Complete (v0.0.17) | vr000m | `feature/reranker-model-selection` | `20260420-feature-reranker-model-selection.md` |

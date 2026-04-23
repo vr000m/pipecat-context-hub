@@ -75,7 +75,11 @@ A test (`tests/unit/test_server.py::TestVersionConsistency`) enforces they match
 ```
 src/pipecat_context_hub/
 ├── cli.py                    # CLI entry point (serve + refresh)
-├── shared/                   # Types, interfaces, config
+├── shared/                   # Pydantic data contracts, interfaces, config
+│   ├── types.py              # Pydantic models (MCP I/O, chunks, evidence)
+│   ├── config.py             # HubConfig + env-aware computed fields
+│   ├── interfaces.py         # IndexWriter/Reader, Retriever, Ingester
+│   └── tracking.py           # Runtime helpers (IdleTracker)
 ├── services/
 │   ├── embedding.py          # EmbeddingService
 │   ├── ingest/               # Docs crawler, GitHub ingester, Python AST, TS tree-sitter, taxonomy, version extraction, deprecation map
@@ -83,6 +87,7 @@ src/pipecat_context_hub/
 │   └── retrieval/            # HybridRetriever, decompose, rerank, evidence
 └── server/
     ├── main.py               # MCP server setup (_SERVER_VERSION here)
+    ├── transport.py          # stdio transport + parent-death / idle watchdogs
     └── tools/                # Per-tool handler modules
 
 dashboard/

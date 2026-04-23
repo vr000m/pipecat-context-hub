@@ -172,6 +172,73 @@ class TestToolRegistration:
         server = create_server(mock_retriever)
         assert types.ListToolsRequest in server.request_handlers
 
+    async def test_list_tools_touches_idle_tracker(self, mock_retriever):
+        """tools/list must reset the idle clock — clients that only poll
+        capabilities (no tool calls) still represent an active session."""
+        import mcp.types as types
+        from pipecat_context_hub.shared.tracking import IdleTracker
+
+        tracker = IdleTracker()
+        server = create_server(mock_retriever, idle_tracker=tracker)
+        handler = server.request_handlers[types.ListToolsRequest]
+        request = types.ListToolsRequest(method="tools/list")
+
+        # Age the tracker, then fire the handler; touch() must reset it.
+        tracker._last -= 1000.0
+        assert tracker.seconds_since_last() >= 1000.0
+        await handler(request)
+        assert tracker.seconds_since_last() < 1.0
+
+    async def test_call_tool_touches_idle_tracker(self, mock_retriever):
+        """tools/call must reset the idle clock (existing behaviour, now pinned)."""
+        import mcp.types as types
+        from pipecat_context_hub.shared.tracking import IdleTracker
+
+        tracker = IdleTracker()
+        server = create_server(mock_retriever, idle_tracker=tracker)
+        handler = server.request_handlers[types.CallToolRequest]
+        request = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(name="search_docs", arguments={"query": "x"}),
+        )
+
+        tracker._last -= 1000.0
+        assert tracker.seconds_since_last() >= 1000.0
+        await handler(request)
+        assert tracker.seconds_since_last() < 1.0
+
+    async def test_ping_touches_idle_tracker(self, mock_retriever):
+        """MCP `ping` requests are handled by the low-level Server directly
+        (not via our list/call decorators), so they must still count as
+        activity — otherwise a client keeping an idle session alive with
+        periodic ping heartbeats would still be reaped as idle.
+        """
+        import mcp.types as types
+        from pipecat_context_hub.shared.tracking import IdleTracker
+
+        tracker = IdleTracker()
+        server = create_server(mock_retriever, idle_tracker=tracker)
+        handler = server.request_handlers[types.PingRequest]
+        request = types.PingRequest(method="ping")
+
+        tracker._last -= 1000.0
+        assert tracker.seconds_since_last() >= 1000.0
+        result = await handler(request)
+        assert tracker.seconds_since_last() < 1.0
+        # Built-in ping still returns an EmptyResult.
+        assert isinstance(result.root, types.EmptyResult)
+
+    async def test_ping_handler_noop_without_idle_tracker(self, mock_retriever):
+        """Omitting idle_tracker must leave the built-in ping handler
+        in place unchanged — we don't want to break ping when idle
+        watchdogging is disabled."""
+        import mcp.types as types
+
+        server = create_server(mock_retriever)  # no idle_tracker
+        handler = server.request_handlers[types.PingRequest]
+        result = await handler(types.PingRequest(method="ping"))
+        assert isinstance(result.root, types.EmptyResult)
+
 
 # ---------------------------------------------------------------------------
 # Tool dispatch tests
