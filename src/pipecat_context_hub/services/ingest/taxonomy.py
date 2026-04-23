@@ -361,6 +361,7 @@ class TaxonomyBuilder:
         *,
         repo: str = "pipecat-ai/pipecat-examples",
         commit_sha: str | None = None,
+        require_example_markers: bool = False,
     ) -> list[TaxonomyEntry]:
         """Scan a pipecat-examples repo root and produce entries.
 
@@ -368,6 +369,15 @@ class TaxonomyBuilder:
             root: Path to the repo root directory.
             repo: GitHub repo slug.
             commit_sha: Optional commit SHA for provenance.
+            require_example_markers: When ``True``, skip well-known
+                non-example root dirs (``src``, ``tests``, ``docs``,
+                ``scripts``, ``dashboard``, ``.github``, ``.claude``) in
+                addition to the baseline ``.*``/``__pycache__``/
+                ``node_modules`` filters. Used by ``build_from_directory``
+                when falling back at the root of a packaged project
+                (i.e. a repo that also contains ``src/`` or
+                ``pyproject.toml``) to avoid emitting junk taxonomy
+                entries for source/test/doc trees.
 
         Returns:
             List of TaxonomyEntry objects, one per subdirectory.
@@ -375,11 +385,22 @@ class TaxonomyBuilder:
         entries: list[TaxonomyEntry] = []
         if not root.is_dir():
             return entries
+        packaged_project_skip = {
+            "src",
+            "tests",
+            "docs",
+            "scripts",
+            "dashboard",
+            ".github",
+            ".claude",
+        }
         for child in sorted(root.iterdir()):
             if not child.is_dir():
                 continue
             # Skip hidden dirs and common non-example dirs
             if child.name.startswith(".") or child.name in ("__pycache__", "node_modules"):
+                continue
+            if require_example_markers and child.name in packaged_project_skip:
                 continue
             entry = self._build_entry_for_example(child, repo=repo, commit_sha=commit_sha)
             entries.append(entry)
@@ -469,7 +490,17 @@ class TaxonomyBuilder:
             return self.build_from_topic_dirs(
                 examples_dir, repo=repo, commit_sha=commit_sha
             )
-        return self.build_from_examples_repo(root, repo=repo, commit_sha=commit_sha)
+        # Root-level fallback (``pipecat-examples`` layout). When the repo
+        # root also looks like a packaged project (contains ``src/`` or
+        # ``pyproject.toml``), require_example_markers=True keeps junk
+        # entries for ``src``/``tests``/``docs``/etc. out of the taxonomy.
+        require_markers = (root / "src").is_dir() or (root / "pyproject.toml").is_file()
+        return self.build_from_examples_repo(
+            root,
+            repo=repo,
+            commit_sha=commit_sha,
+            require_example_markers=require_markers,
+        )
 
     @property
     def entries(self) -> list[TaxonomyEntry]:

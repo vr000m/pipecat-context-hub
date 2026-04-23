@@ -1192,6 +1192,152 @@ class TestTaxonomyBuilderTopicLayout:
             )
 
 
+def test_no_junk_entries_from_repo_root(tmp_path: Path):
+    """Phase 2: ``build_from_directory`` on a packaged-repo root with
+    ``src/``, ``tests/``, ``docs/`` and a real ``examples/foo/bot.py`` must
+    yield exactly one entry for ``examples/foo`` and zero entries for the
+    non-example root siblings.
+    """
+    # Packaged-project markers: src/ + pyproject.toml trigger
+    # require_example_markers=True in the fallback.
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'pkg'\n")
+
+    src = tmp_path / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "__init__.py").write_text("")
+    (src / "module.py").write_text(
+        "from pipecat.pipeline.pipeline import Pipeline\nPipeline()\n"
+    )
+
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_something.py").write_text("def test_ok():\n    assert True\n")
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# Docs\n")
+
+    foo = tmp_path / "examples" / "foo"
+    foo.mkdir(parents=True)
+    (foo / "bot.py").write_text(
+        "from pipecat.services.openai import OpenAILLMService\n"
+    )
+    (foo / "README.md").write_text("# Foo\n\nFoo example.\n")
+
+    builder = TaxonomyBuilder()
+    entries = builder.build_from_directory(
+        tmp_path, repo="org/packaged-project", commit_sha="abc123"
+    )
+
+    paths = {e.path for e in entries}
+
+    # Exactly one entry for examples/foo.
+    foo_entries = [e for e in entries if e.path == "examples/foo"]
+    assert len(foo_entries) == 1, (
+        f"Expected exactly one entry for 'examples/foo'; got paths={sorted(paths)}"
+    )
+
+    # No junk entries for packaged-project sibling dirs.
+    for junk in ("src", "tests", "docs"):
+        assert junk not in paths, (
+            f"Fallback emitted junk entry for {junk!r}; paths={sorted(paths)}"
+        )
+
+
+class TestBuildFromExamplesRepoExampleMarkers:
+    """Phase 2: ``build_from_examples_repo(require_example_markers=...)``.
+
+    When ``require_example_markers=True``, well-known non-example root dirs
+    (``src``, ``tests``, ``docs``, ``scripts``, ``dashboard``, ``.github``,
+    ``.claude``) are skipped in addition to the existing hidden/pycache
+    rules. Default (``False``) preserves backward compatibility — those
+    dirs are **not** skipped.
+    """
+
+    @pytest.fixture
+    def repo_with_non_example_siblings(self, tmp_path: Path) -> Path:
+        """Root containing a real example plus many junk sibling dirs."""
+        root = tmp_path / "packaged-repo"
+        root.mkdir()
+
+        # Real example sibling
+        real = root / "real-example"
+        real.mkdir()
+        (real / "main.py").write_text(
+            "from pipecat.services.openai import OpenAILLMService\n"
+        )
+        (real / "README.md").write_text("# Real\n\nReal example.\n")
+
+        # Non-example sibling dirs that Phase 2 should skip when
+        # ``require_example_markers=True``.
+        for junk in ("src", "tests", "docs", "scripts", "dashboard"):
+            d = root / junk
+            d.mkdir()
+            (d / "placeholder.py").write_text("# placeholder\n")
+
+        # Dotdir non-example siblings — already skipped by the existing
+        # ``.*`` rule, but we want them to stay skipped under the new
+        # ``require_example_markers=True`` path too.
+        for dotdir in (".github", ".claude"):
+            d = root / dotdir
+            d.mkdir()
+            (d / "placeholder.yml").write_text("x: 1\n")
+
+        return root
+
+    def test_require_example_markers_true_skips_packaged_project_dirs(
+        self, repo_with_non_example_siblings: Path
+    ):
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_examples_repo(
+            repo_with_non_example_siblings,
+            repo="org/packaged-repo",
+            require_example_markers=True,
+        )
+        ids = {e.example_id for e in entries}
+        paths = {e.path for e in entries}
+
+        # Real example still emitted.
+        assert "example-real-example" in ids
+
+        # Well-known non-example dirs are skipped.
+        for junk in ("src", "tests", "docs", "scripts", "dashboard",
+                     ".github", ".claude"):
+            assert f"example-{junk}" not in ids, (
+                f"{junk!r} must be skipped with require_example_markers=True"
+            )
+            assert junk not in paths
+
+    def test_require_example_markers_default_keeps_backward_compat(
+        self, repo_with_non_example_siblings: Path
+    ):
+        """Default ``require_example_markers=False`` must NOT skip the new
+        list — backward compat with existing ``pipecat-examples`` callers.
+        """
+        builder = TaxonomyBuilder()
+        entries = builder.build_from_examples_repo(
+            repo_with_non_example_siblings,
+            repo="org/packaged-repo",
+        )
+        ids = {e.example_id for e in entries}
+
+        # Real example still emitted.
+        assert "example-real-example" in ids
+
+        # The non-dotdir siblings are treated as examples by default
+        # (backward-compatible behaviour).
+        for junk in ("src", "tests", "docs", "scripts", "dashboard"):
+            assert f"example-{junk}" in ids, (
+                f"Default (require_example_markers=False) must not skip "
+                f"{junk!r} — backward compat broken"
+            )
+
+        # Dotdirs remain skipped by the pre-existing rule regardless of the
+        # new flag.
+        assert "example-.github" not in ids
+        assert "example-.claude" not in ids
+
+
 class TestTaxonomyEntryRoundTrip:
     """Verify that taxonomy entries produced by the builder round-trip through JSON."""
 
