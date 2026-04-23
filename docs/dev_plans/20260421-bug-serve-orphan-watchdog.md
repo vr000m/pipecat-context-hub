@@ -131,3 +131,22 @@ Tests added:
 - 2 `IdleTracker` invariant tests
 - 2 `_watch_idle` coroutine tests
 - 1 integration test (`test_idle_timeout_exits_serve`): real subprocess via `uv run` with `IDLE_TIMEOUT_SECS=3` and the parent-death watchdog suppressed (interval=3600), proves the idle path exits the orphan in isolation. **This is the test that demonstrates the `uv run` zombie problem is actually solved.**
+
+## Phase 6 — Linux hard-exit backstop
+
+After Phase 5 merged locally, CI on Linux still failed both lifetime integration tests. Stderr tails showed `Shutting down: idle_timeout …` on time, then 15 s of silence — the watchdog fired, graceful teardown started, but `serve` never exited. Diagnosis via breadcrumb logging pinpointed the hang: `mcp.stdio_server` parks its stdin reader in `anyio.to_thread.run_sync(readline, cancellable=False)`. On Linux, once the worker is blocked in `read(0)`, nothing — not `stdio_server.__aexit__`, not CPython's `threading._shutdown()` — can interrupt it. The async unwind returns cleanly; interpreter shutdown then joins the stuck reader forever.
+
+Fix:
+- `run_stdio` arms a daemon timer thread (`_HARD_EXIT_TIMEOUT_SECS = 2.5`) the moment a watchdog fires. If graceful unwind completes, `graceful_done` disarms it; if not, the timer calls `on_watchdog_shutdown` (`_SHUTDOWN_CB_TIMEOUT_SECS = 1.0` budget) then `os._exit(0)`.
+- After graceful unwind succeeds, `run_stdio` invokes `on_watchdog_shutdown` inline (under the armed timer) and then calls `os._exit(0)` itself — before `stdio_server.__aexit__` can hang. The exit happens from the main thread so it is guaranteed to execute even under GIL-holding C code.
+- A `threading.Lock` + `shutdown_cb_started` flag wraps both call sites in `_invoke_shutdown_cb_once`, so the graceful path and the timer thread cannot both enter `IndexStore.close()` concurrently — if the graceful-path call is itself what hangs, the timer short-circuits straight to `os._exit(0)`.
+- `exit_on_watchdog_shutdown=True` kwarg opts the CLI into the `os._exit` behaviour; in-process callers (unit tests with a mocked `stdio_server`) default to `False` and continue to receive the `str | None` shutdown reason via return.
+- Renamed `on_hard_exit` → `on_watchdog_shutdown` (kwarg + cli closure) to reflect that the callback runs on both graceful and hard paths.
+
+Review loop:
+- `/deep-review` flagged the concurrent-callback race as Critical; the single-shot guard addressed it.
+- Minor follow-ups (magic constants extracted; `__main__` test-rationale comment removed from `cli.py`; re-entrancy expectation documented on the guard) landed as cleanup.
+
+Open follow-ups (intentionally deferred):
+- Promote `shutdown_reason` from `str | None` to a `ShutdownReason` enum. Caller currently does not consume the return value; enum churn is not justified until it does.
+- Reconsider `exit_on_watchdog_shutdown: bool` if another in-process caller appears. Today it is the only seam that lets unit tests drive `run_stdio` without being killed — documented as a policy flag, not a test shim.

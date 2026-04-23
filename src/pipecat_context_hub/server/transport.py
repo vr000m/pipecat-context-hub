@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 # so very short timeouts (used in tests) still poll frequently enough.
 _IDLE_POLL_INTERVAL_SECS = 30.0
 
+# Hard-exit timer budget — how long to wait after graceful_done.set()
+# would normally fire before giving up and calling os._exit(0). Covers
+# the worst-case asyncio-task-unwind + Chroma close on Linux.
+_HARD_EXIT_TIMEOUT_SECS = 2.5
+
+# Per-callback budget inside the hard-exit path. If on_watchdog_shutdown
+# hangs here (e.g. Chroma close wedged), we abandon it rather than
+# defeating the watchdog — on-disk state is crash-consistent.
+_SHUTDOWN_CB_TIMEOUT_SECS = 1.0
+
 
 async def _watch_parent(original_ppid: int, interval: float) -> str:
     """Poll for parent-process death; return a reason string when detected.
@@ -155,6 +165,11 @@ async def run_stdio(
             # `IndexStore.close()` call. This lock + flag ensures the
             # second caller short-circuits immediately so the timer can
             # proceed straight to `os._exit(0)`.
+            #
+            # NB: callers MUST NOT register a re-entrant callback here
+            # (i.e. one that calls back into `run_stdio` or spawns work
+            # that does). The guard protects against cross-thread
+            # duplication, not recursion from the same call site.
             shutdown_cb_lock = threading.Lock()
             shutdown_cb_started = [False]
 
@@ -175,7 +190,7 @@ async def run_stdio(
             def _hard_exit_on_hang() -> None:
                 # `Event.wait(timeout)` returns True if set before the
                 # timeout, False on timeout. Only hard-exit on timeout.
-                if graceful_done.wait(2.5):
+                if graceful_done.wait(_HARD_EXIT_TIMEOUT_SECS):
                     return
                 # Write directly to stderr (bypassing the logging
                 # framework, which can buffer / deadlock with handlers
@@ -211,7 +226,7 @@ async def run_stdio(
                     name="hub-hard-exit-cleanup",
                     daemon=True,
                 ).start()
-                cb_done.wait(1.0)
+                cb_done.wait(_SHUTDOWN_CB_TIMEOUT_SECS)
                 os._exit(0)
 
             threading.Thread(
@@ -301,6 +316,17 @@ def serve_stdio(
     concurrent close when the timer fires. Pass the index-store close
     here so critical resources are released whether the unwind is
     graceful or hard.
+
+    ``exit_on_watchdog_shutdown`` must be True for the CLI entry point
+    and False for any in-process caller (tests, library embedding).
+    This is a policy choice, not a test shim: ``run_stdio`` cannot
+    simply return the shutdown reason and let the caller choose,
+    because on Linux ``mcp.stdio_server.__aexit__`` itself waits on
+    the anyio worker thread that is parked in an uninterruptible
+    ``read(0)`` — control would never return to the caller. The flag
+    therefore decides *where* exit happens: inside ``run_stdio`` (for
+    the CLI, which wants the process to die) or never (for in-process
+    callers that need ``run_stdio`` to return so they can clean up).
     """
     return asyncio.run(
         run_stdio(

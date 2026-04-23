@@ -75,6 +75,23 @@ This project uses [Semantic Versioning](https://semver.org/).
   (e.g. `.venv/bin/pipecat-context-hub serve`); see the README's
   "MCP client configuration" section for examples.
 
+- **Hard-exit backstop for Linux `mcp.stdio_server` teardown hang** —
+  on Linux, `mcp.stdio_server` parks its stdin reader in
+  `anyio.to_thread.run_sync(readline, cancellable=False)`. Once
+  parked, the worker thread is stuck in an uninterruptible `read(0)`;
+  both `stdio_server.__aexit__` and CPython's interpreter shutdown
+  wait on it forever. After a watchdog fires, `run_stdio` now
+  releases index handles via the shutdown callback and calls
+  `os._exit(0)` directly — before `__aexit__` can hang. A daemon
+  timer thread (2.5 s budget) provides a secondary backstop if the
+  callback itself hangs inside Chroma close. A single-shot guard
+  prevents the graceful path and the timer from invoking the
+  callback concurrently when the graceful-path call is what's hung.
+  The `on_hard_exit` kwarg was renamed to `on_watchdog_shutdown` to
+  reflect the dual-path semantics; `exit_on_watchdog_shutdown` opts
+  the CLI into the `os._exit` behaviour while keeping in-process
+  callers safe.
+
 ## [0.0.17] - 2026-04-20
 
 ### Added

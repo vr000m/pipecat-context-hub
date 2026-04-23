@@ -848,9 +848,5 @@ def _print_refresh_summary(
     )
 
 
-# Enables ``python -m pipecat_context_hub.cli`` invocation, which the
-# integration test uses to launch `serve` as a direct child of the test
-# wrapper (avoiding the `uv run` intermediate that prevents the PPID
-# watchdog from firing).
 if __name__ == "__main__":
     main()
