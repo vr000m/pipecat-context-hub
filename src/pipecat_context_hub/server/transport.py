@@ -6,6 +6,8 @@ import asyncio
 import logging
 import os
 import sys
+import threading
+import time
 from typing import Callable
 
 from mcp import stdio_server
@@ -113,60 +115,69 @@ async def run_stdio(
         elif idle_task is not None and idle_task in done:
             shutdown_reason = idle_task.result()
 
-        for task in pending:
-            task.cancel()
-
         if shutdown_reason is not None:
             logger.info("Shutting down: %s", shutdown_reason)
-            # Close stdin so stdio_server's internal stdin_reader can
-            # observe EOF. This works on macOS/BSD but NOT reliably on
-            # Linux: the reader runs inside a thread pool worker via
-            # anyio's `to_thread.run_sync(readline, cancellable=False)`,
-            # and Linux keeps the kernel file object alive as long as
-            # the worker holds it — closing the FD table entry does not
-            # wake the blocked `read(0)` syscall. So asyncio can't
-            # observe the task's cancellation and `await task` hangs.
-            try:
-                os.close(sys.stdin.fileno())
-            except (OSError, ValueError):
-                pass
-
-            # Give graceful unwind a short window. ``asyncio.wait`` with
-            # a timeout returns unconditionally once the window expires —
-            # unlike ``wait_for``, which cancels the inner awaitable and
-            # then waits for that cancellation to complete, which would
-            # itself hang here because the stdin reader is stuck in a
-            # blocked ``read(0)`` syscall inside anyio's thread pool and
-            # cannot observe asyncio cancellation.
-            _done_after_shutdown, still_pending = await asyncio.wait(
-                pending, timeout=2.0
-            )
-            if still_pending:
+            # Arm a watchdog-of-the-watchdog: a plain OS thread that
+            # will hard-exit the process if graceful teardown doesn't
+            # complete within a few seconds. This is defensive against
+            # two Linux-specific failure modes we've observed in CI:
+            #
+            # 1. mcp's stdio_server reads stdin via
+            #    `anyio.to_thread.run_sync(readline, cancellable=False)`.
+            #    On Linux, closing fd 0 does not wake the worker
+            #    thread's blocked ``read(0)`` — the kernel keeps the
+            #    file object alive via the thread's reference — so the
+            #    asyncio task never observes its own cancellation.
+            # 2. Nothing in asyncio (``wait_for``, ``wait(timeout=…)``,
+            #    ``gather``) guarantees return when the inner task is
+            #    stuck in an uninterruptible blocked syscall off-loop;
+            #    the event-loop timer fires but the subsequent unwind
+            #    path still has to await the un-cancellable task.
+            #
+            # An OS thread bypasses both: ``time.sleep`` + ``os._exit``
+            # is scheduled by the kernel, not the event loop. The
+            # watchdog's whole purpose is "client is gone, die", so
+            # blocking forever on graceful unwind defeats it.
+            def _hard_exit_on_hang() -> None:
+                time.sleep(2.5)
                 logger.warning(
-                    "Graceful shutdown timed out (%d task(s) stuck); "
-                    "hard-exiting — stdin reader is in an uninterruptible "
-                    "read(0) inside anyio's thread pool",
-                    len(still_pending),
+                    "Graceful shutdown timed out; hard-exiting "
+                    "(stdin reader stuck in uninterruptible read(0))"
                 )
                 if on_hard_exit is not None:
                     try:
                         on_hard_exit()
                     except Exception:
                         logger.exception("on_hard_exit callback raised")
-                # flush before hard exit so operators see the last log
                 for handler in logging.getLogger().handlers:
                     try:
                         handler.flush()
                     except Exception:
                         pass
                 os._exit(0)
-        else:
-            # Normal teardown (e.g. stdin EOF from client-driven shutdown).
-            for task in pending:
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass
+
+            threading.Thread(
+                target=_hard_exit_on_hang,
+                name="hub-hard-exit-timer",
+                daemon=True,
+            ).start()
+
+            # Still attempt graceful unwind — on macOS/BSD (and
+            # client-clean-close paths on Linux) this completes well
+            # within the 2.5 s window and the timer thread is
+            # harmless.
+            try:
+                os.close(sys.stdin.fileno())
+            except (OSError, ValueError):
+                pass
+
+        for task in pending:
+            task.cancel()
+        for task in pending:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
 
         # Surface server-task exceptions (e.g. unexpected protocol error)
         # while still letting the index_store finally-block run.
