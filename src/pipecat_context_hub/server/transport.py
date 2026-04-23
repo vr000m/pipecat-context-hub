@@ -152,8 +152,8 @@ async def run_stdio(
                 for handler in logging.getLogger().handlers:
                     try:
                         handler.flush()
-                    except Exception:
-                        pass
+                    except Exception:  # nosec B112 - best-effort flush before hard exit
+                        continue  # nosec B112
                 os._exit(0)
 
             threading.Thread(
