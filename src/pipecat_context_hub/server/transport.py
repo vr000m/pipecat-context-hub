@@ -55,6 +55,7 @@ async def run_stdio(
     parent_watch_interval_secs: float = 0.0,
     idle_timeout_secs: float = 0.0,
     on_hard_exit: Callable[[], None] | None = None,
+    exit_on_watchdog_shutdown: bool = False,
 ) -> str | None:
     """Run the MCP server over stdio transport.
 
@@ -233,6 +234,20 @@ async def run_stdio(
             # it does not fire after `run_stdio` returns.
             graceful_done.set()
 
+            # Exit before `stdio_server.__aexit__` runs. On Linux, the
+            # anyio worker thread doing the cancellable=False
+            # `readline` is parked in uninterruptible read(0); both
+            # stdio_server's teardown and CPython's interpreter
+            # shutdown wait for that thread and hang forever. The
+            # watchdog's job is "client is gone, die" — skip both by
+            # exiting directly. We do this from the main thread (not
+            # the daemon timer) so the call is guaranteed to execute
+            # even under GIL-holding C code. Opt-in via
+            # `exit_on_watchdog_shutdown` so in-process callers (unit
+            # tests) are not killed.
+            if exit_on_watchdog_shutdown:
+                os._exit(0)
+
         # Surface server-task exceptions (e.g. unexpected protocol error)
         # while still letting the index_store finally-block run.
         if server_task in done:
@@ -250,6 +265,7 @@ def serve_stdio(
     parent_watch_interval_secs: float = 0.0,
     idle_timeout_secs: float = 0.0,
     on_hard_exit: Callable[[], None] | None = None,
+    exit_on_watchdog_shutdown: bool = False,
 ) -> str | None:
     """Blocking entry point that runs the stdio server.
 
@@ -273,5 +289,6 @@ def serve_stdio(
             parent_watch_interval_secs=parent_watch_interval_secs,
             idle_timeout_secs=idle_timeout_secs,
             on_hard_exit=on_hard_exit,
+            exit_on_watchdog_shutdown=exit_on_watchdog_shutdown,
         )
     )
