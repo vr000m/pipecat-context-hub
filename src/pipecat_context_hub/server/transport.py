@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import sys
+from typing import Callable
 
 from mcp import stdio_server
 from mcp.server.lowlevel import Server
@@ -52,6 +53,7 @@ async def run_stdio(
     idle_tracker: IdleTracker | None = None,
     parent_watch_interval_secs: float = 0.0,
     idle_timeout_secs: float = 0.0,
+    on_hard_exit: Callable[[], None] | None = None,
 ) -> None:
     """Run the MCP server over stdio transport.
 
@@ -111,32 +113,63 @@ async def run_stdio(
         elif idle_task is not None and idle_task in done:
             shutdown_reason = idle_task.result()
 
+        for task in pending:
+            task.cancel()
+
         if shutdown_reason is not None:
             logger.info("Shutting down: %s", shutdown_reason)
-            # Close stdin BEFORE awaiting the cancelled server_task.
-            # Cancelling server_task alone is not enough: stdio_server's
-            # internal TaskGroup still awaits a stdin_reader that's
-            # blocked on `async for line in stdin`. If the client
-            # orphaned us without closing the pipe, that reader never
-            # unblocks and `await server_task` hangs — which then hangs
-            # the whole process, since `async with stdio_server()` can't
-            # unwind. Closing the FD here gives the reader an EOF so the
-            # TaskGroup teardown completes. ValueError catches the case
-            # where sys.stdin was already closed at the Python level
-            # (fileno() raises on a closed stream); OSError catches
-            # EBADF from os.close on an already-closed FD.
+            # Close stdin so stdio_server's internal stdin_reader can
+            # observe EOF. This works on macOS/BSD but NOT reliably on
+            # Linux: the reader runs inside a thread pool worker via
+            # anyio's `to_thread.run_sync(readline, cancellable=False)`,
+            # and Linux keeps the kernel file object alive as long as
+            # the worker holds it — closing the FD table entry does not
+            # wake the blocked `read(0)` syscall. So asyncio can't
+            # observe the task's cancellation and `await task` hangs.
             try:
                 os.close(sys.stdin.fileno())
             except (OSError, ValueError):
                 pass
 
-        for task in pending:
-            task.cancel()
-        for task in pending:
+            # Try a graceful unwind for a short window. If the stdin
+            # reader is stuck in a blocked syscall we can't interrupt,
+            # hard-exit the process — the watchdog's whole purpose is
+            # "the client is gone, die" so waiting forever defeats it.
+            # The caller's `finally` won't run, so the caller is
+            # expected to have no critical state open at this point
+            # (serve.py closes the index_store in its outer finally
+            # after serve_stdio returns; if we hard-exit here, Chroma's
+            # SQLite WAL is fsync'd on its own close which runs via
+            # atexit handlers too).
             try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=2.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Graceful shutdown timed out; hard-exiting "
+                    "(stdin reader thread stuck in blocked syscall)"
+                )
+                if on_hard_exit is not None:
+                    try:
+                        on_hard_exit()
+                    except Exception:
+                        logger.exception("on_hard_exit callback raised")
+                # flush before hard exit so operators see the last log
+                for handler in logging.getLogger().handlers:
+                    try:
+                        handler.flush()
+                    except Exception:
+                        pass
+                os._exit(0)
+        else:
+            # Normal teardown (e.g. stdin EOF from client-driven shutdown).
+            for task in pending:
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
         # Surface server-task exceptions (e.g. unexpected protocol error)
         # while still letting the index_store finally-block run.
@@ -152,6 +185,7 @@ def serve_stdio(
     idle_tracker: IdleTracker | None = None,
     parent_watch_interval_secs: float = 0.0,
     idle_timeout_secs: float = 0.0,
+    on_hard_exit: Callable[[], None] | None = None,
 ) -> None:
     """Blocking entry point that runs the stdio server.
 
@@ -162,6 +196,10 @@ def serve_stdio(
     watchdog; the caller passes the same instance to ``create_server``.
     The two timeouts come from ``ServerConfig`` env-aware computed
     properties; 0 disables the corresponding watchdog.
+    ``on_hard_exit`` is invoked before ``os._exit`` when a watchdog
+    shutdown cannot unwind gracefully (e.g. Linux pipe-reader stuck in
+    a blocked syscall); pass the index-store close here so critical
+    resources are released even on the hard path.
     """
     asyncio.run(
         run_stdio(
@@ -170,5 +208,6 @@ def serve_stdio(
             idle_tracker=idle_tracker,
             parent_watch_interval_secs=parent_watch_interval_secs,
             idle_timeout_secs=idle_timeout_secs,
+            on_hard_exit=on_hard_exit,
         )
     )

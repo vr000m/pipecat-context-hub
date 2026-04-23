@@ -293,12 +293,27 @@ def serve(ctx: click.Context) -> None:
             reranker_status_provider=_reranker_status,
             idle_tracker=idle_tracker,
         )
+        def _close_index_store_for_hard_exit() -> None:
+            """Release index handles on the watchdog hard-exit path.
+
+            `run_stdio` calls this just before `os._exit(0)` when a
+            graceful unwind can't complete (Linux stdin-reader thread
+            stuck in a blocked syscall). Since `os._exit` skips the
+            outer `finally`, closing the store here keeps Chroma's
+            SQLite WAL / FTS handles from being leaked on abrupt exit.
+            """
+            try:
+                index_store.close()
+            except Exception:
+                logger.exception("Failed to close index store on hard exit")
+
         serve_stdio(
             server,
             original_ppid=_original_ppid,
             idle_tracker=idle_tracker,
             parent_watch_interval_secs=config.server.effective_parent_watch_interval_secs,
             idle_timeout_secs=config.server.effective_idle_timeout_secs,
+            on_hard_exit=_close_index_store_for_hard_exit,
         )
     finally:
         index_store.close()
