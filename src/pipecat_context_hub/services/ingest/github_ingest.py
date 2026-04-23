@@ -366,9 +366,11 @@ def _find_example_dirs(repo_root: Path) -> list[Path]:
 
     Handles two repo layouts:
     - **examples/ dir present** (e.g. ``pipecat-ai/pipecat``): returns each
-      immediate subdirectory of ``examples/`` (or sub-subdirectory for the
-      ``examples/foundational/`` category pattern). When a category dir
-      contains code files directly (flat file layout), it's returned as-is.
+      immediate subdirectory of ``examples/`` (or sub-subdirectory for
+      category/topic dirs such as the legacy ``examples/foundational/`` or
+      the newer topic-based layout ``examples/voice/``, ``examples/rag/``
+      etc.). When a category/topic dir contains code files directly (flat
+      file layout), it's returned as-is.
     - **No examples/ dir** (e.g. ``pipecat-ai/pipecat-examples``): falls back
       to scanning root-level directories that contain code files.
     """
@@ -385,7 +387,10 @@ def _discover_under_examples(examples_dir: Path) -> list[Path]:
 
     Handles three layouts:
     1. Subdirectories with code files (e.g. ``examples/my-bot/bot.py``)
-    2. Category dirs (e.g. ``examples/foundational/07-interruptible/``)
+    2. Category/topic dirs that group examples one level deeper. Covers both
+       the legacy numbered ``examples/foundational/07-interruptible/`` pattern
+       and the newer topic-based pipecat layout (``examples/voice/<name>/``,
+       ``examples/rag/<name>/``, ``examples/function-calling/<name>/`` …).
     3. Flat code files directly in ``examples/`` (e.g. ``examples/single_agent.py``)
        — returns ``examples/`` itself so the files are indexed.
     """
@@ -403,7 +408,9 @@ def _discover_under_examples(examples_dir: Path) -> list[Path]:
         if sub_has_code:
             result.append(child)
         else:
-            # Category dir like ``examples/foundational/``: descend one level.
+            # Category/topic dir without direct code files — descend one level.
+            # Covers legacy ``examples/foundational/`` and the newer topic
+            # layout (``examples/voice/``, ``examples/rag/`` etc.).
             for grandchild in sorted(child.iterdir()):
                 if grandchild.is_dir() and grandchild.name not in _SKIP_DIRS:
                     result.append(grandchild)
@@ -505,7 +512,9 @@ def _build_taxonomy_lookup(
 ) -> dict[str, TaxonomyEntry]:
     """Run TaxonomyBuilder on a cloned repo and return a path→entry lookup.
 
-    Keys are relative directory paths (e.g. ``examples/foundational/07-interruptible``).
+    Keys are relative directory paths — e.g. ``examples/voice/twilio-chatbot``
+    on the current topic-based pipecat layout, or
+    ``examples/foundational/07-interruptible`` on legacy framework pins.
     """
     from pipecat_context_hub.services.ingest.taxonomy import TaxonomyBuilder
 
@@ -771,8 +780,10 @@ def _build_chunk_metadata(
     """Build enriched metadata dict for a ChunkedRecord.
 
     Merges basic provenance fields with taxonomy-derived fields
-    (foundational_class, capability_tags, key_files, execution_mode)
-    and inferred domain tag (backend/frontend/config/infra).
+    (``foundational_class`` — deprecated, written only for legacy
+    ``examples/foundational/`` entries; ``capability_tags``, ``key_files``,
+    ``execution_mode``) and inferred domain tag
+    (backend/frontend/config/infra).
     """
     meta: dict[str, object] = {
         "repo": repo_slug,
@@ -1001,9 +1012,11 @@ class GitHubRepoIngester:
                     continue
 
                 rel_path = str(code_file.relative_to(repo_path))
-                # Try per-file taxonomy lookup first (flat files like
-                # examples/foundational/01-say-one-thing.py), then
-                # fall back to directory-level lookup (subdirectory examples).
+                # Try per-file taxonomy lookup first (flat files like a
+                # legacy ``examples/foundational/01-say-one-thing.py`` or a
+                # topic dir containing flat ``.py`` files), then fall back
+                # to directory-level lookup (subdirectory examples, which
+                # covers most of the current topic-based layout).
                 taxonomy_entry = taxonomy_lookup.get(rel_path) or dir_taxonomy_entry
 
                 source_url = f"https://github.com/{repo_slug}/blob/{commit_sha}/{rel_path}"
