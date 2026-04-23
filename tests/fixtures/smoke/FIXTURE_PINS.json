@@ -1,0 +1,16 @@
+{
+  "pipecat": {
+    "repo": "pipecat-ai/pipecat",
+    "sha": "SYNTHETIC",
+    "date": "2026-04-22",
+    "ref": "main",
+    "note": "synthetic fixture mirroring the post-reorg topic-based examples/ layout; regenerate via tests/smoke/refresh_fixtures.py once network access is available"
+  },
+  "pipecat-examples": {
+    "repo": "pipecat-ai/pipecat-examples",
+    "sha": "SYNTHETIC",
+    "date": "2026-04-22",
+    "ref": "main",
+    "note": "synthetic fixture mirroring the root-level examples layout of pipecat-examples; regenerate via tests/smoke/refresh_fixtures.py once network access is available"
+  }
+}

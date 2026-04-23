@@ -1,0 +1,4 @@
+[project]
+name = "pipecat-ai"
+version = "0.0.0-synthetic"
+description = "Synthetic fixture stub for offline smoke tests."

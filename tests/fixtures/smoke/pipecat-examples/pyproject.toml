@@ -1,0 +1,4 @@
+[project]
+name = "pipecat-examples"
+version = "0.0.0-synthetic"
+description = "Synthetic fixture for the pipecat-examples layout."

@@ -42,7 +42,10 @@ packages = ["src/pipecat_context_hub"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-markers = ["benchmark: latency and retrieval-quality benchmarks (deselect with -m 'not benchmark')"]
+markers = [
+    "benchmark: latency and retrieval-quality benchmarks (deselect with -m 'not benchmark')",
+    "smoke: live-network drift checks against upstream repos (reserved for the scheduled drift job; NOT applied to offline PR-gate fixture tests)",
+]
 
 [tool.ruff]
 target-version = "py311"
