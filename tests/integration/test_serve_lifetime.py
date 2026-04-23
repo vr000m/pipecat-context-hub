@@ -70,6 +70,9 @@ def _env_with_home(home: Path, **extra: str) -> dict[str, str]:
     env = os.environ.copy()
     env["HOME"] = str(home)
     env["USERPROFILE"] = str(home)
+    # Skip model pre-warm so lifetime tests aren't sensitive to cold-start
+    # latency (embedding + cross-encoder load adds seconds to boot).
+    env.setdefault("PIPECAT_HUB_WARMUP", "0")
     env.update(extra)
     return env
 

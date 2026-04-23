@@ -23,6 +23,16 @@ This project uses [Semantic Versioning](https://semver.org/).
   returned by `_discover_under_examples` now has a matching taxonomy entry,
   restoring `capability_tags` / `key_files` / `execution_mode` on example
   chunks for topic-layout checkouts.
+- **Windows first-query hang** — `serve` now pre-warms the embedding
+  model (and cross-encoder when enabled) during startup so the first
+  MCP query no longer pays the cold-start cost. On Windows CPU a cold
+  first query could hang 30-130s while `sentence_transformers` imported
+  and loaded weights inside `asyncio.to_thread`, exceeding Claude
+  Code's tool-permission window and surfacing as a spurious disconnect.
+  Pre-warm failures are non-fatal: lazy-load paths still handle
+  first-query loading. Set `PIPECAT_HUB_WARMUP=0` to skip pre-warm
+  (faster boot, slower first query). Thanks to Vanessa for diagnosing
+  and patching on Windows.
 
 ### Added
 

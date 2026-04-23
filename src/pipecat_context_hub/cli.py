@@ -252,6 +252,31 @@ def serve(ctx: click.Context) -> None:
                 hint,
             )
 
+        # Pre-warm retrieval models so the first MCP query doesn't pay the
+        # cold-start cost (sentence_transformers import + model-weight load).
+        # On Windows CPU a cold first query can hang 30-130s while loads
+        # happen inside asyncio.to_thread — longer than Claude Code's default
+        # tool-permission window, which surfaces as a spurious disconnect.
+        # Failures are non-fatal: lazy-load paths still handle first-query
+        # loading if this pre-warm fails. Set PIPECAT_HUB_WARMUP=0 to skip
+        # (trading a longer first-query latency for faster boot).
+        if os.environ.get("PIPECAT_HUB_WARMUP", "1").strip() not in ("0", "false", "False"):
+            warmup_start = time.monotonic()
+            try:
+                embedding_svc.embed_query("warmup")
+                logger.info("Embedding model pre-warmed in %.1fs", time.monotonic() - warmup_start)
+            except Exception:
+                logger.exception("Embedding model pre-warm failed; falling back to lazy load")
+            if cross_encoder is not None:
+                ce_start = time.monotonic()
+                try:
+                    cross_encoder.ensure_model()
+                    logger.info("Cross-encoder pre-warmed in %.1fs", time.monotonic() - ce_start)
+                except Exception:
+                    logger.exception("Cross-encoder pre-warm failed; falling back to lazy load")
+        else:
+            logger.info("Model pre-warm skipped: PIPECAT_HUB_WARMUP=0")
+
         def _reranker_status() -> RerankerStatus:
             """Compute live reranker status at get_hub_status query time."""
             if cross_encoder is None:

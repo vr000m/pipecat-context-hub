@@ -179,3 +179,9 @@ pre-download the new model before the first MCP query.
   be half-initialized from an interrupted run. The hub now detects this on the
   next `refresh` and re-clones; look for `Recovered N corrupt clone(s)` in the
   summary. As a manual remedy you can delete `%LOCALAPPDATA%\pipecat-context-hub\repos\`.
+- On `serve` boot the hub pre-warms the embedding model (and cross-encoder when
+  enabled) so the first MCP query doesn't hang. Windows CPU cold-starts can take
+  30-130s, long enough to exceed Claude Code's tool-permission window. Set
+  `PIPECAT_HUB_WARMUP=0` to skip pre-warm if you prefer faster boot. Look for
+  `Embedding model pre-warmed in …s` and (optionally)
+  `Cross-encoder pre-warmed in …s` in the startup log.
