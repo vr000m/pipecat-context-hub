@@ -150,20 +150,48 @@ async def run_stdio(
                 # timeout, False on timeout. Only hard-exit on timeout.
                 if graceful_done.wait(2.5):
                     return
-                logger.warning(
-                    "Graceful shutdown timed out; hard-exiting "
-                    "(stdin reader stuck in uninterruptible read(0))"
-                )
+                # Write directly to stderr (bypassing the logging
+                # framework, which can buffer / deadlock with handlers
+                # held by the stuck main thread) so operators still see
+                # the shutdown reason.
+                try:
+                    sys.stderr.write(
+                        "pipecat-context-hub: graceful shutdown timed out, "
+                        "hard-exiting (stdin reader stuck in uninterruptible "
+                        "read(0))\n"
+                    )
+                    sys.stderr.flush()
+                except Exception:  # nosec B110 - best-effort diagnostic before hard exit
+                    pass  # nosec B110
+                # Give on_hard_exit a short, bounded window. If it
+                # hangs (e.g. Chroma's close blocks on an internal
+                # thread holding a lock we cannot interrupt), abandon
+                # it rather than defeating the watchdog. The on-disk
+                # state is crash-consistent (SQLite WAL + Chroma
+                # recovery on next open).
                 if on_hard_exit is not None:
-                    try:
-                        on_hard_exit()
-                    except Exception:
-                        logger.exception("on_hard_exit callback raised")
-                for handler in logging.getLogger().handlers:
-                    try:
-                        handler.flush()
-                    except Exception:  # nosec B112 - best-effort flush before hard exit
-                        continue  # nosec B112
+                    cb_done = threading.Event()
+
+                    def _run_cb() -> None:
+                        try:
+                            on_hard_exit()
+                        except Exception:
+                            try:
+                                sys.stderr.write(
+                                    "pipecat-context-hub: on_hard_exit raised; "
+                                    "continuing to hard-exit\n"
+                                )
+                            except Exception:  # nosec B110 - best-effort
+                                pass  # nosec B110
+                        finally:
+                            cb_done.set()
+
+                    threading.Thread(
+                        target=_run_cb,
+                        name="hub-hard-exit-cleanup",
+                        daemon=True,
+                    ).start()
+                    cb_done.wait(1.0)
                 os._exit(0)
 
             threading.Thread(
