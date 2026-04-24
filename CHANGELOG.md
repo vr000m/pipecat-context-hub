@@ -35,7 +35,31 @@ This project uses [Semantic Versioning](https://semver.org/).
   runs every 5 days against upstream `main`, reusing the same invariant
   helpers via `scripts/check_pipecat_drift.py`. On failure it opens (or
   updates in place) a single `upstream-drift`-labelled tracking issue via
-  `gh` CLI — does not gate PRs.
+  `gh` CLI — does not gate PRs. The `upstream-drift` label is created
+  idempotently on first use so the very first failure can always file its
+  notification.
+- **SHA-ref support** in both `scripts/check_pipecat_drift.py` and
+  `tests/smoke/refresh_fixtures.py`: `--ref` accepts branch, tag, or commit
+  SHA. Named refs use `git clone --depth 1 --branch`; SHA refs fall through
+  to `git init` + `git fetch --depth 1 <sha>` + `git checkout FETCH_HEAD`
+  (GitHub allows `uploadpack.allowAnySHA1InWant`). Slug and ref are
+  regex-validated and passed after a `--` sentinel; subprocess calls have
+  a 300 s timeout.
+- **Symlink safety** in `tests/smoke/refresh_fixtures.py::_copy_filtered`
+  and in the taxonomy `_scan_topic_tree` walk — symlinks inside untrusted
+  upstream clones are never followed, including grandchildren reached
+  through a symlinked topic dir.
+- **Layout-aware fixture refresh.** `_rebuild_fixture` handles both
+  topic layout (`examples/<topic>/<example>/`) and root layout
+  (`pipecat-examples`-style, where each top-level dir is an example),
+  skipping the packaged-project set (`src`, `tests`, `docs`, `scripts`,
+  `dashboard`, `.github`, `.claude`) so the vendored fixture never
+  captures source trees.
+- **Unit coverage for the new scaffolding** in
+  `tests/unit/test_smoke_scaffold.py`: root-layout vs topic-layout
+  `_rebuild_fixture`, SHA-vs-named-ref clone argv, slug/ref validation,
+  `subprocess.TimeoutExpired` surfacing, and symlink rejection in both
+  `_copy_filtered` and `_scan_topic_tree`.
 
 ### Deprecated
 
