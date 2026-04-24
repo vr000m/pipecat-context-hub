@@ -144,6 +144,16 @@ always passes regardless of `gh` availability.
     exit on its own and log `Shutting down: idle_timeout idle_seconds=N
     timeout_seconds=10` at INFO. Confirms the idle watchdog resolves
     the production zombie-accumulation case.
+44. **Model pre-warm smoke test** — `uv run pipecat-context-hub serve`
+    logs `Embedding model pre-warmed in <N>s` at INFO (and
+    `Cross-encoder pre-warmed in <N>s` when the reranker is enabled
+    and cached). Then re-run with `PIPECAT_HUB_WARMUP=0 uv run
+    pipecat-context-hub serve` — the pre-warm lines must be absent
+    and replaced by `Model pre-warm skipped: PIPECAT_HUB_WARMUP=0`.
+    Confirms the first-query cold-start fix is active on boot and the
+    opt-out escape hatch works (matters on Windows CPU where cold
+    loads can take 30-130s and exceed Claude Code's tool-permission
+    window).
 
 If any of these fail, investigate before merging — the unit test suite will
 not catch the regression.

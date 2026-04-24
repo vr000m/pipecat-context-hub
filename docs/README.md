@@ -197,6 +197,7 @@ PIPECAT_HUB_FRAMEWORK_VERSION=v0.0.96 uv run pipecat-context-hub refresh
 | `PIPECAT_HUB_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Swap reranker model. Allowed: `cross-encoder/ms-marco-MiniLM-L-6-v2` (~80 MB), `cross-encoder/ms-marco-MiniLM-L-12-v2` (~130 MB), `cross-encoder/ms-marco-TinyBERT-L-2-v2` (~17 MB) |
 | `PIPECAT_HUB_IDLE_TIMEOUT_SECS` | `1800` | Exit `serve` if no MCP request arrives for this many seconds (30 min default). Set to `0` to disable. |
 | `PIPECAT_HUB_PARENT_WATCH_INTERVAL` | `2.0` | Hidden tuning knob (primarily for tests): poll interval (seconds) for the parent-death watchdog. Floored at `0.1s` when non-zero. Set to `0` to disable the watchdog. |
+| `PIPECAT_HUB_WARMUP` | `1` | Pre-warm embedding + cross-encoder at `serve` boot so the first MCP query doesn't pay the cold-start cost (matters most on Windows CPU, where cold loads can take 30-130s). Set to `0` to skip (faster boot, slower first query). |
 
 See [`.env.example`](../.env.example) for curated repo bundles you can copy
 into your `.env`.
