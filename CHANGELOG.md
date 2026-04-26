@@ -7,35 +7,24 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-04-26
+
 > **Upgrade:** run `uv run pipecat-context-hub refresh --force` after upgrading
 > to clear stale `foundational_class` values pointing at paths that no longer
 > exist upstream.
 
-### Fixed
-
-- **Taxonomy coverage for the new pipecat examples topic-based layout** —
-  `ExampleTaxonomyBuilder.build_from_directory` now dispatches on the layout
-  shape it sees on disk: foundational + sibling topic dirs (preserving the
-  `v0.0.96`-era behaviour), topic-only trees (current pipecat `main`), and
-  root-level layouts (`pipecat-examples`). The builder no longer emits junk
-  entries for `src/`, `tests/`, `docs/`, `scripts/`, `dashboard/`, `.github/`,
-  or `.claude/` when falling back at a packaged-project root. Every dir
-  returned by `_discover_under_examples` now has a matching taxonomy entry,
-  restoring `capability_tags` / `key_files` / `execution_mode` on example
-  chunks for topic-layout checkouts.
-- **Windows first-query hang** — `serve` now pre-warms the embedding
-  model (and cross-encoder when enabled) during startup so the first
-  MCP query no longer pays the cold-start cost. On Windows CPU a cold
-  first query could hang 30-130s while `sentence_transformers` imported
-  and loaded weights inside `asyncio.to_thread`, exceeding Claude
-  Code's tool-permission window and surfacing as a spurious disconnect.
-  Pre-warm failures are non-fatal: lazy-load paths still handle
-  first-query loading. Set `PIPECAT_HUB_WARMUP=0` to skip pre-warm
-  (faster boot, slower first query). Thanks to Vanessa for diagnosing
-  and patching on Windows.
-
 ### Added
 
+- **Idle-timeout shutdown for `serve`** — the server now exits on its
+  own when no MCP request arrives for `PIPECAT_HUB_IDLE_TIMEOUT_SECS`
+  seconds (default `1800`, i.e. 30 minutes). Catches the production
+  failure mode the parent-death watchdog cannot: when the client stays
+  alive but stops using a hub it spawned without closing the pipe (the
+  case responsible for most accumulated zombies under `uv run`). Both
+  `tools/list` and `tools/call` reset the idle clock, so sessions that
+  only poll capabilities without dispatching a tool still count as
+  active. Set `PIPECAT_HUB_IDLE_TIMEOUT_SECS=0` to disable. Logs
+  `idle_timeout idle_seconds=N timeout_seconds=N` at INFO when it fires.
 - **Offline smoke-test fixtures** under `tests/fixtures/smoke/` with reusable
   invariant helpers in `tests/smoke/invariants.py`. PR-gating tests exercise
   discovery + taxonomy against vendored tree-only snapshots of
@@ -71,48 +60,6 @@ This project uses [Semantic Versioning](https://semver.org/).
   `subprocess.TimeoutExpired` surfacing, and symlink rejection in both
   `_copy_filtered` and `_scan_topic_tree`.
 
-### Deprecated
-
-- **`foundational_class` field** on `ExampleMetadata`, `TaxonomyEntry`, and
-  `SearchExamplesInput` is deprecated. The field remains readable for
-  persisted indexes and the `hybrid.py` filter path, but is no longer written
-  for new-layout (non-foundational) examples. Existing users should run
-  `uv run pipecat-context-hub refresh --force` after upgrading to clear stale
-  values pointing at paths that no longer exist upstream.
-
-## [0.0.18] - 2026-04-21
-
-### Fixed
-
-- **Idle watchdog no longer reaps in-flight requests** — `IdleTracker`
-  now counts active tool dispatches (`begin()` / `end()`) and reports
-  `seconds_since_last() == 0` while any call is active. Previously the
-  clock was only touched on call entry, so a cold `search_*` /
-  `get_code_snippet` that waited on `EmbeddingService` or the
-  cross-encoder lazy load could exceed
-  `PIPECAT_HUB_IDLE_TIMEOUT_SECS` and be killed mid-response. The
-  clock is also reset on `end()` so the idle window starts at "request
-  finished", not "request dispatched".
-- **`exit_on_watchdog_shutdown=False` is now host-safe end-to-end** —
-  the in-process / library-embedding mode previously still closed
-  `sys.stdin` and armed the 2.5 s hard-exit timer, either of which
-  could tear down the host process. The flag now gates every
-  host-affecting action: when `False`, `run_stdio` cancels its own
-  tasks, invokes the shutdown callback once, and returns
-  `shutdown_reason` to the caller without touching stdin or spawning
-  the timer thread.
-
-### Security
-
-- **lxml GHSA-vfmq-68hx-4jfw / CVE-2026-41066** — bumped `lxml` to `>=6.1.0`
-  to close an XXE vector in the default configuration of `iterparse()` and
-  `ETCompatXMLParser()` (`resolve_entities=True` allowed local-file reads).
-  `lxml` enters the lockfile transitively via `cyclonedx-bom`; the 4.x line
-  pinned `lxml<6`, so the dev floor was raised to `cyclonedx-bom>=7.3,<8.0`
-  (pulls `cyclonedx-python-lib` 11.x, which allows `lxml<7`) and an explicit
-  `lxml>=6.1.0` dev pin was added so future transitive bumps cannot regress
-  below the patched version.
-
 ### Changed
 
 - **`serve` lifetime knobs are now first-class `ServerConfig` fields** —
@@ -131,21 +78,54 @@ This project uses [Semantic Versioning](https://semver.org/).
   Internal refactor only; imports in `cli.py`, `server/main.py`,
   `server/transport.py` updated accordingly.
 
-### Added
+### Deprecated
 
-- **Idle-timeout shutdown for `serve`** — the server now exits on its
-  own when no MCP request arrives for `PIPECAT_HUB_IDLE_TIMEOUT_SECS`
-  seconds (default `1800`, i.e. 30 minutes). Catches the production
-  failure mode the parent-death watchdog cannot: when the client stays
-  alive but stops using a hub it spawned without closing the pipe (the
-  case responsible for most accumulated zombies under `uv run`). Both
-  `tools/list` and `tools/call` reset the idle clock, so sessions that
-  only poll capabilities without dispatching a tool still count as
-  active. Set `PIPECAT_HUB_IDLE_TIMEOUT_SECS=0` to disable. Logs
-  `idle_timeout idle_seconds=N timeout_seconds=N` at INFO when it fires.
+- **`foundational_class` field** on `ExampleMetadata`, `TaxonomyEntry`, and
+  `SearchExamplesInput` is deprecated. The field remains readable for
+  persisted indexes and the `hybrid.py` filter path, but is no longer written
+  for new-layout (non-foundational) examples. Existing users should run
+  `uv run pipecat-context-hub refresh --force` after upgrading to clear stale
+  values pointing at paths that no longer exist upstream.
 
 ### Fixed
 
+- **Taxonomy coverage for the new pipecat examples topic-based layout** —
+  `ExampleTaxonomyBuilder.build_from_directory` now dispatches on the layout
+  shape it sees on disk: foundational + sibling topic dirs (preserving the
+  `v0.0.96`-era behaviour), topic-only trees (current pipecat `main`), and
+  root-level layouts (`pipecat-examples`). The builder no longer emits junk
+  entries for `src/`, `tests/`, `docs/`, `scripts/`, `dashboard/`, `.github/`,
+  or `.claude/` when falling back at a packaged-project root. Every dir
+  returned by `_discover_under_examples` now has a matching taxonomy entry,
+  restoring `capability_tags` / `key_files` / `execution_mode` on example
+  chunks for topic-layout checkouts.
+- **Windows first-query hang** — `serve` now pre-warms the embedding
+  model (and cross-encoder when enabled) during startup so the first
+  MCP query no longer pays the cold-start cost. On Windows CPU a cold
+  first query could hang 30-130s while `sentence_transformers` imported
+  and loaded weights inside `asyncio.to_thread`, exceeding Claude
+  Code's tool-permission window and surfacing as a spurious disconnect.
+  Pre-warm failures are non-fatal: lazy-load paths still handle
+  first-query loading. Set `PIPECAT_HUB_WARMUP=0` to skip pre-warm
+  (faster boot, slower first query). Thanks to Vanessa for diagnosing
+  and patching on Windows.
+- **Idle watchdog no longer reaps in-flight requests** — `IdleTracker`
+  now counts active tool dispatches (`begin()` / `end()`) and reports
+  `seconds_since_last() == 0` while any call is active. Previously the
+  clock was only touched on call entry, so a cold `search_*` /
+  `get_code_snippet` that waited on `EmbeddingService` or the
+  cross-encoder lazy load could exceed
+  `PIPECAT_HUB_IDLE_TIMEOUT_SECS` and be killed mid-response. The
+  clock is also reset on `end()` so the idle window starts at "request
+  finished", not "request dispatched".
+- **`exit_on_watchdog_shutdown=False` is now host-safe end-to-end** —
+  the in-process / library-embedding mode previously still closed
+  `sys.stdin` and armed the 2.5 s hard-exit timer, either of which
+  could tear down the host process. The flag now gates every
+  host-affecting action: when `False`, `run_stdio` cancels its own
+  tasks, invokes the shutdown callback once, and returns
+  `shutdown_reason` to the caller without touching stdin or spawning
+  the timer thread.
 - **Orphan `serve` processes no longer accumulate** (direct-invocation
   path) — a parent-death watchdog inside the stdio transport polls
   `os.getppid()` every 2s and triggers a clean shutdown when the MCP
@@ -186,6 +166,17 @@ This project uses [Semantic Versioning](https://semver.org/).
   reflect the dual-path semantics; `exit_on_watchdog_shutdown` opts
   the CLI into the `os._exit` behaviour while keeping in-process
   callers safe.
+
+### Security
+
+- **lxml GHSA-vfmq-68hx-4jfw / CVE-2026-41066** — bumped `lxml` to `>=6.1.0`
+  to close an XXE vector in the default configuration of `iterparse()` and
+  `ETCompatXMLParser()` (`resolve_entities=True` allowed local-file reads).
+  `lxml` enters the lockfile transitively via `cyclonedx-bom`; the 4.x line
+  pinned `lxml<6`, so the dev floor was raised to `cyclonedx-bom>=7.3,<8.0`
+  (pulls `cyclonedx-python-lib` 11.x, which allows `lxml<7`) and an explicit
+  `lxml>=6.1.0` dev pin was added so future transitive bumps cannot regress
+  below the patched version.
 
 ## [0.0.17] - 2026-04-20
 
