@@ -60,8 +60,7 @@ jobs:
         run: uv sync --frozen --extra dev --group dev
 
       - name: Dependency Audit
-        # CVE-2026-3219: pip — no upstream fix available as of 2026-04-26; recheck when pip publishes a release.
-        run: uv run pip-audit --local --progress-spinner off --ignore-vuln CVE-2026-3219
+        run: uv run pip-audit --local --progress-spinner off
 
       - name: Bandit
         run: uv run bandit -r src
