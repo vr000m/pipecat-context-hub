@@ -222,7 +222,7 @@ in future reviews unless the underlying circumstances change.
 
 - **[Security] resolved**: `gitpython` path-traversal advisory in reference APIs (arbitrary file write/delete outside the repository) resolved by raising the floor to `>=3.1.49` (lock resolves to `3.1.50`) via PR #59 (2026-05-08). Closes Dependabot alert #12.
 
-- **[Security] resolved**: `python-multipart` DoS advisory (unbounded multipart part headers) resolved by pinning `python-multipart>=0.0.27` explicitly in `pyproject.toml` (transitive via `mcp`) via PR #58 (2026-05-08). Closes Dependabot alert #13. Follow-up: drop the explicit pin once `mcp` ships a version with the floor baked in.
+- **[Security] resolved**: `python-multipart` DoS advisory (unbounded multipart part headers) resolved by bumping the transitive lock entry to `0.0.27` via Dependabot PR #61 (2026-05-08). Closes Dependabot alert #13. No top-level pin required — `mcp` already constrains `python-multipart>=0.0.9`, and the resolver picks the latest compatible version on re-lock.
 
 - **[Security] won't-fix**: `transformers` CVE-2026-1839 — fix requires 5.0.0rc3 (release candidate), but `sentence-transformers` pins `transformers<5.0`. Ignored via `--ignore-vuln CVE-2026-1839` in CI and justfile. Remove when `sentence-transformers` supports `transformers>=5.0`. (2026-04-07)
 

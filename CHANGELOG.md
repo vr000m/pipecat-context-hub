@@ -16,7 +16,7 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 - **Bumped `pip` to `26.1.1`** to resolve CVE-2026-3219 (PR #57).
 - **Bumped `gitpython` to `>=3.1.49`** (lock resolves to `3.1.50`) to address a path-traversal advisory in reference APIs allowing arbitrary file write/delete outside the repository (high severity, Dependabot alert #12, PR #59).
-- **Pinned `python-multipart>=0.0.27`** (transitive via `mcp`) to address a DoS advisory via unbounded multipart part headers (high severity, Dependabot alert #13).
+- **Bumped `python-multipart` to `0.0.27`** in `uv.lock` (transitive via `mcp`; no top-level constraint required) to address a DoS advisory via unbounded multipart part headers (high severity, Dependabot alert #13, PR #61).
 
 ## [0.0.18] - 2026-04-26
 

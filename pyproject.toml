@@ -22,8 +22,6 @@ dependencies = [
     "packaging>=21.0,<27.0",
     "cryptography>=46.0.7",
     "transformers>=5.0.0",
-    # Pinned to patch CVE (DoS via unbounded multipart part headers); transitive via mcp.
-    "python-multipart>=0.0.27",
 ]
 
 [project.optional-dependencies]
