@@ -218,6 +218,12 @@ in future reviews unless the underlying circumstances change.
 
 - **[Security] resolved**: `lxml` GHSA-vfmq-68hx-4jfw / CVE-2026-41066 (XXE via default `iterparse()` / `ETCompatXMLParser()` config) resolved by pinning `lxml>=6.1.0` in the dev group and bumping `cyclonedx-bom` from `>=4.1,<5.0` to `>=7.3,<8.0` (cyclonedx-bom 4.x transitively pinned `lxml<6`). Landed via PR #50 (2026-04-22).
 
+- **[Security] resolved**: `pip` CVE-2026-3219 resolved by bumping the pinned pip version to `26.1.1` via PR #57 (2026-05-07).
+
+- **[Security] resolved**: `gitpython` path-traversal advisory in reference APIs (arbitrary file write/delete outside the repository) resolved by raising the floor to `>=3.1.48` (lock resolves to `3.1.50`) via PR #58 (2026-05-08). Closes Dependabot alert #12.
+
+- **[Security] resolved**: `python-multipart` DoS advisory (unbounded multipart part headers) resolved by pinning `python-multipart>=0.0.27` explicitly in `pyproject.toml` (transitive via `mcp`) via PR #58 (2026-05-08). Closes Dependabot alert #13. Follow-up: drop the explicit pin once `mcp` ships a version with the floor baked in.
+
 - **[Security] won't-fix**: `transformers` CVE-2026-1839 — fix requires 5.0.0rc3 (release candidate), but `sentence-transformers` pins `transformers<5.0`. Ignored via `--ignore-vuln CVE-2026-1839` in CI and justfile. Remove when `sentence-transformers` supports `transformers>=5.0`. (2026-04-07)
 
 - **[Architecture] won't-fix**: Removing `pipecat_context_hub.services.ingest.ts_source_parser` is intentional. The module is treated as internal implementation detail, not supported public API, and no external consumers are expected to import it directly. Revisit only if ingestion parser modules become documented extension points. (2026-03-30)
