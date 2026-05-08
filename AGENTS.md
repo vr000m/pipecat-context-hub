@@ -220,7 +220,7 @@ in future reviews unless the underlying circumstances change.
 
 - **[Security] resolved**: `pip` CVE-2026-3219 resolved by bumping the pinned pip version to `26.1.1` via PR #57 (2026-05-07).
 
-- **[Security] resolved**: `gitpython` path-traversal advisory in reference APIs (arbitrary file write/delete outside the repository) resolved by raising the floor to `>=3.1.48` (lock resolves to `3.1.50`) via PR #58 (2026-05-08). Closes Dependabot alert #12.
+- **[Security] resolved**: `gitpython` path-traversal advisory in reference APIs (arbitrary file write/delete outside the repository) resolved by raising the floor to `>=3.1.49` (lock resolves to `3.1.50`) via PR #59 (2026-05-08). Closes Dependabot alert #12.
 
 - **[Security] resolved**: `python-multipart` DoS advisory (unbounded multipart part headers) resolved by pinning `python-multipart>=0.0.27` explicitly in `pyproject.toml` (transitive via `mcp`) via PR #58 (2026-05-08). Closes Dependabot alert #13. Follow-up: drop the explicit pin once `mcp` ships a version with the floor baked in.
 
