@@ -7,6 +7,11 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **Bumped `gitpython` to `>=3.1.48`** to address GHSA path-traversal advisory in reference APIs allowing arbitrary file write/delete outside the repository (high severity, Dependabot alert #12). Lock now resolves to `3.1.50`.
+- **Pinned `python-multipart>=0.0.27`** (transitive via `mcp`) to address GHSA advisory — DoS via unbounded multipart part headers (high severity, Dependabot alert #13).
+
 ## [0.0.18] - 2026-04-26
 
 > **Upgrade:** run `uv run pipecat-context-hub refresh --force` after upgrading
