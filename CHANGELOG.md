@@ -7,6 +7,10 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **Bumped `urllib3` to `2.7.0`** in `uv.lock` (transitive via `chromadb` → `kubernetes` / `posthog` → `requests`; no top-level constraint required) to address two high-severity advisories: decompression-bomb safeguard bypass in the streaming API (GHSA-mf9v-mfxr-j63j, Dependabot alert #15) and sensitive-header forwarding across origins via `ProxyManager` redirects (GHSA-qccp-gfcp-xxvc, Dependabot alert #16). Closed via Dependabot PR #62. No exploitable path from this codebase: the hub uses `httpx` for outbound HTTP and never calls `urllib3` / `ProxyManager` directly.
+
 ## [0.0.19] - 2026-05-08
 
 > **Security-only release.** Resolves three open Dependabot advisories. No

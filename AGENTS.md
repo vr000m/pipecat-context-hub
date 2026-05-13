@@ -224,6 +224,8 @@ in future reviews unless the underlying circumstances change.
 
 - **[Security] resolved**: `python-multipart` DoS advisory (unbounded multipart part headers) resolved by bumping the transitive lock entry to `0.0.27` via Dependabot PR #61 (2026-05-08). Closes Dependabot alert #13. No top-level pin required — `mcp` already constrains `python-multipart>=0.0.9`, and the resolver picks the latest compatible version on re-lock.
 
+- **[Security] resolved**: `urllib3` high-severity advisories GHSA-mf9v-mfxr-j63j (decompression-bomb safeguard bypass in the streaming API) and GHSA-qccp-gfcp-xxvc (sensitive-header forwarding on cross-origin `ProxyManager` redirects) resolved by bumping the transitive lock entry to `2.7.0` via Dependabot PR #62 (2026-05-13). Closes Dependabot alerts #15 and #16. No top-level pin required — `urllib3` is reached only via `chromadb` → `kubernetes` / `posthog` → `requests`, and the resolver picks the latest compatible version on re-lock. No exploitable path from hub code: outbound HTTP uses `httpx`, and the codebase never calls `urllib3` / `ProxyManager` APIs directly.
+
 - **[Security] won't-fix**: `transformers` CVE-2026-1839 — fix requires 5.0.0rc3 (release candidate), but `sentence-transformers` pins `transformers<5.0`. Ignored via `--ignore-vuln CVE-2026-1839` in CI and justfile. Remove when `sentence-transformers` supports `transformers>=5.0`. (2026-04-07)
 
 - **[Architecture] won't-fix**: Removing `pipecat_context_hub.services.ingest.ts_source_parser` is intentional. The module is treated as internal implementation detail, not supported public API, and no external consumers are expected to import it directly. Revisit only if ingestion parser modules become documented extension points. (2026-03-30)
